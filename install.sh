@@ -24,16 +24,14 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
-# --- 2. Create the persistent data folder -----------------------------------
-# This is where the SQLite database and the auto-generated session secret
-# live, bind-mounted into the backend container so they survive rebuilds.
-mkdir -p data
-
-# --- 3. Build the images and start the stack --------------------------------
+# --- 2. Build the images and start the stack --------------------------------
+# The SQLite database and the auto-generated session secret persist in the
+# `nodedr-pos_data` Docker volume (declared in docker-compose.yml), which
+# Compose creates automatically — nothing to set up on the host for this.
 echo "Building nodedr-pos images and starting the stack (this can take a few minutes on first run)..."
 docker compose up -d --build
 
-# --- 4. Wait for the backend to report healthy -------------------------------
+# --- 3. Wait for the backend to report healthy -------------------------------
 echo "Waiting for the backend to come online..."
 ready=false
 for _ in $(seq 1 60); do
@@ -50,7 +48,7 @@ if [ "$ready" != "true" ]; then
   exit 1
 fi
 
-# --- 5. Done ------------------------------------------------------------------
+# --- 4. Done ------------------------------------------------------------------
 echo ""
 echo "nodedr-pos is up and running."
 echo "Open http://localhost:1994 in your browser to create your admin account and finish shop setup."

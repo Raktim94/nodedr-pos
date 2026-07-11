@@ -36,8 +36,8 @@ to sell it, press Enter to check out, and a receipt prints automatically.
                                                                      │
                                                         ┌────────────┼────────────┐
                                                         ▼                         ▼
-                                                 SQLite (./data)         USB thermal printer
-                                                 (Docker volume)         (device passthrough)
+                                              SQLite (nodedr-pos_data)     USB thermal printer
+                                              (named Docker volume)        (device passthrough)
 ```
 
 The backend and frontend are **two separate containers**, not one combined
@@ -84,23 +84,20 @@ setup), here's exactly what it does, one command at a time:
 git clone https://github.com/Raktim94/nodedr-pos.git
 cd nodedr-pos
 
-# 2. Create the folder that will hold the SQLite database and the
-#    auto-generated session secret, bind-mounted into the backend
-#    container so your data survives rebuilds/restarts.
-mkdir -p data
-
-# 3. Build the backend and frontend images (multi-stage, node:20-alpine).
+# 2. Build the backend and frontend images (multi-stage, node:20-alpine).
 #    First run takes a few minutes; later runs are cached and fast.
 docker compose build
 
-# 4. Start both containers in the background.
+# 3. Start both containers in the background. Compose automatically
+#    creates the named volume declared in docker-compose.yml
+#    (nodedr-pos_data) the first time this runs.
 docker compose up -d
 
-# 5. (optional) Watch the logs until you see "listening on port 4000"
+# 4. (optional) Watch the logs until you see "listening on port 4000"
 #    and the Next.js server ready message.
 docker compose logs -f
 
-# 6. (later) Stop the stack without deleting your data:
+# 5. (later) Stop the stack without deleting your data:
 docker compose down
 ```
 
@@ -111,7 +108,10 @@ Then open **http://localhost:1994**. The first launch walks you through:
 3. You're dropped onto the dashboard, ready to add products and sell.
 
 All data (the SQLite database and the auto-generated session secret) lives
-in `./data` on the host, so it survives container restarts and rebuilds.
+in the **`nodedr-pos_data` Docker volume**, not inside the containers, so it
+survives `docker compose down`, container recreation, and image rebuilds.
+It's only removed if you explicitly delete it (see
+[Resetting](#resetting--clearing-data) below).
 
 Want the web UI on a different port? Change the left-hand side of
 `"1994:3000"` under the `frontend` service's `ports:` in `docker-compose.yml`,
@@ -191,8 +191,23 @@ docker compose up -d --build
 ```
 
 Your data is safe across updates — the SQLite database and session secret
-live in `./data` on the host (bind-mounted, not baked into the image), so
-rebuilding the containers never touches them.
+live in the `nodedr-pos_data` Docker volume, entirely separate from the
+container filesystem, so rebuilding or recreating containers never touches
+them. Run `docker volume ls` to see it.
+
+## Backing up your data
+
+The database lives inside a Docker-managed volume rather than a plain host
+folder, so back it up via a throwaway container that mounts the volume
+read-only and copies the file out:
+
+```bash
+docker run --rm -v nodedr-pos_data:/data:ro -v "$PWD":/backup alpine \
+  cp /data/pos.db /backup/pos-backup-$(date +%Y%m%d).db
+```
+
+That drops a timestamped copy of `pos.db` in your current directory on the
+host.
 
 ## Resetting / clearing data
 
@@ -201,17 +216,18 @@ go through onboarding again — useful after testing, or to start a real shop
 from a clean slate:
 
 ```bash
-# 1. Stop the stack
-docker compose down
+# 1. Stop the stack AND remove the named volume (the -v is what deletes
+#    the database and session secret; without it, `down` only removes
+#    the containers and your data is untouched).
+docker compose down -v
 
-# 2. Delete the persisted database and session secret.
-#    This is the ONLY app state that lives outside the containers, so
-#    removing it is a full reset.
-rm -f data/pos.db data/.jwt-secret
-
-# 3. Start back up — you'll land on the onboarding wizard again
+# 2. Start back up — a fresh volume is created automatically and
+#    you'll land on the onboarding wizard again.
 docker compose up -d
 ```
+
+To remove the volume without also touching the containers:
+`docker volume rm nodedr-pos_data` (stack must be stopped first).
 
 If you only want to clear the *catalog and sales history* but keep your
 admin login and shop settings, don't delete the files — instead delete
@@ -222,8 +238,7 @@ current admin-account-preserving "factory reset" endpoint.
 
 ```
 nodedr-pos/
-├── docker-compose.yml
-├── data/                     # SQLite DB + session secret (bind-mounted, gitignored)
+├── docker-compose.yml         # declares the nodedr-pos_data named volume
 ├── backend/
 │   ├── Dockerfile
 │   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem
@@ -286,7 +301,8 @@ All endpoints are under `/api` and (except `/auth/*` and the one-time
 - Passwords are hashed with bcrypt (cost 12); only one admin account can
   ever be created (`POST /auth/register` is disabled once a user exists).
 - Sessions are httpOnly, `SameSite=Lax` JWT cookies; the signing secret is
-  auto-generated on first boot and persisted to `data/.jwt-secret`.
+  auto-generated on first boot and persisted to `.jwt-secret` in the
+  `nodedr-pos_data` volume, alongside the database.
 - Item prices are always taken from the server-side product catalog at
   checkout — the client cannot influence what a sale actually charges.
 - This app is designed for a **trusted local network** (a shop's own LAN or

@@ -12,8 +12,14 @@ services:
       COOKIE_SECURE: "false"
     ports:
       - "4000:4000"
+    # Named, Docker-managed volume — persists the SQLite database and the
+    # auto-generated session secret independently of the container
+    # lifecycle. Survives `docker compose down`, image rebuilds, and
+    # `docker compose up --build`; only `docker compose down -v` (or
+    # `docker volume rm nodedr-pos_data`) removes it. See README > Backing
+    # up / resetting data.
     volumes:
-      - ./data:/app/data
+      - data:/app/data
     # Raw USB access for the ESC/POS thermal printer requires the container
     # to see the host's USB bus. `privileged: true` plus the device mapping
     # below is the simplest way to get that; if your printer enumerates at a
@@ -34,3 +40,6 @@ services:
       - "1994:3000"
     depends_on:
       - backend
+
+volumes:
+  data:
