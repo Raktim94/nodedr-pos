@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Plus, ScanBarcode, Search, Trash2 } from "lucide-react";
+import { PackagePlus, Pencil, Plus, ScanBarcode, Search, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ProductModal } from "@/components/ProductModal";
+import { StockAdjustModal } from "@/components/StockAdjustModal";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -18,6 +19,7 @@ type ModalState = { mode: "add"; initialBarcode?: string } | { mode: "edit"; pro
 export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<ModalState>(null);
+  const [stockTarget, setStockTarget] = useState<Product | null>(null);
   const { data: shop } = useShopSettings();
   const { data: products, isLoading } = useProducts(search);
   const deleteProduct = useDeleteProduct();
@@ -40,7 +42,7 @@ export default function InventoryPage() {
     [show]
   );
 
-  useBarcodeScanner({ onScan: handleScan, enabled: modal === null });
+  useBarcodeScanner({ onScan: handleScan, enabled: modal === null && stockTarget === null });
 
   async function handleDelete(product: Product) {
     if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
@@ -58,8 +60,8 @@ export default function InventoryPage() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Inventory</h1>
           <p className="flex items-center gap-1.5 text-sm text-foreground/60">
-            <ScanBarcode className="h-4 w-4" aria-hidden="true" />
-            Scan a barcode to edit stock, or add a new product.
+            <ScanBarcode className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Scan a barcode to jump to a product, or use the edit and stock icons on each row.
           </p>
         </div>
         <Button onClick={() => setModal({ mode: "add" })}>
@@ -124,25 +126,49 @@ export default function InventoryPage() {
                       <td className="py-2.5 pr-4 text-right text-foreground/70">{money(product.purchasePrice)}</td>
                       <td className="py-2.5 pr-4 text-right text-foreground/70">{money(product.sellingPrice)}</td>
                       <td className="py-2.5 pr-4 text-right">
-                        <span
+                        <button
+                          type="button"
+                          onClick={() => setStockTarget(product)}
+                          title="Adjust stock"
                           className={
                             low
-                              ? "rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning"
-                              : "text-foreground/70"
+                              ? "rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning hover:bg-warning/20"
+                              : "rounded-full px-2.5 py-1 text-foreground/70 hover:bg-surface-muted"
                           }
                         >
                           {product.stock}
-                        </span>
+                        </button>
                       </td>
                       <td className="py-2.5 text-right">
-                        <button
-                          type="button"
-                          aria-label={`Delete ${product.name}`}
-                          onClick={() => handleDelete(product)}
-                          className="text-foreground/40 hover:text-danger"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            aria-label={`Adjust stock for ${product.name}`}
+                            title="Adjust stock"
+                            onClick={() => setStockTarget(product)}
+                            className="text-foreground/40 hover:text-brand"
+                          >
+                            <PackagePlus className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Edit ${product.name}`}
+                            title="Edit product"
+                            onClick={() => setModal({ mode: "edit", product })}
+                            className="text-foreground/40 hover:text-brand"
+                          >
+                            <Pencil className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${product.name}`}
+                            title="Delete product"
+                            onClick={() => handleDelete(product)}
+                            className="text-foreground/40 hover:text-danger"
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -157,6 +183,7 @@ export default function InventoryPage() {
         <ProductModal mode="add" initialBarcode={modal.initialBarcode} onClose={() => setModal(null)} />
       )}
       {modal?.mode === "edit" && <ProductModal mode="edit" product={modal.product} onClose={() => setModal(null)} />}
+      {stockTarget && <StockAdjustModal product={stockTarget} onClose={() => setStockTarget(null)} />}
     </div>
   );
 }
