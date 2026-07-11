@@ -177,6 +177,47 @@ GRAND TOTAL:                           Rs. 40.00
 ================================================
 ```
 
+## Updating
+
+To pull the latest code and redeploy:
+
+```bash
+# 1. Get the latest commits
+git pull
+
+# 2. Rebuild the images and recreate the containers with the new code.
+#    Re-running install.sh does exactly this too.
+docker compose up -d --build
+```
+
+Your data is safe across updates — the SQLite database and session secret
+live in `./data` on the host (bind-mounted, not baked into the image), so
+rebuilding the containers never touches them.
+
+## Resetting / clearing data
+
+To wipe everything (admin account, shop settings, products, invoices) and
+go through onboarding again — useful after testing, or to start a real shop
+from a clean slate:
+
+```bash
+# 1. Stop the stack
+docker compose down
+
+# 2. Delete the persisted database and session secret.
+#    This is the ONLY app state that lives outside the containers, so
+#    removing it is a full reset.
+rm -f data/pos.db data/.jwt-secret
+
+# 3. Start back up — you'll land on the onboarding wizard again
+docker compose up -d
+```
+
+If you only want to clear the *catalog and sales history* but keep your
+admin login and shop settings, don't delete the files — instead delete
+products/invoices from inside the app (Inventory page), since there's no
+current admin-account-preserving "factory reset" endpoint.
+
 ## Project structure
 
 ```
