@@ -67,7 +67,7 @@ Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 ### One-click install
 
 ```bash
-git clone <this-repo-url> nodedr-pos && cd nodedr-pos && ./install.sh
+git clone https://github.com/Raktim94/nodedr-pos.git && cd nodedr-pos && ./install.sh
 ```
 
 [`install.sh`](install.sh) checks that Docker is installed, builds both
@@ -81,7 +81,7 @@ setup), here's exactly what it does, one command at a time:
 
 ```bash
 # 1. Get the code
-git clone <this-repo-url> nodedr-pos
+git clone https://github.com/Raktim94/nodedr-pos.git
 cd nodedr-pos
 
 # 2. Create the folder that will hold the SQLite database and the
