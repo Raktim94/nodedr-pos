@@ -30,7 +30,7 @@ to sell it, press Enter to check out, and a receipt prints automatically.
 
 ```
 ┌─────────────────────┐      HTTP (LAN/localhost)      ┌──────────────────────┐
-│   frontend (:3000)  │ ──────────────────────────────▶ │   backend (:4000)    │
+│   frontend (:1994)  │ ──────────────────────────────▶ │   backend (:4000)    │
 │   Next.js / React    │ ◀────────────────────────────── │   Express + Prisma   │
 └─────────────────────┘        JSON + cookie auth        └──────────┬───────────┘
                                                                      │
@@ -61,15 +61,50 @@ unprivileged container. Everything still comes up with a single
 
 ## Quick start
 
-Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
+Requires [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+(bundled with current Docker Desktop/Engine).
+
+### One-click install
 
 ```bash
-git clone <this-repo-url> nodedr-pos
-cd nodedr-pos
-docker compose up -d --build
+git clone <this-repo-url> nodedr-pos && cd nodedr-pos && ./install.sh
 ```
 
-Then open **http://localhost:3000**. The first launch walks you through:
+[`install.sh`](install.sh) checks that Docker is installed, builds both
+images, starts the stack, waits for the backend to report healthy, then
+prints the URL to open. Re-run it any time to rebuild after pulling updates.
+
+### Manual install
+
+If you'd rather run each step yourself (or `install.sh` doesn't fit your
+setup), here's exactly what it does, one command at a time:
+
+```bash
+# 1. Get the code
+git clone <this-repo-url> nodedr-pos
+cd nodedr-pos
+
+# 2. Create the folder that will hold the SQLite database and the
+#    auto-generated session secret, bind-mounted into the backend
+#    container so your data survives rebuilds/restarts.
+mkdir -p data
+
+# 3. Build the backend and frontend images (multi-stage, node:20-alpine).
+#    First run takes a few minutes; later runs are cached and fast.
+docker compose build
+
+# 4. Start both containers in the background.
+docker compose up -d
+
+# 5. (optional) Watch the logs until you see "listening on port 4000"
+#    and the Next.js server ready message.
+docker compose logs -f
+
+# 6. (later) Stop the stack without deleting your data:
+docker compose down
+```
+
+Then open **http://localhost:1994**. The first launch walks you through:
 
 1. **Admin account** — your name, email, and password.
 2. **Shop setup** — shop name, address, currency symbol, low-stock threshold.
@@ -77,6 +112,11 @@ Then open **http://localhost:3000**. The first launch walks you through:
 
 All data (the SQLite database and the auto-generated session secret) lives
 in `./data` on the host, so it survives container restarts and rebuilds.
+
+Want the web UI on a different port? Change the left-hand side of
+`"1994:3000"` under the `frontend` service's `ports:` in `docker-compose.yml`,
+and update `FRONTEND_ORIGIN` under the `backend` service to match (it's used
+for CORS, so the two must agree).
 
 ## Hardware setup
 
@@ -178,7 +218,7 @@ Frontend:
 cd frontend
 cp .env.local.example .env.local
 npm install
-npm run dev           # http://localhost:3000
+npm run dev           # http://localhost:1994
 ```
 
 The frontend talks to the backend over plain HTTP with credentialed
