@@ -1,0 +1,59 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+}
+
+model ShopSettings {
+  id            Int    @id @default(autoincrement())
+  shopName      String
+  address1      String
+  address2      String?
+  currency      String @default("Rs.")
+  lowStockAlert Int    @default(5)
+}
+
+model Product {
+  id            Int           @id @default(autoincrement())
+  barcode       String        @unique
+  name          String
+  purchasePrice Float
+  sellingPrice  Float
+  stock         Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  invoiceItems  InvoiceItem[]
+}
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  invoiceNumber String        @unique
+  customerName  String        @default("Walk-in Customer")
+  customerPhone String?
+  totalAmount   Float
+  createdAt     DateTime      @default(now())
+  items         InvoiceItem[]
+}
+
+model InvoiceItem {
+  id        Int     @id @default(autoincrement())
+  invoiceId Int
+  productId Int
+  name      String
+  quantity  Int
+  price     Float
+  total     Float
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+}
