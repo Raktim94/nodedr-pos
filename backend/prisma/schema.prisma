@@ -12,38 +12,88 @@ model User {
   name      String
   email     String   @unique
   password  String
+  role      String   @default("admin") // "admin" | "cashier"
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
 }
 
 model ShopSettings {
-  id            Int    @id @default(autoincrement())
-  shopName      String
-  address1      String
-  address2      String?
-  currency      String @default("Rs.")
-  lowStockAlert Int    @default(5)
+  id             Int      @id @default(autoincrement())
+  shopName       String
+  legalName      String?
+  address1       String
+  address2       String?
+  city           String?
+  state          String?
+  phone          String?
+  email          String?
+  // Currency
+  currencyCode   String   @default("INR") // INR | USD | EUR | GBP
+  currencySymbol String   @default("Rs.")
+  // Tax / GST
+  gstEnabled     Boolean  @default(false)
+  gstNumber      String?
+  defaultTaxRate Float    @default(0)
+  // Loyalty
+  loyaltyEnabled Boolean  @default(false)
+  pointsPerUnit  Float    @default(0) // points earned per 1 currency unit spent
+  pointValue     Float    @default(0) // currency value of 1 point when redeemed
+  // Receipt customisation
+  receiptHeader  String?
+  receiptFooter  String   @default("Thank You! Visit Again.")
+  showGst        Boolean  @default(true)
+  // Inventory
+  lowStockAlert  Int      @default(5)
 }
 
 model Product {
   id            Int           @id @default(autoincrement())
   barcode       String        @unique
   name          String
+  category      String?
+  hsn           String?
   purchasePrice Float
   sellingPrice  Float
+  taxRate       Float         @default(0) // GST % for this product
   stock         Int           @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   invoiceItems  InvoiceItem[]
 }
 
+model Customer {
+  id            Int       @id @default(autoincrement())
+  name          String
+  phone         String    @unique
+  email         String?
+  loyaltyPoints Int       @default(0)
+  totalSpent    Float     @default(0)
+  visits        Int       @default(0)
+  createdAt     DateTime  @default(now())
+  invoices      Invoice[]
+}
+
 model Invoice {
-  id            Int           @id @default(autoincrement())
-  invoiceNumber String        @unique
-  customerName  String        @default("Walk-in Customer")
-  customerPhone String?
-  totalAmount   Float
-  createdAt     DateTime      @default(now())
-  items         InvoiceItem[]
+  id             Int           @id @default(autoincrement())
+  invoiceNumber  String        @unique
+  customerId     Int?
+  customerName   String        @default("Walk-in Customer")
+  customerPhone  String?
+  subtotal       Float // sum of line bases, pre-discount, pre-tax
+  discountType   String? // "percent" | "amount"
+  discountValue  Float         @default(0)
+  discountAmount Float         @default(0) // manual discount in currency
+  taxAmount      Float         @default(0)
+  loyaltyDiscount Float        @default(0) // currency value of redeemed points
+  totalAmount    Float // final payable
+  paymentMethod  String        @default("CASH") // CASH | UPI | CARD
+  amountPaid     Float         @default(0)
+  changeDue      Float         @default(0)
+  pointsRedeemed Int           @default(0)
+  pointsEarned   Int           @default(0)
+  createdAt      DateTime      @default(now())
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  items          InvoiceItem[]
 }
 
 model InvoiceItem {
@@ -52,8 +102,10 @@ model InvoiceItem {
   productId Int
   name      String
   quantity  Int
-  price     Float
-  total     Float
+  price     Float // unit selling price at time of sale
+  taxRate   Float   @default(0)
+  taxAmount Float   @default(0) // tax for this line (on discounted base)
+  total     Float // line total incl. tax, after prorated discount
   invoice   Invoice @relation(fields: [invoiceId], references: [id])
   product   Product @relation(fields: [productId], references: [id])
 }

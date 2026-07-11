@@ -1,4 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+// Same-origin: requests go to the Next.js server, which proxies /api/* to
+// the backend (see next.config.ts). No host/port is baked into the browser
+// bundle, so the app works from any device that can reach the frontend.
+const API_URL = "/api";
 
 export class ApiError extends Error {
   status: number;

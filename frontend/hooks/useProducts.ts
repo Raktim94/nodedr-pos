@@ -4,6 +4,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
+export interface ProductInput {
+  barcode: string;
+  name: string;
+  category?: string;
+  hsn?: string;
+  purchasePrice: number;
+  sellingPrice: number;
+  taxRate: number;
+  stock: number;
+}
+
 export function useProducts(search = "") {
   return useQuery({
     queryKey: ["products", search],
@@ -18,14 +29,6 @@ export function useLowStock() {
     refetchInterval: 30_000,
   });
 }
-
-type ProductInput = {
-  barcode: string;
-  name: string;
-  purchasePrice: number;
-  sellingPrice: number;
-  stock: number;
-};
 
 export function useCreateProduct() {
   const queryClient = useQueryClient();

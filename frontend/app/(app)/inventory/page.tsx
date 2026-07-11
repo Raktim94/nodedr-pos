@@ -10,6 +10,7 @@ import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
 type ModalState = { mode: "add"; initialBarcode?: string } | { mode: "edit"; product: Product } | null;
@@ -22,7 +23,8 @@ export default function InventoryPage() {
   const deleteProduct = useDeleteProduct();
   const { show } = useToast();
 
-  const currency = shop?.currency || "Rs.";
+  const sym = shop?.currencySymbol || "Rs.";
+  const money = (n: number) => formatMoney(n, sym);
   const lowStockThreshold = shop?.lowStockAlert ?? 5;
 
   const handleScan = useCallback(
@@ -31,11 +33,8 @@ export default function InventoryPage() {
         const product = await api.get<Product>(`/products/barcode/${encodeURIComponent(code)}`);
         setModal({ mode: "edit", product });
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) {
-          setModal({ mode: "add", initialBarcode: code });
-        } else {
-          show("Barcode lookup failed", "error");
-        }
+        if (err instanceof ApiError && err.status === 404) setModal({ mode: "add", initialBarcode: code });
+        else show("Barcode lookup failed", "error");
       }
     },
     [show]
@@ -48,8 +47,8 @@ export default function InventoryPage() {
     try {
       await deleteProduct.mutateAsync(product.id);
       show("Product deleted", "success");
-    } catch {
-      show("Could not delete product", "error");
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Could not delete product", "error");
     }
   }
 
@@ -60,7 +59,7 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-semibold text-foreground">Inventory</h1>
           <p className="flex items-center gap-1.5 text-sm text-foreground/60">
             <ScanBarcode className="h-4 w-4" aria-hidden="true" />
-            Scan a barcode to edit stock, or add a new product below.
+            Scan a barcode to edit stock, or add a new product.
           </p>
         </div>
         <Button onClick={() => setModal({ mode: "add" })}>
@@ -76,17 +75,17 @@ export default function InventoryPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or barcode..."
+            placeholder="Search by name, barcode or category…"
             aria-label="Search products"
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/40"
           />
         </div>
 
         {isLoading ? (
-          <p className="py-10 text-center text-sm text-foreground/50">Loading products...</p>
+          <p className="py-10 text-center text-sm text-foreground/50">Loading products…</p>
         ) : !products || products.length === 0 ? (
           <p className="py-10 text-center text-sm text-foreground/50">
-            No products yet. Scan a barcode or click &quot;Add product&quot; to get started.
+            No products yet. Scan a barcode or click &quot;Add product&quot; to start.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -95,8 +94,10 @@ export default function InventoryPage() {
                 <tr className="text-xs uppercase text-foreground/50">
                   <th className="py-2 pr-4">Product</th>
                   <th className="py-2 pr-4">Barcode</th>
-                  <th className="py-2 pr-4 text-right">Purchase</th>
-                  <th className="py-2 pr-4 text-right">Selling</th>
+                  <th className="py-2 pr-4">Category</th>
+                  {shop?.gstEnabled && <th className="py-2 pr-4 text-right">GST</th>}
+                  <th className="py-2 pr-4 text-right">Cost</th>
+                  <th className="py-2 pr-4 text-right">Price</th>
                   <th className="py-2 pr-4 text-right">Stock</th>
                   <th className="py-2" />
                 </tr>
@@ -116,12 +117,12 @@ export default function InventoryPage() {
                         </button>
                       </td>
                       <td className="py-2.5 pr-4 font-mono text-xs text-foreground/60">{product.barcode}</td>
-                      <td className="py-2.5 pr-4 text-right text-foreground/70">
-                        {currency} {product.purchasePrice.toFixed(2)}
-                      </td>
-                      <td className="py-2.5 pr-4 text-right text-foreground/70">
-                        {currency} {product.sellingPrice.toFixed(2)}
-                      </td>
+                      <td className="py-2.5 pr-4 text-foreground/60">{product.category || "—"}</td>
+                      {shop?.gstEnabled && (
+                        <td className="py-2.5 pr-4 text-right text-foreground/60">{product.taxRate}%</td>
+                      )}
+                      <td className="py-2.5 pr-4 text-right text-foreground/70">{money(product.purchasePrice)}</td>
+                      <td className="py-2.5 pr-4 text-right text-foreground/70">{money(product.sellingPrice)}</td>
                       <td className="py-2.5 pr-4 text-right">
                         <span
                           className={
@@ -155,9 +156,7 @@ export default function InventoryPage() {
       {modal?.mode === "add" && (
         <ProductModal mode="add" initialBarcode={modal.initialBarcode} onClose={() => setModal(null)} />
       )}
-      {modal?.mode === "edit" && (
-        <ProductModal mode="edit" product={modal.product} onClose={() => setModal(null)} />
-      )}
+      {modal?.mode === "edit" && <ProductModal mode="edit" product={modal.product} onClose={() => setModal(null)} />}
     </div>
   );
 }

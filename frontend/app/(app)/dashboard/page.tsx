@@ -4,37 +4,30 @@ import Link from "next/link";
 import { AlertTriangle, Package, Receipt, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { useLowStock, useProducts } from "@/hooks/useProducts";
-import { useInvoices } from "@/hooks/useInvoices";
+import { useInvoices, useSalesSummary } from "@/hooks/useInvoices";
 import { useShopSettings } from "@/hooks/useShopSettings";
-
-function isToday(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
-  );
-}
+import { formatMoney } from "@/lib/format";
 
 export default function DashboardPage() {
   const { data: shop } = useShopSettings();
   const { data: products } = useProducts();
   const { data: lowStock } = useLowStock();
+  const { data: summary } = useSalesSummary();
   const { data: invoices } = useInvoices();
 
-  const todaysInvoices = invoices?.filter((inv) => isToday(inv.createdAt)) ?? [];
-  const todaysRevenue = todaysInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-  const currency = shop?.currency || "Rs.";
+  const sym = shop?.currencySymbol || "Rs.";
+  const money = (n: number) => formatMoney(n, sym);
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-        <p className="text-sm text-foreground/60">Overview of today&apos;s activity.</p>
+        <p className="text-sm text-foreground/60">Overview of your shop.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Receipt} label="Today's Sales" value={`${todaysInvoices.length}`} />
-        <StatCard icon={TrendingUp} label="Today's Revenue" value={`${currency} ${todaysRevenue.toFixed(2)}`} />
+        <StatCard icon={Receipt} label="Today's Sales" value={`${summary?.todaysCount ?? 0}`} />
+        <StatCard icon={TrendingUp} label="Today's Revenue" value={money(summary?.todaysRevenue ?? 0)} />
         <StatCard icon={Package} label="Total Products" value={`${products?.length ?? 0}`} />
         <StatCard
           icon={AlertTriangle}
@@ -73,7 +66,12 @@ export default function DashboardPage() {
       </Card>
 
       <Card className="p-5">
-        <h2 className="mb-4 text-base font-semibold text-foreground">Recent Invoices</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-foreground">Recent Invoices</h2>
+          <Link href="/sales" className="text-sm font-medium text-brand hover:underline">
+            View all
+          </Link>
+        </div>
         {!invoices || invoices.length === 0 ? (
           <p className="py-6 text-center text-sm text-foreground/50">No sales recorded yet.</p>
         ) : (
@@ -92,12 +90,8 @@ export default function DashboardPage() {
                   <tr key={inv.id}>
                     <td className="py-2.5 pr-4 font-medium text-foreground">{inv.invoiceNumber}</td>
                     <td className="py-2.5 pr-4 text-foreground/70">{inv.customerName}</td>
-                    <td className="py-2.5 pr-4 text-foreground/70">
-                      {new Date(inv.createdAt).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 text-right font-medium text-foreground">
-                      {currency} {inv.totalAmount.toFixed(2)}
-                    </td>
+                    <td className="py-2.5 pr-4 text-foreground/70">{new Date(inv.createdAt).toLocaleString()}</td>
+                    <td className="py-2.5 text-right font-medium text-foreground">{money(inv.totalAmount)}</td>
                   </tr>
                 ))}
               </tbody>

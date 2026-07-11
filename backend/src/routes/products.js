@@ -9,22 +9,20 @@ router.use(requireAuth);
 const productSchema = z.object({
   barcode: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
-  purchasePrice: z.coerce.number().min(0),
-  sellingPrice: z.coerce.number().min(0),
-  stock: z.coerce.number().int().min(0).default(0),
+  category: z.string().trim().max(80).optional().or(z.literal('')),
+  hsn: z.string().trim().max(20).optional().or(z.literal('')),
+  purchasePrice: z.number().min(0),
+  sellingPrice: z.number().min(0),
+  taxRate: z.number().min(0).max(100).default(0),
+  stock: z.number().int().min(0).default(0),
 });
 
-// GET /api/products?q=search — list/search
+// GET /api/products?q=search
 router.get('/', async (req, res) => {
   const q = (req.query.q || '').toString().trim();
   const products = await prisma.product.findMany({
     where: q
-      ? {
-          OR: [
-            { name: { contains: q } },
-            { barcode: { contains: q } },
-          ],
-        }
+      ? { OR: [{ name: { contains: q } }, { barcode: { contains: q } }, { category: { contains: q } }] }
       : undefined,
     orderBy: { name: 'asc' },
   });
@@ -42,7 +40,7 @@ router.get('/low-stock', async (req, res) => {
   res.json({ threshold, products });
 });
 
-// GET /api/products/barcode/:barcode — scanner lookup (POS + Inventory scan flow)
+// GET /api/products/barcode/:barcode — scanner lookup
 router.get('/barcode/:barcode', async (req, res) => {
   const product = await prisma.product.findUnique({ where: { barcode: req.params.barcode } });
   if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -54,7 +52,6 @@ router.post('/', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
-
   const existing = await prisma.product.findUnique({ where: { barcode: parsed.data.barcode } });
   if (existing) return res.status(409).json({ error: 'Barcode already exists', product: existing });
 
@@ -70,7 +67,6 @@ router.put('/:id', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
-
   try {
     const product = await prisma.product.update({ where: { id }, data: parsed.data });
     res.json(product);
@@ -82,11 +78,15 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
-
   try {
     await prisma.product.delete({ where: { id } });
     res.status(204).end();
-  } catch {
+  } catch (err) {
+    if (err.code === 'P2003') {
+      return res
+        .status(409)
+        .json({ error: 'This product appears on past invoices and cannot be deleted. Set its stock to 0 instead.' });
+    }
     res.status(404).json({ error: 'Product not found' });
   }
 });

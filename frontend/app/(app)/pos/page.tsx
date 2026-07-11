@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, ScanBarcode, Trash2 } from "lucide-react";
+import { Minus, Plus, ScanBarcode, Trash2, Search, Star } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -10,7 +10,9 @@ import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
-import type { CartItem, Invoice, Product } from "@/lib/types";
+import { formatMoney } from "@/lib/format";
+import { quoteSale } from "@/lib/quote";
+import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
 
 export default function PosPage() {
   const { data: shop } = useShopSettings();
@@ -18,19 +20,31 @@ export default function PosPage() {
   const queryClient = useQueryClient();
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [customer, setCustomer] = useState<Customer | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [discountType, setDiscountType] = useState<"percent" | "amount" | null>(null);
+  const [discountValue, setDiscountValue] = useState(0);
+  const [pointsRedeemed, setPointsRedeemed] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const [amountPaid, setAmountPaid] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
 
-  const currency = shop?.currency || "Rs.";
-  const total = useMemo(() => cart.reduce((sum, item) => sum + item.product.sellingPrice * item.quantity, 0), [cart]);
+  const sym = shop?.currencySymbol || "Rs.";
+  const money = (n: number) => formatMoney(n, sym);
+
+  const quote = useMemo(
+    () => quoteSale({ cart, discountType, discountValue, pointsRedeemed, settings: shop }),
+    [cart, discountType, discountValue, pointsRedeemed, shop]
+  );
+
+  const changeDue = paymentMethod === "CASH" ? Math.max(0, (Number(amountPaid) || 0) - quote.total) : 0;
 
   const addToCart = useCallback(
     (product: Product) => {
       setCart((prev) => {
         const existing = prev.find((item) => item.product.id === product.id);
         if (!existing) return [...prev, { product, quantity: 1 }];
-
         if (existing.quantity >= product.stock) {
           show(`Only ${product.stock} in stock for "${product.name}"`, "error");
           return prev;
@@ -49,15 +63,41 @@ export default function PosPage() {
         const product = await api.get<Product>(`/products/barcode/${encodeURIComponent(code)}`);
         addToCart(product);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) {
-          show("Product not found. Please add to inventory.", "error");
-        } else {
-          show("Barcode lookup failed", "error");
-        }
+        if (err instanceof ApiError && err.status === 404) show("Product not found. Please add to inventory.", "error");
+        else show("Barcode lookup failed", "error");
       }
     },
     [addToCart, show]
   );
+
+  async function lookupCustomer() {
+    if (!customerPhone.trim()) return;
+    try {
+      const c = await api.get<Customer>(`/customers/phone/${encodeURIComponent(customerPhone.trim())}`);
+      setCustomer(c);
+      setCustomerName(c.name);
+      show(`${c.name} — ${c.loyaltyPoints} points`, "success");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setCustomer(null);
+        show("New customer — will be created on checkout", "info");
+      } else {
+        show("Customer lookup failed", "error");
+      }
+    }
+  }
+
+  const resetSale = () => {
+    setCart([]);
+    setCustomer(null);
+    setCustomerName("");
+    setCustomerPhone("");
+    setDiscountType(null);
+    setDiscountValue(0);
+    setPointsRedeemed(0);
+    setPaymentMethod("CASH");
+    setAmountPaid("");
+  };
 
   const finalizeSale = useCallback(async () => {
     if (cart.length === 0 || isCheckingOut) return;
@@ -67,22 +107,24 @@ export default function PosPage() {
         customerName,
         customerPhone,
         items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+        discountType,
+        discountValue: Number(discountValue) || 0,
+        pointsRedeemed: Number(pointsRedeemed) || 0,
+        paymentMethod,
+        amountPaid: paymentMethod === "CASH" ? Number(amountPaid) || 0 : 0,
       });
 
-      show(`Sale completed — Invoice #${invoice.invoiceNumber}`, "success");
+      show(`Sale complete — ${invoice.invoiceNumber} · ${money(invoice.totalAmount)}`, "success");
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      setCart([]);
-      setCustomerName("");
-      setCustomerPhone("");
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      resetSale();
 
       try {
         const printResult = await api.post<{ printed: boolean; reason?: string }>("/print", {
           invoiceId: invoice.id,
         });
-        if (!printResult.printed) {
-          show(printResult.reason || "Receipt not printed (no printer detected)", "info");
-        }
+        if (!printResult.printed) show(printResult.reason || "Receipt not printed (no printer detected)", "info");
       } catch {
         show("Sale saved, but sending the receipt to the printer failed", "info");
       }
@@ -91,15 +133,15 @@ export default function PosPage() {
     } finally {
       setIsCheckingOut(false);
     }
-  }, [cart, customerName, customerPhone, isCheckingOut, queryClient, show]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, isCheckingOut, queryClient, show]);
 
   useBarcodeScanner({
     onScan: handleScan,
     onManualEnter: (event) => {
       const target = event.target as HTMLElement | null;
-      const isEditable =
-        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
-      if (isEditable) return;
+      const editable = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      if (editable) return;
       finalizeSale();
     },
   });
@@ -120,9 +162,7 @@ export default function PosPage() {
     );
   }
 
-  function removeItem(productId: number) {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
-  }
+  const maxRedeemable = customer && shop?.loyaltyEnabled ? customer.loyaltyPoints : 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -130,12 +170,13 @@ export default function PosPage() {
         <h1 className="text-2xl font-semibold text-foreground">POS Checkout</h1>
         <p className="flex items-center gap-1.5 text-sm text-foreground/60">
           <ScanBarcode className="h-4 w-4" aria-hidden="true" />
-          Scan a barcode to add items. Press Enter to finalize the sale.
+          Scan a barcode to add items. Press Enter to finalize.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 p-5">
+        {/* Cart */}
+        <Card className="p-5 lg:col-span-2">
           <h2 className="mb-4 text-base font-semibold text-foreground">Cart</h2>
           {cart.length === 0 ? (
             <p className="py-10 text-center text-sm text-foreground/50">Cart is empty. Scan a product to begin.</p>
@@ -147,6 +188,7 @@ export default function PosPage() {
                     <th className="py-2 pr-4">Item</th>
                     <th className="py-2 pr-4">Qty</th>
                     <th className="py-2 pr-4 text-right">Price</th>
+                    {shop?.gstEnabled && <th className="py-2 pr-4 text-right">GST</th>}
                     <th className="py-2 pr-4 text-right">Total</th>
                     <th className="py-2" />
                   </tr>
@@ -159,7 +201,7 @@ export default function PosPage() {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            aria-label={`Decrease quantity of ${item.product.name}`}
+                            aria-label={`Decrease ${item.product.name}`}
                             onClick={() => updateQuantity(item.product.id, -1)}
                             className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
                           >
@@ -168,7 +210,7 @@ export default function PosPage() {
                           <span className="w-6 text-center">{item.quantity}</span>
                           <button
                             type="button"
-                            aria-label={`Increase quantity of ${item.product.name}`}
+                            aria-label={`Increase ${item.product.name}`}
                             onClick={() => updateQuantity(item.product.id, 1)}
                             className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
                           >
@@ -176,17 +218,18 @@ export default function PosPage() {
                           </button>
                         </div>
                       </td>
-                      <td className="py-2.5 pr-4 text-right text-foreground/70">
-                        {currency} {item.product.sellingPrice.toFixed(2)}
-                      </td>
+                      <td className="py-2.5 pr-4 text-right text-foreground/70">{money(item.product.sellingPrice)}</td>
+                      {shop?.gstEnabled && (
+                        <td className="py-2.5 pr-4 text-right text-foreground/50">{item.product.taxRate}%</td>
+                      )}
                       <td className="py-2.5 pr-4 text-right font-medium text-foreground">
-                        {currency} {(item.product.sellingPrice * item.quantity).toFixed(2)}
+                        {money(item.product.sellingPrice * item.quantity)}
                       </td>
                       <td className="py-2.5 text-right">
                         <button
                           type="button"
-                          aria-label={`Remove ${item.product.name} from cart`}
-                          onClick={() => removeItem(item.product.id)}
+                          aria-label={`Remove ${item.product.name}`}
+                          onClick={() => setCart((p) => p.filter((i) => i.product.id !== item.product.id))}
                           className="text-foreground/40 hover:text-danger"
                         >
                           <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -200,36 +243,142 @@ export default function PosPage() {
           )}
         </Card>
 
-        <Card className="flex flex-col gap-4 p-5">
-          <h2 className="text-base font-semibold text-foreground">Customer</h2>
-          <Field
-            label="Customer name (optional)"
-            value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-            placeholder="Walk-in Customer"
-          />
-          <Field
-            label="Phone number (optional)"
-            value={customerPhone}
-            onChange={(e) => setCustomerPhone(e.target.value)}
-          />
+        {/* Checkout panel */}
+        <div className="flex flex-col gap-4">
+          {/* Customer */}
+          <Card className="flex flex-col gap-3 p-5">
+            <h2 className="text-base font-semibold text-foreground">Customer</h2>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Field
+                  label="Phone"
+                  value={customerPhone}
+                  onChange={(e) => {
+                    setCustomerPhone(e.target.value);
+                    setCustomer(null);
+                    setPointsRedeemed(0);
+                  }}
+                  placeholder="For loyalty"
+                />
+              </div>
+              <Button type="button" variant="secondary" onClick={lookupCustomer} aria-label="Find customer">
+                <Search className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </div>
+            <Field
+              label="Name (optional)"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Walk-in Customer"
+            />
+            {customer && shop?.loyaltyEnabled && (
+              <div className="rounded-lg bg-brand/5 p-3">
+                <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                  <Star className="h-4 w-4 text-warning" aria-hidden="true" />
+                  {customer.loyaltyPoints} points available
+                </p>
+                <div className="mt-2">
+                  <Field
+                    label={`Redeem points (1 pt = ${money(shop.pointValue).replace(sym + " ", sym)})`}
+                    type="number"
+                    min={0}
+                    max={maxRedeemable}
+                    value={pointsRedeemed || ""}
+                    onChange={(e) => setPointsRedeemed(Math.min(Number(e.target.value) || 0, maxRedeemable))}
+                  />
+                </div>
+              </div>
+            )}
+          </Card>
 
-          <div className="mt-2 flex items-center justify-between border-t border-border pt-4">
-            <span className="text-sm font-medium text-foreground/60">Grand Total</span>
-            <span className="text-xl font-semibold text-foreground">
-              {currency} {total.toFixed(2)}
-            </span>
-          </div>
+          {/* Discount + payment */}
+          <Card className="flex flex-col gap-3 p-5">
+            <h2 className="text-base font-semibold text-foreground">Discount</h2>
+            <div className="flex gap-2">
+              <select
+                aria-label="Discount type"
+                value={discountType ?? ""}
+                onChange={(e) => setDiscountType((e.target.value || null) as "percent" | "amount" | null)}
+                className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground"
+              >
+                <option value="">None</option>
+                <option value="percent">%</option>
+                <option value="amount">{sym}</option>
+              </select>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                disabled={!discountType}
+                value={discountValue || ""}
+                onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
+                placeholder="Discount value"
+                aria-label="Discount value"
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground disabled:opacity-50"
+              />
+            </div>
 
-          <Button
-            onClick={finalizeSale}
-            disabled={cart.length === 0 || isCheckingOut}
-            className="w-full"
-          >
-            {isCheckingOut ? "Processing..." : "Finalize Sale (Enter)"}
-          </Button>
-        </Card>
+            <h2 className="mt-2 text-base font-semibold text-foreground">Payment</h2>
+            <div className="grid grid-cols-3 gap-2">
+              {(["CASH", "UPI", "CARD"] as PaymentMethod[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPaymentMethod(m)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    paymentMethod === m
+                      ? "border-brand bg-brand text-brand-foreground"
+                      : "border-border text-foreground/70 hover:bg-surface-muted"
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {paymentMethod === "CASH" && (
+              <Field
+                label="Amount received"
+                type="number"
+                min={0}
+                step="0.01"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+              />
+            )}
+          </Card>
+
+          {/* Totals */}
+          <Card className="flex flex-col gap-2 p-5">
+            <Row label="Subtotal" value={money(quote.subtotal)} />
+            {quote.discountAmount > 0 && <Row label="Discount" value={`- ${money(quote.discountAmount)}`} />}
+            {shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST" value={money(quote.taxAmount)} />}
+            {quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
+            <div className="my-1 border-t border-border" />
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-foreground/70">Grand Total</span>
+              <span className="text-xl font-semibold text-foreground">{money(quote.total)}</span>
+            </div>
+            {paymentMethod === "CASH" && Number(amountPaid) > 0 && (
+              <Row label="Change" value={money(changeDue)} />
+            )}
+            {shop?.loyaltyEnabled && customer && quote.pointsEarned > 0 && (
+              <p className="text-xs text-foreground/50">Earns {quote.pointsEarned} points</p>
+            )}
+            <Button onClick={finalizeSale} disabled={cart.length === 0 || isCheckingOut} className="mt-2 w-full">
+              {isCheckingOut ? "Processing…" : "Finalize Sale (Enter)"}
+            </Button>
+          </Card>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-foreground/60">{label}</span>
+      <span className="text-foreground">{value}</span>
     </div>
   );
 }

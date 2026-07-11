@@ -10,11 +10,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Baked into the client bundle at build time. Override with
-# `docker compose build --build-arg NEXT_PUBLIC_API_URL=http://<host-ip>:4000/api`
-# if the POS terminal accesses this over the LAN instead of localhost.
-ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# No API URL is baked into the *client* bundle — the browser only ever calls
+# the Next.js origin. The server-side /api proxy destination (next.config.ts
+# rewrites) IS resolved at build time into the routes manifest, so BACKEND_URL
+# is a build arg. It defaults to the backend service name on the Docker
+# network; the browser never sees this value.
+ARG BACKEND_URL=http://backend:4000
+ENV BACKEND_URL=$BACKEND_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

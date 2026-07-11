@@ -8,44 +8,72 @@ no data ever leaves the shop.
 Built for a barcode-scanner-and-thermal-printer counter setup: scan an item
 to sell it, press Enter to check out, and a receipt prints automatically.
 
+Access it at **`http://<machine>:1994`** — from the shop's own machine or any
+tablet/phone on the same network.
+
 ## Features
 
-- **Submify-style onboarding** — first launch walks you through creating an
-  admin account and configuring your shop (name, address, currency, low
-  stock threshold) before you ever see the dashboard.
-- **Barcode-driven POS checkout** — scan an item to add it to the cart, scan
-  again to bump the quantity, hit **Enter** to finalize the sale. Unknown
-  barcodes surface a toast instead of blocking the register.
-- **Inventory management** — scan a known barcode to jump straight to
-  editing its stock; scan an unknown one and the "Add Product" form opens
-  pre-filled with that barcode.
-- **Low stock alerts** — a dashboard widget flags every product at or below
-  your configured threshold.
-- **Thermal receipt printing** — checkout automatically formats and prints a
-  58/80mm ESC/POS receipt (see [layout](#receipt-layout)) and cuts the paper.
-- **Zero external calls at runtime** — once the Docker images are built, the
-  app never talks to anything outside your machine.
+- **Guided onboarding** — first launch walks you through creating an admin
+  account and configuring your company (name, address, currency, GST,
+  loyalty) before you ever see the dashboard.
+- **Barcode-driven POS checkout** — scan to add to the cart, scan again to
+  bump quantity, press **Enter** to finalize. Unknown barcodes surface a
+  toast instead of blocking the register.
+- **GST / tax** — per-product GST rates with HSN/SAC codes; bills show a
+  CGST/SGST breakdown and your GSTIN. Toggle on/off in settings.
+- **Discounts** — percentage or flat-amount discount per sale, applied
+  correctly across mixed tax rates.
+- **Loyalty program** — customers (by phone) earn points on every purchase,
+  redeemable as a discount at checkout. Configurable earn rate and point
+  value.
+- **Multi-currency** — ₹ INR, $ USD, € EUR, or £ GBP, switchable in settings;
+  the symbol flows through the whole app and onto receipts.
+- **Customers** — a directory with visit counts, total spend, and loyalty
+  balances.
+- **Customizable receipts** — set a header and footer; the thermal receipt
+  renders your branding, GST breakdown, discounts, and loyalty summary.
+- **Multiple payment methods** — Cash (with change calculation), UPI, Card.
+- **Staff accounts & roles** — an admin plus any number of cashier logins;
+  admins manage staff and settings, cashiers run the register.
+- **Sales history** — searchable past invoices with a detail view and
+  one-click receipt reprint.
+- **Inventory management** — scan a known barcode to edit stock; an unknown
+  one opens "Add Product" pre-filled. Low-stock dashboard alerts.
+- **Thermal receipt printing** — auto-formats and prints a 58/80mm ESC/POS
+  receipt (see [layout](#receipt-layout)) and cuts the paper.
+- **Zero external calls at runtime** — once built, the app never talks to
+  anything outside your machine.
 
 ## Architecture
 
 ```
-┌─────────────────────┐      HTTP (LAN/localhost)      ┌──────────────────────┐
-│   frontend (:1994)  │ ──────────────────────────────▶ │   backend (:4000)    │
-│   Next.js / React    │ ◀────────────────────────────── │   Express + Prisma   │
-└─────────────────────┘        JSON + cookie auth        └──────────┬───────────┘
-                                                                     │
-                                                        ┌────────────┼────────────┐
-                                                        ▼                         ▼
+  Browser / LAN tablet
+        │  http://<machine>:1994   (the ONLY exposed port)
+        ▼
+┌──────────────────────┐   /api/* proxied server-side   ┌──────────────────────┐
+│   frontend  :1994    │ ──────────────────────────────▶ │  backend (internal)  │
+│   Next.js / React     │ ◀────────────────────────────── │  Express + Prisma    │
+└──────────────────────┘   (internal Docker network)      └──────────┬───────────┘
+                                                                      │
+                                                        ┌─────────────┼────────────┐
+                                                        ▼                          ▼
                                               SQLite (nodedr-pos_data)     USB thermal printer
                                               (named Docker volume)        (device passthrough)
 ```
 
-The backend and frontend are **two separate containers**, not one combined
-image. This is a deliberate deviation from a single-container setup: only
-the backend needs raw USB access to the printer, so only its container runs
-`privileged: true` with a device mapping. The frontend stays an ordinary,
-unprivileged container. Everything still comes up with a single
-`docker compose up`.
+**One port, one origin.** The browser only ever talks to the frontend on
+port **1994**. The Next.js server proxies every `/api/*` request to the
+backend over the internal Docker network — the backend is **not** published
+to the host at all. This means:
+
+- the app works from **any device on the LAN** (a counter tablet, a phone),
+  not just the machine running the containers;
+- session cookies are first-party, so there's no cross-origin/CORS fragility;
+- the API isn't exposed on the network, shrinking the attack surface.
+
+The backend and frontend are two separate containers: only the backend needs
+raw USB access to the printer, so only it runs `privileged: true` with a
+device mapping. Everything still comes up with a single `docker compose up`.
 
 ## Tech stack
 
@@ -53,9 +81,10 @@ unprivileged container. Everything still comes up with a single
 | ---------- | -------------------------------------------------------- |
 | Frontend   | Next.js (App Router), React, TypeScript, Tailwind CSS     |
 | Data layer | TanStack Query, react-hook-form + Zod                    |
-| Backend    | Node.js, Express, Zod validation                          |
+| Backend    | Node.js, Express, Zod validation, helmet, rate limiting   |
 | Database   | SQLite via Prisma ORM, persisted in a Docker volume        |
-| Auth       | bcrypt password hashing, httpOnly JWT session cookie       |
+| Auth       | bcrypt hashing, HttpOnly JWT cookie, admin/cashier roles   |
+| API access | Browser → Next.js (:1994) → server-side `/api` proxy → backend |
 | Hardware   | `escpos-usb` (raw USB) for the printer; a custom React hook for the barcode scanner |
 | Deployment | Docker Compose, two `node:20-alpine` multi-stage images    |
 
@@ -160,22 +189,38 @@ receipt body, from [`backend/src/lib/printer.js`](backend/src/lib/printer.js).
 
 ```
 ================================================
-                   Shop Name
-                Shop Address Line 1
+                  Raktim Store
+                   1 MG Road
+                    Pune, MH
+             GSTIN: 27ABCDE1234F1Z5
 ================================================
-Date: 11-07-2026           Bill: #INV-2026-00001
-Cust: Walk-in Customer
+Date: 11-07-2026 18:06     Bill: #INV-2026-00002
+Cust: Rahul
+Ph:   9990001111
 ------------------------------------------------
-Item Name                    Qty   Price   Total
+Item                      Qty     Rate    Amount
 ------------------------------------------------
-Widget                         2   20.00   40.00
+Biscuits                    1    50.00     50.00
+  GST @ 18%
 ------------------------------------------------
-GRAND TOTAL:                           Rs. 40.00
+Subtotal                               Rs. 50.00
+CGST                                    Rs. 4.50
+SGST                                    Rs. 4.50
+Loyalty (100 pts)                     Rs. -10.00
 ================================================
-            Payment: CASH / UPI Static QR
-               Thank You! Visit Again.
+GRAND TOTAL                            Rs. 49.00
+================================================
+Paid (UPI)                             Rs. 49.00
+------------------------------------------------
+         You earned 49 loyalty points!
+================================================
+            Thank You! Visit Again.
 ================================================
 ```
+
+The header, footer, currency, GSTIN, and whether the GST breakdown shows are
+all driven by your settings, so this layout adapts to how you configure the
+shop.
 
 ## Updating
 
@@ -249,65 +294,87 @@ nodedr-pos/
 │       └── lib/              # prisma client, JWT secret, receipt formatting, printer driver
 └── frontend/
     ├── Dockerfile
+    ├── next.config.ts        # /api → backend proxy (rewrites)
     ├── app/
-    │   ├── onboarding/, login/          # unauthenticated flows
-    │   └── (app)/dashboard, pos, inventory  # authenticated app shell
-    ├── components/            # AppShell, AuthGate, ProductModal, Toast, ui/*
-    └── hooks/                 # useBarcodeScanner, useProducts, useInvoices, useShopSettings
+    │   ├── onboarding/, login/                         # unauthenticated flows
+    │   └── (app)/dashboard, pos, inventory, customers, sales, settings
+    ├── components/           # AppShell, AuthGate, ProductModal, Toast, ui/*
+    └── hooks/                # useBarcodeScanner, useProducts, useCustomers, useInvoices, useAuth, useShopSettings
 ```
 
 ## Local development (without Docker)
 
-Backend:
+Run the backend and frontend in two terminals.
 
 ```bash
+# Terminal 1 — backend on :4000
 cd backend
 cp .env.example .env
 npm install
 npm run prisma:migrate:dev
-npm run dev          # http://localhost:4000
-```
+npm run dev
 
-Frontend:
-
-```bash
+# Terminal 2 — frontend on :1994 (proxies /api to the backend)
 cd frontend
-cp .env.local.example .env.local
 npm install
-npm run dev           # http://localhost:1994
+BACKEND_URL=http://localhost:4000 npm run dev
 ```
 
-The frontend talks to the backend over plain HTTP with credentialed
-`fetch` calls (`NEXT_PUBLIC_API_URL`, default `http://localhost:4000/api`).
+Open `http://localhost:1994`. The browser only talks to :1994; the Next.js
+dev server proxies `/api/*` to `BACKEND_URL` (default `http://localhost:4000`).
+No API URL is ever baked into the browser bundle.
 
 ## API overview
 
-All endpoints are under `/api` and (except `/auth/*` and the one-time
-`POST /settings`) require the `nodedr_session` cookie set on login.
+All endpoints are under `/api` and reached through the frontend proxy at
+`http://<machine>:1994/api`. Except `/auth/status`, `/auth/login`,
+`/auth/register`, and the one-time `POST /settings`, every route requires the
+`nodedr_session` cookie; admin-only routes also require the `admin` role.
 
 | Method & path                  | Purpose                                  |
 | ------------------------------- | ----------------------------------------- |
 | `GET /auth/status`              | Whether an admin account exists yet       |
-| `POST /auth/register`           | Onboarding step 1 — create the one admin  |
+| `POST /auth/register`           | Onboarding — create the first admin (once) |
 | `POST /auth/login` / `/logout`  | Session management                        |
-| `GET/POST/PUT /settings`        | Shop settings (onboarding step 2 + edits) |
-| `GET /products`, `/products/barcode/:code`, `/products/low-stock` | Catalog & scanner lookup |
-| `POST/PUT/DELETE /products(/:id)` | Manage products                        |
-| `POST /invoices`                | Finalize a sale (server-priced, stock-checked, transactional) |
-| `POST /print`                   | Format + send a saved invoice to the thermal printer |
+| `POST /auth/change-password`    | Change your own password                  |
+| `GET/POST/PUT /auth/users`      | Staff account management (**admin only**) |
+| `GET/POST/PUT /settings`        | Company/currency/GST/loyalty/receipt config (PUT is **admin only**) |
+| `GET/POST/PUT/DELETE /products` | Catalog CRUD, `+/barcode/:code`, `/low-stock` |
+| `GET/POST/PUT /customers`       | Customer directory, `+/phone/:phone` lookup |
+| `POST /invoices`                | Finalize a sale — server computes price, tax, discount, loyalty; decrements stock; all transactional |
+| `GET /invoices`, `/invoices/summary`, `/invoices/:id` | Sales history & dashboard totals |
+| `POST /print`                   | Format + send an invoice to the thermal printer |
 
-## Security notes
+## Security
 
-- Passwords are hashed with bcrypt (cost 12); only one admin account can
-  ever be created (`POST /auth/register` is disabled once a user exists).
-- Sessions are httpOnly, `SameSite=Lax` JWT cookies; the signing secret is
-  auto-generated on first boot and persisted to `.jwt-secret` in the
-  `nodedr-pos_data` volume, alongside the database.
-- Item prices are always taken from the server-side product catalog at
-  checkout — the client cannot influence what a sale actually charges.
-- This app is designed for a **trusted local network** (a shop's own LAN or
-  a single machine at `localhost`). It does not ship with HTTPS; don't
-  expose it directly to the internet.
+Security posture (verified end-to-end):
+
+- **Passwords**: bcrypt (cost 12); login is timing-uniform and returns an
+  identical error for unknown-user vs wrong-password. Login is rate-limited
+  (10 / 15 min) on top of a global limiter (300 req/min).
+- **Sessions**: `HttpOnly`, `SameSite=Lax` JWT cookie (`HS256`, algorithm
+  pinned). Every request re-checks the account still exists and is active, so
+  disabling a staff member logs them out immediately. Set `COOKIE_SECURE=true`
+  when serving over HTTPS.
+- **Authorization**: all data routes require auth; settings and staff
+  management require the `admin` role. The last active admin can't be demoted
+  or disabled.
+- **Server-authoritative money**: prices, tax, discount caps, loyalty value,
+  and change are always computed server-side from the catalog and settings —
+  the client only sends product ids, quantities, and intent, so a tampered
+  request can't alter what a sale charges. Redeemable points are capped at the
+  customer's balance.
+- **Input validation**: every write endpoint validates with Zod (allowlisted
+  fields — no mass assignment); all DB access is parameterized via Prisma.
+- **Reduced surface**: the backend is not published to the host — only the
+  frontend (:1994) is reachable, and it proxies to the backend privately.
+  Helmet sets `X-Content-Type-Options`, `X-Frame-Options`, etc.
+- **Secrets**: the JWT signing secret is auto-generated on first boot and
+  stored (mode 600) in the data volume — never in the repo.
+
+Designed for a **trusted local network** (a shop's LAN or a single machine).
+It's HTTP by default; if you expose it beyond the counter, terminate HTTPS in
+front of it and set `COOKIE_SECURE=true`.
 
 ## Contributing
 
