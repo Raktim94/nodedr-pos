@@ -31,11 +31,13 @@ fi
 echo "Building nodedr-pos images and starting the stack (this can take a few minutes on first run)..."
 docker compose up -d --build
 
-# --- 3. Wait for the backend to report healthy -------------------------------
-echo "Waiting for the backend to come online..."
+# --- 3. Wait for the app to report healthy -----------------------------------
+# The backend isn't published to the host; we probe it through the frontend's
+# /api proxy on port 1994 (the same path the browser uses).
+echo "Waiting for the app to come online..."
 ready=false
-for _ in $(seq 1 60); do
-  if curl -sf http://localhost:4000/api/health >/dev/null 2>&1; then
+for _ in $(seq 1 90); do
+  if curl -sf http://localhost:1994/api/health >/dev/null 2>&1; then
     ready=true
     break
   fi
@@ -43,8 +45,8 @@ for _ in $(seq 1 60); do
 done
 
 if [ "$ready" != "true" ]; then
-  echo "Warning: the backend didn't respond within 60s. Check the logs with:" >&2
-  echo "  docker compose logs backend" >&2
+  echo "Warning: the app didn't respond within 90s. Check the logs with:" >&2
+  echo "  docker compose logs" >&2
   exit 1
 fi
 
