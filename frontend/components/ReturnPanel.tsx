@@ -28,9 +28,13 @@ interface Props {
   sym: string;
   drafted: ReturnDraftLine[];
   onAdd: (lines: ReturnDraftLine[]) => void;
+  /** Called once a bill is found, so the checkout page can attach the same
+   * customer without a separate phone lookup — needed for the "Store
+   * credit" refund option and "Use store credit" to become available. */
+  onInvoiceFound?: (info: { customerPhone: string | null; customerName: string }) => void;
 }
 
-export function ReturnPanel({ sym, drafted, onAdd }: Props) {
+export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
   const { show } = useToast();
   const money = (n: number) => formatMoney(n, sym);
   const [query, setQuery] = useState("");
@@ -70,6 +74,7 @@ export function ReturnPanel({ sym, drafted, onAdd }: Props) {
       if (next.length === 0) show("Everything on this bill has already been returned", "info");
       setInvoice(full);
       setRows(next);
+      onInvoiceFound?.({ customerPhone: full.customerPhone, customerName: full.customerName });
     } catch (err) {
       show(err instanceof ApiError ? err.message : "Lookup failed", "error");
     } finally {

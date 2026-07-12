@@ -101,10 +101,11 @@ export default function PosPage() {
     [addToCart, show]
   );
 
-  async function lookupCustomer() {
-    if (!customerPhone.trim()) return;
+  async function lookupCustomer(phoneOverride?: string) {
+    const phone = (phoneOverride ?? customerPhone).trim();
+    if (!phone) return;
     try {
-      const c = await api.get<Customer>(`/customers/phone/${encodeURIComponent(customerPhone.trim())}`);
+      const c = await api.get<Customer>(`/customers/phone/${encodeURIComponent(phone)}`);
       setCustomer(c);
       setCustomerName(c.name);
       setDuePaid("");
@@ -117,6 +118,17 @@ export default function PosPage() {
         show("Customer lookup failed", "error");
       }
     }
+  }
+
+  // A return is often the FIRST thing typed on a bill — the cashier may
+  // never touch the phone field at all. Without this, "Store credit" and
+  // "Use store credit" stay silently disabled (no customer attached) and
+  // look like the app just isn't responding to the click.
+  function onReturnInvoiceFound(info: { customerPhone: string | null; customerName: string }) {
+    if (!info.customerPhone) return;
+    setCustomerPhone(info.customerPhone);
+    setCustomerName(info.customerName);
+    if (customer?.phone !== info.customerPhone) lookupCustomer(info.customerPhone);
   }
 
   const resetSale = () => {
@@ -179,7 +191,14 @@ export default function PosPage() {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
       resetSale();
-      if (shop?.autoPrintReceipt) openReceiptPrint(invoice.id);
+      if (shop?.autoPrintReceipt) {
+        // Deferred one tick so the "Sale complete" card is definitely
+        // painted before the OS print dialog opens — window.print() is
+        // modal in most browsers and pauses the tab, which otherwise can
+        // read as the app having frozen mid-checkout instead of having
+        // already finished.
+        setTimeout(() => openReceiptPrint(invoice.id), 0);
+      }
     } catch (err) {
       show(err instanceof ApiError ? err.message : "Checkout failed", "error");
     } finally {
@@ -345,7 +364,7 @@ export default function PosPage() {
                   placeholder="For loyalty"
                 />
               </div>
-              <Button type="button" variant="secondary" onClick={lookupCustomer} aria-label="Find customer">
+              <Button type="button" variant="secondary" onClick={() => lookupCustomer()} aria-label="Find customer">
                 <Search className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
@@ -431,7 +450,12 @@ export default function PosPage() {
           {/* Returns / exchange */}
           <Card className="flex flex-col gap-3 p-5">
             <h2 className="text-base font-semibold text-foreground">Return / Exchange</h2>
-            <ReturnPanel sym={sym} drafted={returnLines} onAdd={(lines) => setReturnLines((prev) => [...prev, ...lines])} />
+            <ReturnPanel
+              sym={sym}
+              drafted={returnLines}
+              onAdd={(lines) => setReturnLines((prev) => [...prev, ...lines])}
+              onInvoiceFound={onReturnInvoiceFound}
+            />
             {returnLines.length > 0 && (
               <div className="flex flex-col gap-1.5 border-t border-border pt-3">
                 {returnLines.map((l) => (

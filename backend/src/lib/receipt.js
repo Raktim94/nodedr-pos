@@ -73,20 +73,29 @@ function buildReceiptHtml({ shop, invoice }) {
   /* Kept deliberately tight: every extra pixel of vertical whitespace here
      is real thermal paper on every single receipt printed, forever. */
   * { box-sizing: border-box; }
-  /* THE fix for right-side clipping. The sheet is an 80mm thermal roll.
-     Getting the geometry consistent is everything: the page box, the body,
-     and the content must all agree, or whatever is widest overflows and the
-     printer chops it off on the right.
-       - @page margin 0: the page box is the FULL 80mm. (A non-zero @page
-         margin shrinks the page box below 80mm, and then an 80mm-wide body
-         no longer fits — that mismatch was the bug.)
+  /* THE fix for right-side clipping / drift. The sheet is an 80mm thermal
+     roll. Getting the geometry consistent is everything:
+       - @page margin 0: the page box is the FULL 80mm we ask for. (A
+         non-zero @page margin shrinks the page box below 80mm, and then an
+         80mm-wide body no longer fits — that was the original clipping bug.)
+       - body is LEFT-ALIGNED (margin: 0, not "0 auto"), never centered.
+         @page's custom size isn't honored by every printer/driver — some
+         fall back to whatever paper the OS has selected (often A4/Letter,
+         which is wider than 80mm). If that happens with a CENTERED body,
+         the receipt sits in the middle of that wider virtual page, and a
+         thermal head that only physically covers the page's left ~80mm
+         prints just a sliver of the left margin plus the receipt's own
+         left edge — everything reads as pushed hard right and mostly gone.
+         Left-aligning removes that failure mode entirely: the receipt
+         always starts at column 0, which is where a thermal head starts
+         printing regardless of how wide the browser thinks the sheet is.
        - body is exactly 80mm with box-sizing border-box, so its 4mm padding
          is subtracted FROM the 80mm, not added to it. Content is therefore
-         72mm wide and sits 4mm inside each physical edge — comfortably clear
-         of the small non-printable strip every thermal head has. Nothing on
-         the page is ever wider than the 80mm sheet, so nothing clips. */
+         72mm wide and sits 4mm inside the left edge — clear of the small
+         non-printable strip every thermal head has — and never exceeds the
+         80mm sheet on the right either. */
   html { margin: 0; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0 auto; padding: 4mm; color: #111; width: 80mm; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 4mm; color: #111; width: 80mm; }
   p { margin: 0 0 3px; }
   .receipt { width: 100%; margin: 0; }
   h1 { font-size: 15px; text-align: center; margin: 0 0 2px; }

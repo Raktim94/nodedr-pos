@@ -20,18 +20,32 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // to set it itself, multipart boundary included, or the server can't
   // parse the body at all.
   const isFormData = init?.body instanceof FormData;
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: isFormData
-      ? { ...(init?.headers || {}) }
-      : { "Content-Type": "application/json", ...(init?.headers || {}) },
-  });
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      // Without this, a stalled network or a slow backend request leaves
+      // the caller `await`-ing forever — the button just stays on
+      // "Processing…" indefinitely, which reads as the app having frozen.
+      // 20s is generous for anything this app does (checkout, reports).
+      signal: AbortSignal.timeout(20_000),
+      headers: isFormData
+        ? { ...(init?.headers || {}) }
+        : { "Content-Type": "application/json", ...(init?.headers || {}) },
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiError("Request timed out — check your connection and try again", 0);
+    }
+    throw new ApiError("Network error — check your connection and try again", 0);
+  }
 
   if (res.status === 204) return undefined as T;
 
   const contentType = res.headers.get("content-type") || "";
-  const body = contentType.includes("application/json") ? await res.json() : undefined;
+  const body = contentType.includes("application/json") ? await res.json().catch(() => undefined) : undefined;
 
   if (!res.ok) {
     throw new ApiError(body?.error || res.statusText, res.status, body?.details);
