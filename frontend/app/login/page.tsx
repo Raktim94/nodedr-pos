@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Store } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { BrandFooter } from "@/components/BrandFooter";
 import { api, ApiError } from "@/lib/api";
 
 const loginSchema = z.object({
@@ -38,10 +39,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-1 items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-background px-4 py-10">
       <Card className="w-full max-w-sm p-8">
-        <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <Store className="h-9 w-9 text-brand" aria-hidden="true" />
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+          <Image src="/logo.png" alt="nodedr-pos" width={64} height={64} className="h-16 w-16 rounded-full" priority />
           <h1 className="text-xl font-semibold text-foreground">Sign in to nodedr-pos</h1>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
@@ -69,6 +70,7 @@ export default function LoginPage() {
           </Button>
         </form>
       </Card>
+      <BrandFooter />
     </div>
   );
 }

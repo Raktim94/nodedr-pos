@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -12,13 +13,13 @@ import {
   Settings,
   LogOut,
   Menu,
-  Store,
   X,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { api } from "@/lib/api";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useMe } from "@/hooks/useAuth";
+import { BrandFooter } from "@/components/BrandFooter";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -47,7 +48,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
       <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2">
-          <Store className="h-6 w-6 text-brand" aria-hidden="true" />
+          <Image src="/logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full" aria-hidden="true" />
           <span className="truncate font-semibold text-foreground">{shop?.shopName || "nodedr-pos"}</span>
         </div>
         <button
@@ -74,8 +75,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           navOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex items-center gap-2 border-b border-border px-5 py-5">
-          <Store className="h-6 w-6 text-brand" aria-hidden="true" />
+        <div className="flex items-center gap-2.5 border-b border-border px-5 py-5">
+          <Image src="/logo.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-full" aria-hidden="true" />
           <span className="truncate font-semibold text-foreground">{shop?.shopName || "nodedr-pos"}</span>
         </div>
         <nav className="flex-1 space-y-1 px-3 py-4">
@@ -112,6 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <LogOut className="h-5 w-5" aria-hidden="true" />
             Log out
           </button>
+          <BrandFooter className="mt-3" />
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto bg-background p-4 sm:p-6 lg:p-8">{children}</main>

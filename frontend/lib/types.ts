@@ -106,3 +106,25 @@ export interface CartItem {
 }
 
 export type PaymentMethod = "CASH" | "UPI" | "CARD";
+
+export type RefundMethod = "CASH" | "UPI" | "CARD" | "DUE_ADJUST";
+
+export interface ReturnItem {
+  id: number;
+  invoiceItemId: number;
+  productId: number;
+  name: string;
+  quantity: number;
+  refundAmount: number;
+}
+
+export interface ReturnRecord {
+  id: number;
+  invoiceId: number;
+  customerId: number | null;
+  totalRefund: number;
+  refundMethod: RefundMethod;
+  note: string | null;
+  createdAt: string;
+  items: ReturnItem[];
+}

@@ -16,9 +16,11 @@ async function loadInvoiceAndShop(id) {
 }
 
 // GET /api/print/:invoiceId/receipt — a standalone, self-printing HTML page.
-// Opened in a new tab, it triggers window.print() so the browser's own print
-// dialog handles printer selection (thermal, laser, "Save as PDF", whatever
-// the OS/CUPS has configured) — we never talk to a USB device directly.
+// Loaded into a hidden iframe on the same page (see frontend/lib/print.ts),
+// it triggers window.print() so the browser's own print dialog handles
+// printer selection (thermal, laser, "Save as PDF", whatever the OS/CUPS
+// has configured) — we never talk to a USB device directly, and the
+// cashier's screen never navigates away.
 router.get('/:invoiceId/receipt', async (req, res) => {
   const id = Number(req.params.invoiceId);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });

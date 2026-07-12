@@ -6,7 +6,8 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Builds a standalone, self-printing HTML receipt. Opened in a new tab, it
+// Builds a standalone, self-printing HTML receipt. Loaded into a hidden
+// same-page iframe (see frontend/lib/print.ts) rather than a new tab, it
 // calls window.print() on load — the browser's own print dialog lets the
 // user pick any printer (thermal, laser, PDF virtual printer, whatever the
 // OS/CUPS has configured) instead of us talking to a USB device directly.

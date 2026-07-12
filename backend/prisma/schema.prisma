@@ -66,6 +66,7 @@ model Product {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   invoiceItems  InvoiceItem[]
+  returnItems   ReturnItem[]
 }
 
 model Customer {
@@ -80,6 +81,7 @@ model Customer {
   createdAt     DateTime  @default(now())
   invoices      Invoice[]
   duePayments   CustomerDuePayment[]
+  returns       Return[]
 }
 
 // A record of each payment a customer makes against their running due
@@ -116,6 +118,7 @@ model Invoice {
   createdAt      DateTime      @default(now())
   customer       Customer?     @relation(fields: [customerId], references: [id])
   items          InvoiceItem[]
+  returns        Return[]
 }
 
 model InvoiceItem {
@@ -131,6 +134,39 @@ model InvoiceItem {
   total     Float // line total incl. tax, after prorated discount
   invoice   Invoice @relation(fields: [invoiceId], references: [id])
   product   Product @relation(fields: [productId], references: [id])
+  returnItems ReturnItem[]
+}
+
+// A return against a past invoice — one or more line items, each capped at
+// (quantity sold - quantity already returned) so the same unit can't be
+// returned twice. "Returned quantity so far" is always computed by summing
+// ReturnItem rows for an invoice item (see routes/returns.js) rather than
+// stored as a running counter, matching CustomerDuePayment's audit-trail
+// pattern elsewhere in this schema.
+model Return {
+  id           Int          @id @default(autoincrement())
+  invoiceId    Int
+  customerId   Int?
+  totalRefund  Float
+  refundMethod String // "CASH" | "UPI" | "CARD" | "DUE_ADJUST"
+  note         String?
+  createdAt    DateTime     @default(now())
+  invoice      Invoice      @relation(fields: [invoiceId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  items        ReturnItem[]
+}
+
+model ReturnItem {
+  id            Int         @id @default(autoincrement())
+  returnId      Int
+  invoiceItemId Int
+  productId     Int
+  name          String
+  quantity      Int
+  refundAmount  Float
+  return        Return      @relation(fields: [returnId], references: [id])
+  invoiceItem   InvoiceItem @relation(fields: [invoiceItemId], references: [id])
+  product       Product     @relation(fields: [productId], references: [id])
 }
 
 // --- Bulk reference data, admin-imported from CSV (see routes/masters.js) ---

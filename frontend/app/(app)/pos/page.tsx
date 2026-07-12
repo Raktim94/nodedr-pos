@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/Field";
 import { ReceiptActions } from "@/components/ReceiptActions";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { useSettleDue } from "@/hooks/useCustomers";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
@@ -20,11 +21,13 @@ export default function PosPage() {
   const { data: shop } = useShopSettings();
   const { show } = useToast();
   const queryClient = useQueryClient();
+  const settleDue = useSettleDue();
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [dueCollect, setDueCollect] = useState("");
   const [discountType, setDiscountType] = useState<"percent" | "amount" | null>(null);
   const [discountValue, setDiscountValue] = useState(0);
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
@@ -84,6 +87,7 @@ export default function PosPage() {
       const c = await api.get<Customer>(`/customers/phone/${encodeURIComponent(customerPhone.trim())}`);
       setCustomer(c);
       setCustomerName(c.name);
+      setDueCollect("");
       show(`${c.name} — ${c.loyaltyPoints} points`, "success");
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -92,6 +96,22 @@ export default function PosPage() {
       } else {
         show("Customer lookup failed", "error");
       }
+    }
+  }
+
+  // Settling a previous due is independent of the current cart/sale — it's
+  // its own API call against the customer, not part of the invoice being
+  // built here, so it can be recorded even for a customer who isn't buying
+  // anything new right now.
+  async function collectDue(amount: number) {
+    if (!customer || amount <= 0) return;
+    try {
+      const updated = await settleDue.mutateAsync({ id: customer.id, amount });
+      setCustomer(updated);
+      setDueCollect("");
+      show(`${money(amount)} collected toward ${updated.name}'s due`, "success");
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Could not record payment", "error");
     }
   }
 
@@ -305,9 +325,38 @@ export default function PosPage() {
               placeholder="Walk-in Customer"
             />
             {customer && customer.totalDue > 0 && (
-              <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
-                Owes {money(customer.totalDue)} from before
-              </p>
+              <div className="rounded-lg bg-danger/10 p-3">
+                <p className="text-sm font-medium text-danger">Owes {money(customer.totalDue)} from before</p>
+                <div className="mt-2 flex items-end gap-2">
+                  <div className="flex-1">
+                    <Field
+                      label="Collect toward due"
+                      type="number"
+                      min={0}
+                      max={customer.totalDue}
+                      step="0.01"
+                      value={dueCollect}
+                      onChange={(e) => setDueCollect(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={settleDue.isPending || !(Number(dueCollect) > 0)}
+                    onClick={() => collectDue(Math.min(Number(dueCollect) || 0, customer.totalDue))}
+                  >
+                    Collect
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={settleDue.isPending}
+                    onClick={() => collectDue(customer.totalDue)}
+                  >
+                    Clear all
+                  </Button>
+                </div>
+              </div>
             )}
             {customer && shop?.loyaltyEnabled && (
               <div className="rounded-lg bg-brand/5 p-3">

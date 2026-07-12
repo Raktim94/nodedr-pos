@@ -9,6 +9,7 @@ const settingsRoutes = require('./routes/settings');
 const productRoutes = require('./routes/products');
 const customerRoutes = require('./routes/customers');
 const invoiceRoutes = require('./routes/invoices');
+const returnRoutes = require('./routes/returns');
 const printRoutes = require('./routes/print');
 const mastersRoutes = require('./routes/masters');
 
@@ -42,6 +43,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/returns', returnRoutes);
 app.use('/api/print', printRoutes);
 app.use('/api/masters', mastersRoutes);
 

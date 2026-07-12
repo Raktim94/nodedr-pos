@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Store, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { BrandFooter } from "@/components/BrandFooter";
 import { useCurrencies } from "@/hooks/useShopSettings";
 import { api, ApiError } from "@/lib/api";
 
@@ -84,10 +86,10 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-1 items-center justify-center bg-background px-4 py-10">
+    <div className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-background px-4 py-10">
       <Card className="w-full max-w-lg p-8">
-        <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <Store className="h-9 w-9 text-brand" aria-hidden="true" />
+        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <Image src="/logo.png" alt="nodedr-pos" width={64} height={64} className="h-16 w-16 rounded-full" priority />
           <h1 className="text-xl font-semibold text-foreground">Welcome to nodedr-pos</h1>
           <p className="text-sm text-foreground/60">Let&apos;s set up your shop.</p>
         </div>
@@ -219,6 +221,7 @@ export default function OnboardingPage() {
           </div>
         )}
       </Card>
+      <BrandFooter />
     </div>
   );
 }
