@@ -6,7 +6,14 @@ services:
     container_name: nodedr-pos-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: "file:../data/pos.db"
+      # Absolute path — do not go back to a ".." relative path here. Prisma's
+      # old built-in SQLite engine resolved relative file: URLs relative to
+      # schema.prisma's directory, but the better-sqlite3 driver adapter
+      # (see backend/src/lib/prisma.js) resolves them relative to process
+      # cwd (/app, this container's WORKDIR). A relative "../data/pos.db"
+      # silently resolved to /data/pos.db — OUTSIDE the mounted volume below
+      # — so every container recreation wiped the database with no error.
+      DATABASE_URL: "file:/app/data/pos.db"
       PORT: "4000"
       FRONTEND_ORIGIN: "http://localhost:1994"
       COOKIE_SECURE: "false"
