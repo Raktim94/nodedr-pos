@@ -62,10 +62,13 @@ function estimateHeight({ shop, invoice }) {
   if (shop.gstEnabled && invoice.taxAmount > 0) h += 26; // CGST + SGST
   if (invoice.loyaltyDiscount > 0) h += 13;
   h += 8 + 16; // rule + grand total
+  if (invoice.returnValue > 0) h += 13;
+  if (invoice.creditApplied > 0) h += 13;
   h += 8 + 13; // rule + paid
   if (invoice.previousDuePaid > 0) h += 26; // old due cleared + total collected
   if (invoice.changeDue > 0) h += 13;
   if (invoice.dueAmount > 0) h += 13;
+  if (invoice.refundValue > 0) h += 13;
   if (shop.loyaltyEnabled && invoice.pointsEarned > 0) h += 14;
   h += 12 + 8; // spacer + rule
   h += wrappedLines(shop.receiptFooter || 'Thank You! Visit Again.', CHARS_PER_LINE_FULL) * 10;
@@ -164,16 +167,26 @@ function buildReceiptPdf({ shop, invoice }) {
     if (invoice.loyaltyDiscount > 0) {
       totalLine(`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${money(sym, invoice.loyaltyDiscount)}`);
     }
+    if (invoice.returnValue > 0) totalLine('Returns', `- ${money(sym, invoice.returnValue)}`);
+    if (invoice.creditApplied > 0) totalLine('Store credit used', `- ${money(sym, invoice.creditApplied)}`);
+
+    const payable = Math.max(0, Math.round((invoice.totalAmount - invoice.returnValue - invoice.creditApplied) * 100) / 100);
+    const hasRefund = invoice.refundValue > 0;
     rule(doc);
-    totalLine('GRAND TOTAL', money(sym, invoice.totalAmount), true);
-    rule(doc);
-    totalLine(`Paid (${invoice.paymentMethod})`, money(sym, invoice.amountPaid));
-    if (invoice.previousDuePaid > 0) {
-      totalLine('Old Due Cleared', money(sym, invoice.previousDuePaid));
-      totalLine('Total Collected', money(sym, invoice.amountPaid + invoice.previousDuePaid), true);
+    if (hasRefund) {
+      totalLine(`REFUND (${invoice.refundMode === 'CREDIT' ? 'store credit' : 'cash'})`, money(sym, invoice.refundValue), true);
+    } else {
+      const grandLabel = invoice.returnValue > 0 || invoice.creditApplied > 0 ? 'NET PAYABLE' : 'GRAND TOTAL';
+      totalLine(grandLabel, money(sym, payable), true);
+      rule(doc);
+      totalLine(`Paid (${invoice.paymentMethod})`, money(sym, invoice.amountPaid));
+      if (invoice.previousDuePaid > 0) {
+        totalLine('Old Due Cleared', money(sym, invoice.previousDuePaid));
+        totalLine('Total Collected', money(sym, invoice.amountPaid + invoice.previousDuePaid), true);
+      }
+      if (invoice.changeDue > 0) totalLine('Change', money(sym, invoice.changeDue));
+      if (invoice.dueAmount > 0) totalLine('Balance Due', money(sym, invoice.dueAmount));
     }
-    if (invoice.changeDue > 0) totalLine('Change', money(sym, invoice.changeDue));
-    if (invoice.dueAmount > 0) totalLine('Balance Due', money(sym, invoice.dueAmount));
 
     if (shop.loyaltyEnabled && invoice.pointsEarned > 0) {
       doc.moveDown(0.3);

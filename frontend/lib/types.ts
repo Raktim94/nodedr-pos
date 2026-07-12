@@ -61,6 +61,7 @@ export interface Customer {
   loyaltyPoints: number;
   totalSpent: number;
   totalDue: number;
+  creditBalance: number;
   visits: number;
   createdAt: string;
 }
@@ -95,6 +96,10 @@ export interface Invoice {
   changeDue: number;
   dueAmount: number;
   previousDuePaid: number;
+  returnValue: number;
+  creditApplied: number;
+  refundValue: number;
+  refundMode: "CASH" | "CREDIT" | null;
   pointsRedeemed: number;
   pointsEarned: number;
   createdAt: string;

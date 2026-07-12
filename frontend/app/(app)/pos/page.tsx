@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { ReceiptActions } from "@/components/ReceiptActions";
+import { ReturnPanel, type ReturnDraftLine } from "@/components/ReturnPanel";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
@@ -26,6 +27,9 @@ export default function PosPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [duePaid, setDuePaid] = useState("");
+  const [returnLines, setReturnLines] = useState<ReturnDraftLine[]>([]);
+  const [refundMode, setRefundMode] = useState<"CASH" | "CREDIT">("CASH");
+  const [useCredit, setUseCredit] = useState(false);
   const [discountType, setDiscountType] = useState<"percent" | "amount" | null>(null);
   const [discountValue, setDiscountValue] = useState(0);
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
@@ -46,8 +50,22 @@ export default function PosPage() {
 
   // Old due the cashier is folding into this bill (capped at what's owed).
   const dueToClear = customer ? Math.min(Math.max(0, Number(duePaid) || 0), customer.totalDue) : 0;
-  // What the customer actually hands over now = this sale + any old due cleared.
-  const collectTotal = round2(quote.total + dueToClear);
+
+  // Returns queued on this bill and their refund value.
+  const returnTotal = round2(returnLines.reduce((s, l) => s + l.refundAmount, 0));
+  const creditAvail = customer?.creditBalance ?? 0;
+  // Store credit only ever reduces what's payable — never enough to create a
+  // refund on its own — so cap it at the sale-minus-returns amount.
+  const creditUse = useCredit ? round2(Math.min(creditAvail, Math.max(0, quote.total - returnTotal))) : 0;
+
+  // Net the returns and credit against the sale. Positive → the customer pays;
+  // negative → the shop owes them (refund).
+  const netBill = round2(quote.total - returnTotal - creditUse);
+  const payable = Math.max(0, netBill);
+  const refundValue = Math.max(0, round2(-netBill));
+
+  // What the customer actually hands over now = net payable + any old due cleared.
+  const collectTotal = round2(payable + dueToClear);
   const effectivePaid = paymentMethod === "CASH" ? Number(amountPaid) || 0 : collectTotal;
   const changeDue = Math.max(0, round2(effectivePaid - collectTotal));
   const shortNow = paymentMethod === "CASH" && Number(amountPaid) > 0 ? Math.max(0, round2(collectTotal - effectivePaid)) : 0;
@@ -107,6 +125,9 @@ export default function PosPage() {
     setCustomerName("");
     setCustomerPhone("");
     setDuePaid("");
+    setReturnLines([]);
+    setRefundMode("CASH");
+    setUseCredit(false);
     setDiscountType(null);
     setDiscountValue(0);
     setPointsRedeemed(0);
@@ -115,9 +136,24 @@ export default function PosPage() {
   };
 
   const finalizeSale = useCallback(async () => {
-    if (cart.length === 0 || isCheckingOut) return;
+    if ((cart.length === 0 && returnLines.length === 0) || isCheckingOut) return;
     setIsCheckingOut(true);
     try {
+      // Group the flat return lines back by their original invoice.
+      const returnsPayload = Object.values(
+        returnLines.reduce(
+          (acc, l) => {
+            (acc[l.invoiceId] ??= { invoiceId: l.invoiceId, items: [] }).items.push({
+              invoiceItemId: l.invoiceItemId,
+              quantity: l.quantity,
+              refundAmount: l.refundAmount,
+            });
+            return acc;
+          },
+          {} as Record<number, { invoiceId: number; items: { invoiceItemId: number; quantity: number; refundAmount: number }[] }>
+        )
+      );
+
       const invoice = await api.post<Invoice>("/invoices", {
         customerName,
         customerPhone,
@@ -128,10 +164,16 @@ export default function PosPage() {
         paymentMethod,
         amountPaid: paymentMethod === "CASH" ? Number(amountPaid) || 0 : 0,
         duePaid: dueToClear,
+        returns: returnsPayload,
+        refundMode,
+        creditApplied: creditUse,
       });
 
-      const dueNote = invoice.previousDuePaid > 0 ? ` · ${money(invoice.previousDuePaid)} due cleared` : "";
-      show(`Sale complete — ${invoice.invoiceNumber} · ${money(invoice.totalAmount)}${dueNote}`, "success");
+      const parts = [`${invoice.invoiceNumber} · ${money(invoice.totalAmount)}`];
+      if (invoice.previousDuePaid > 0) parts.push(`${money(invoice.previousDuePaid)} due cleared`);
+      if (invoice.refundValue > 0)
+        parts.push(`${money(invoice.refundValue)} refunded (${invoice.refundMode === "CREDIT" ? "store credit" : "cash"})`);
+      show(`Done — ${parts.join(" · ")}`, "success");
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -144,7 +186,7 @@ export default function PosPage() {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, isCheckingOut, queryClient, show, shop?.autoPrintReceipt]);
+  }, [cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, isCheckingOut, queryClient, show, shop?.autoPrintReceipt]);
 
   useBarcodeScanner({
     onScan: handleScan,
@@ -344,6 +386,12 @@ export default function PosPage() {
                 </div>
               </div>
             )}
+            {customer && creditAvail > 0 && (
+              <label className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm">
+                <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)} />
+                <span className="font-medium text-success">Use store credit ({money(creditAvail)})</span>
+              </label>
+            )}
             {customer && shop?.loyaltyEnabled && (
               <div className="rounded-lg bg-brand/5 p-3">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -376,6 +424,65 @@ export default function PosPage() {
                 ) : (
                   <p className="mt-1 text-xs text-foreground/50">Not enough points to redeem yet.</p>
                 )}
+              </div>
+            )}
+          </Card>
+
+          {/* Returns / exchange */}
+          <Card className="flex flex-col gap-3 p-5">
+            <h2 className="text-base font-semibold text-foreground">Return / Exchange</h2>
+            <ReturnPanel sym={sym} drafted={returnLines} onAdd={(lines) => setReturnLines((prev) => [...prev, ...lines])} />
+            {returnLines.length > 0 && (
+              <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+                {returnLines.map((l) => (
+                  <div key={`${l.invoiceId}:${l.invoiceItemId}`} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="flex-1 truncate text-foreground/80">
+                      {l.quantity}× {l.name}
+                      <span className="ml-1 text-xs text-foreground/40">({l.invoiceNumber})</span>
+                    </span>
+                    <span className="text-foreground">- {money(l.refundAmount)}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove return of ${l.name}`}
+                      onClick={() => setReturnLines((prev) => prev.filter((x) => !(x.invoiceId === l.invoiceId && x.invoiceItemId === l.invoiceItemId)))}
+                      className="text-foreground/40 hover:text-danger"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1 text-sm font-medium">
+                  <span className="text-foreground/60">Return total</span>
+                  <span className="text-foreground">- {money(returnTotal)}</span>
+                </div>
+              </div>
+            )}
+            {refundValue > 0 && (
+              <div className="rounded-lg bg-warning/10 p-3">
+                <p className="text-sm font-medium text-warning">Refund due to customer: {money(refundValue)}</p>
+                <p className="mb-2 mt-0.5 text-xs text-foreground/60">The return is worth more than the purchase — settle the difference:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRefundMode("CASH")}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      refundMode === "CASH" ? "border-brand bg-brand text-brand-foreground" : "border-border text-foreground/70 hover:bg-surface-muted"
+                    }`}
+                  >
+                    Cash refund
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!customer}
+                    onClick={() => setRefundMode("CREDIT")}
+                    title={!customer ? "Add a customer to store credit" : undefined}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                      refundMode === "CREDIT" ? "border-brand bg-brand text-brand-foreground" : "border-border text-foreground/70 hover:bg-surface-muted"
+                    }`}
+                  >
+                    Store credit
+                  </button>
+                </div>
               </div>
             )}
           </Card>
@@ -441,7 +548,7 @@ export default function PosPage() {
                   variant="secondary"
                   className="whitespace-nowrap"
                   onClick={() => setAmountPaid(String(collectTotal))}
-                  disabled={cart.length === 0}
+                  disabled={collectTotal === 0}
                 >
                   Paid in full
                 </Button>
@@ -451,17 +558,34 @@ export default function PosPage() {
 
           {/* Totals */}
           <Card className="flex flex-col gap-2 p-5">
-            <Row label="Subtotal" value={money(quote.subtotal)} />
-            {quote.discountAmount > 0 && <Row label="Discount" value={`- ${money(quote.discountAmount)}`} />}
-            {shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST (included)" value={money(quote.taxAmount)} />}
-            {quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
-            {dueToClear > 0 && <Row label="This sale" value={money(quote.total)} />}
-            {dueToClear > 0 && <Row label="Previous due cleared" value={money(dueToClear)} />}
+            {(() => {
+              const adjusted = returnTotal > 0 || creditUse > 0 || dueToClear > 0;
+              return (
+                <>
+                  <Row label={adjusted ? "This sale" : "Subtotal"} value={money(adjusted ? quote.total : quote.subtotal)} />
+                  {!adjusted && quote.discountAmount > 0 && <Row label="Discount" value={`- ${money(quote.discountAmount)}`} />}
+                  {!adjusted && shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST (included)" value={money(quote.taxAmount)} />}
+                  {!adjusted && quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
+                  {returnTotal > 0 && <Row label="Returns" value={`- ${money(returnTotal)}`} />}
+                  {creditUse > 0 && <Row label="Store credit used" value={`- ${money(creditUse)}`} />}
+                  {dueToClear > 0 && <Row label="Previous due cleared" value={money(dueToClear)} />}
+                </>
+              );
+            })()}
             <div className="my-1 border-t border-border" />
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-foreground/70">{dueToClear > 0 ? "To Collect" : "Grand Total"}</span>
-              <span className="text-xl font-semibold text-foreground">{money(collectTotal)}</span>
-            </div>
+            {refundValue > 0 ? (
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-warning">Refund ({refundMode === "CREDIT" ? "store credit" : "cash"})</span>
+                <span className="text-xl font-semibold text-warning">{money(refundValue)}</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-foreground/70">
+                  {returnTotal > 0 || creditUse > 0 || dueToClear > 0 ? "To Collect" : "Grand Total"}
+                </span>
+                <span className="text-xl font-semibold text-foreground">{money(collectTotal)}</span>
+              </div>
+            )}
             {paymentMethod === "CASH" && Number(amountPaid) > 0 && changeDue > 0 && (
               <Row label="Change" value={money(changeDue)} />
             )}
@@ -475,8 +599,12 @@ export default function PosPage() {
             {shop?.loyaltyEnabled && customer && quote.pointsEarned > 0 && (
               <p className="text-xs text-foreground/50">Earns {quote.pointsEarned} points</p>
             )}
-            <Button onClick={finalizeSale} disabled={cart.length === 0 || isCheckingOut} className="mt-2 w-full">
-              {isCheckingOut ? "Processing…" : "Finalize Sale (Enter)"}
+            <Button
+              onClick={finalizeSale}
+              disabled={(cart.length === 0 && returnLines.length === 0) || isCheckingOut}
+              className="mt-2 w-full"
+            >
+              {isCheckingOut ? "Processing…" : refundValue > 0 && cart.length === 0 ? "Process Return (Enter)" : "Finalize Sale (Enter)"}
             </Button>
           </Card>
         </div>

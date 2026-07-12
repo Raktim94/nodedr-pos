@@ -77,6 +77,7 @@ model Customer {
   loyaltyPoints Int       @default(0)
   totalSpent    Float     @default(0)
   totalDue      Float     @default(0) // outstanding credit ("udhaar") owed by this customer
+  creditBalance Float     @default(0) // store credit owed TO the customer (e.g. from a return kept as balance)
   visits        Int       @default(0)
   createdAt     DateTime  @default(now())
   invoices      Invoice[]
@@ -114,6 +115,10 @@ model Invoice {
   changeDue      Float         @default(0)
   dueAmount      Float         @default(0) // unpaid shortfall added to the customer's running due ("udhaar")
   previousDuePaid Float        @default(0) // old due the customer cleared as part of this same bill
+  returnValue    Float         @default(0) // value of items returned on this bill, netted against the sale
+  creditApplied  Float         @default(0) // store credit the customer spent on this bill
+  refundValue    Float         @default(0) // paid back to the customer (returns beyond the purchase) as cash or credit
+  refundMode     String? // "CASH" | "CREDIT" — how refundValue was settled
   pointsRedeemed Int           @default(0)
   pointsEarned   Int           @default(0)
   createdAt      DateTime      @default(now())

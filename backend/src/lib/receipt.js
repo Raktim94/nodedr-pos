@@ -50,6 +50,19 @@ function buildReceiptHtml({ shop, invoice }) {
   if (invoice.loyaltyDiscount > 0) {
     totalRows.push([`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${money(invoice.loyaltyDiscount)}`]);
   }
+  if (invoice.returnValue > 0) totalRows.push(['Returns', `- ${money(invoice.returnValue)}`]);
+  if (invoice.creditApplied > 0) totalRows.push(['Store credit used', `- ${money(invoice.creditApplied)}`]);
+
+  // With returns/credit, the customer pays (or is refunded) the net, not the
+  // raw sale total. Decide the bold bottom line accordingly.
+  const payable = Math.max(0, Math.round((invoice.totalAmount - invoice.returnValue - invoice.creditApplied) * 100) / 100);
+  const hasRefund = invoice.refundValue > 0;
+  const grandLabel = hasRefund
+    ? `REFUND (${invoice.refundMode === 'CREDIT' ? 'store credit' : 'cash'})`
+    : invoice.returnValue > 0 || invoice.creditApplied > 0
+      ? 'NET PAYABLE'
+      : 'GRAND TOTAL';
+  const grandValue = hasRefund ? invoice.refundValue : payable;
 
   return `<!doctype html>
 <html>
@@ -60,13 +73,22 @@ function buildReceiptHtml({ shop, invoice }) {
   /* Kept deliberately tight: every extra pixel of vertical whitespace here
      is real thermal paper on every single receipt printed, forever. */
   * { box-sizing: border-box; }
-  /* The whole receipt is sized to an 80mm thermal roll — the standard POS
-     printer. The width is the single most important thing to get right:
-     content wider than the paper's printable area gets clipped on the right
-     edge, which is exactly the "amounts cut off" bug this layout fixes. */
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0 auto; padding: 8px; color: #111; width: 76mm; max-width: 100%; }
+  /* THE fix for right-side clipping. The sheet is an 80mm thermal roll.
+     Getting the geometry consistent is everything: the page box, the body,
+     and the content must all agree, or whatever is widest overflows and the
+     printer chops it off on the right.
+       - @page margin 0: the page box is the FULL 80mm. (A non-zero @page
+         margin shrinks the page box below 80mm, and then an 80mm-wide body
+         no longer fits — that mismatch was the bug.)
+       - body is exactly 80mm with box-sizing border-box, so its 4mm padding
+         is subtracted FROM the 80mm, not added to it. Content is therefore
+         72mm wide and sits 4mm inside each physical edge — comfortably clear
+         of the small non-printable strip every thermal head has. Nothing on
+         the page is ever wider than the 80mm sheet, so nothing clips. */
+  html { margin: 0; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0 auto; padding: 4mm; color: #111; width: 80mm; }
   p { margin: 0 0 3px; }
-  .receipt { width: 100%; margin: 0 auto; }
+  .receipt { width: 100%; margin: 0; }
   h1 { font-size: 15px; text-align: center; margin: 0 0 2px; }
   .center { text-align: center; }
   .muted { color: #555; font-size: 11px; line-height: 1.35; }
@@ -79,22 +101,20 @@ function buildReceiptHtml({ shop, invoice }) {
   .totals td { padding: 1px 0; }
   .grand td { font-weight: 700; font-size: 13px; border-top: 1px solid #111; padding-top: 3px; }
   .footer { text-align: center; margin-top: 6px; font-size: 11px; }
-  /* Force the sheet itself to 80mm wide (thermal roll), auto/continuous
-     height. Without an explicit @page size the browser lays the receipt out
-     against the default paper (often A4) and then scales it to the thermal
-     roll, and the scale-down clipped the right edge. Pinning the page to
-     80mm makes what's on screen match what the printer feeds, so nothing is
-     cut. The small margin stays inside every thermal printer's non-printable
-     hardware edge. */
-  @page { size: 80mm auto; margin: 3mm; }
+  @page { size: 80mm auto; margin: 0; }
   @media print {
     html, body { width: 80mm; }
-    body { padding: 2mm; }
     .no-print { display: none; }
   }
 </style>
 </head>
-<body onload="window.print()">
+<body>
+  <script>
+    // The parent frame (frontend/lib/print.ts) normally calls print() on this
+    // window directly after focusing it. This is only a fallback for engines
+    // that block the cross-frame call: the parent posts "print" and we run it.
+    window.addEventListener('message', function (e) { if (e.data === 'print') window.print(); });
+  </script>
   <div class="receipt">
     ${shop.receiptHeader ? `<p class="center muted">${esc(shop.receiptHeader).replace(/\n/g, '<br>')}</p>` : ''}
     <h1>${esc(shop.shopName)}</h1>
@@ -121,9 +141,12 @@ function buildReceiptHtml({ shop, invoice }) {
     <hr class="rule">
     <table class="totals">
       ${totalRows.map(([l, v]) => `<tr><td>${esc(l)}</td><td class="num">${esc(v)}</td></tr>`).join('')}
-      <tr class="grand"><td>GRAND TOTAL</td><td class="num">${money(invoice.totalAmount)}</td></tr>
+      <tr class="grand"><td>${esc(grandLabel)}</td><td class="num">${money(grandValue)}</td></tr>
     </table>
-    <hr class="rule">
+    ${
+      hasRefund
+        ? ''
+        : `<hr class="rule">
     <table class="totals">
       <tr><td>Paid (${esc(invoice.paymentMethod)})</td><td class="num">${money(invoice.amountPaid)}</td></tr>
       ${
@@ -134,7 +157,8 @@ function buildReceiptHtml({ shop, invoice }) {
       }
       ${invoice.changeDue > 0 ? `<tr><td>Change</td><td class="num">${money(invoice.changeDue)}</td></tr>` : ''}
       ${invoice.dueAmount > 0 ? `<tr><td>Balance Due</td><td class="num">${money(invoice.dueAmount)}</td></tr>` : ''}
-    </table>
+    </table>`
+    }
     ${
       shop.loyaltyEnabled && invoice.pointsEarned > 0
         ? `<p class="center muted">You earned ${invoice.pointsEarned} loyalty points!</p>`

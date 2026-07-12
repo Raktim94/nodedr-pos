@@ -7,26 +7,54 @@ const { computeSale, round2 } = require('../lib/pricing');
 const router = express.Router();
 router.use(requireAuth);
 
-const checkoutSchema = z.object({
-  customerName: z.string().trim().max(200).optional().or(z.literal('')),
-  customerPhone: z.string().trim().max(30).optional().or(z.literal('')),
-  items: z
-    .array(
-      z.object({
-        productId: z.number().int().positive(),
-        quantity: z.number().int().positive(),
-      })
-    )
-    .min(1),
-  discountType: z.enum(['percent', 'amount']).nullish(),
-  discountValue: z.number().min(0).default(0),
-  pointsRedeemed: z.number().int().min(0).default(0),
-  paymentMethod: z.enum(['CASH', 'UPI', 'CARD']).default('CASH'),
-  amountPaid: z.number().min(0).default(0),
-  // Old outstanding due the customer chooses to clear as part of this bill.
-  // Added on top of the goods total for what the cashier collects.
-  duePaid: z.number().min(0).default(0),
-});
+const checkoutSchema = z
+  .object({
+    customerName: z.string().trim().max(200).optional().or(z.literal('')),
+    customerPhone: z.string().trim().max(30).optional().or(z.literal('')),
+    items: z
+      .array(
+        z.object({
+          productId: z.number().int().positive(),
+          quantity: z.number().int().positive(),
+        })
+      )
+      .default([]),
+    discountType: z.enum(['percent', 'amount']).nullish(),
+    discountValue: z.number().min(0).default(0),
+    pointsRedeemed: z.number().int().min(0).default(0),
+    paymentMethod: z.enum(['CASH', 'UPI', 'CARD']).default('CASH'),
+    amountPaid: z.number().min(0).default(0),
+    // Old outstanding due the customer chooses to clear as part of this bill.
+    // Added on top of the goods total for what the cashier collects.
+    duePaid: z.number().min(0).default(0),
+    // Items being returned on this bill, grouped by the original invoice they
+    // were sold on. refundAmount is optional per line (defaults to the price
+    // originally charged for that quantity) so the cashier can refund less.
+    returns: z
+      .array(
+        z.object({
+          invoiceId: z.number().int().positive(),
+          items: z
+            .array(
+              z.object({
+                invoiceItemId: z.number().int().positive(),
+                quantity: z.number().int().positive(),
+                refundAmount: z.number().min(0).optional(),
+              })
+            )
+            .min(1),
+        })
+      )
+      .default([]),
+    // How to settle a refund that exceeds the purchase: pay it out in cash or
+    // keep it as reusable store credit on the customer.
+    refundMode: z.enum(['CASH', 'CREDIT']).default('CASH'),
+    // Existing store credit the customer spends on this bill.
+    creditApplied: z.number().min(0).default(0),
+  })
+  .refine((d) => d.items.length > 0 || d.returns.length > 0, {
+    message: 'Add at least one item to sell or return',
+  });
 
 async function nextInvoiceNumber(tx) {
   const count = await tx.invoice.count();
@@ -90,34 +118,91 @@ router.post('/', async (req, res) => {
         settings,
       });
 
-      // Old due the customer wants cleared on this bill, capped at what they
-      // actually owe. Only meaningful with a customer attached.
+      const saleTotal = computed.totalAmount;
+
+      // --- Returns processed as part of this bill --------------------------
+      // Each returned line is validated against its ORIGINAL invoice: the item
+      // must belong to that invoice and the quantity can't exceed what's still
+      // returnable (sold minus already returned). The refund defaults to what
+      // was originally charged for that quantity and can only be lowered, never
+      // raised above it — you can't refund more than the customer paid.
+      let returnValue = 0;
+      const restock = new Map();
+      const returnRecords = [];
+      for (const grp of body.returns) {
+        const original = await tx.invoice.findUnique({ where: { id: grp.invoiceId }, include: { items: true } });
+        if (!original) throw Object.assign(new Error(`Invoice ${grp.invoiceId} not found for return`), { status: 404 });
+        const itemMap = new Map(original.items.map((it) => [it.id, it]));
+        const lines = [];
+        let groupRefund = 0;
+        for (const rl of grp.items) {
+          const invItem = itemMap.get(rl.invoiceItemId);
+          if (!invItem) throw Object.assign(new Error('Return item not found on that invoice'), { status: 404 });
+          const already = await tx.returnItem.aggregate({
+            where: { invoiceItemId: invItem.id },
+            _sum: { quantity: true },
+          });
+          const returnable = invItem.quantity - (already._sum.quantity || 0);
+          if (rl.quantity > returnable) {
+            throw Object.assign(new Error(`Only ${returnable} of "${invItem.name}" can still be returned`), { status: 409 });
+          }
+          const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
+          const refund = rl.refundAmount != null ? round2(Math.min(Math.max(0, rl.refundAmount), maxRefund)) : maxRefund;
+          groupRefund = round2(groupRefund + refund);
+          returnValue = round2(returnValue + refund);
+          restock.set(invItem.productId, (restock.get(invItem.productId) || 0) + rl.quantity);
+          lines.push({
+            invoiceItemId: invItem.id,
+            productId: invItem.productId,
+            name: invItem.name,
+            quantity: rl.quantity,
+            refundAmount: refund,
+          });
+        }
+        returnRecords.push({ invoiceId: original.id, customerId: original.customerId, groupRefund, lines });
+      }
+
+      // --- Store credit the customer spends on this bill -------------------
+      // Capped at the balance AND at what's still owed after returns, so
+      // credit only ever reduces the payable — it can never be cashed out by
+      // "spending" more of it than the purchase is worth.
+      let creditApplied = 0;
+      if (body.creditApplied > 0) {
+        if (!customer) throw Object.assign(new Error('A customer is required to use store credit'), { status: 400 });
+        creditApplied = round2(Math.min(body.creditApplied, customer.creditBalance, Math.max(0, saleTotal - returnValue)));
+      }
+
+      // Net the returns and any spent credit against the sale. A positive net
+      // is what the customer still pays; a negative net is money owed back.
+      const netBill = round2(saleTotal - returnValue - creditApplied);
+      const payable = round2(Math.max(0, netBill));
+      const refundValue = round2(Math.max(0, -netBill));
+      let refundMode = null;
+      if (refundValue > 0) {
+        refundMode = body.refundMode;
+        if (refundMode === 'CREDIT' && !customer) {
+          throw Object.assign(new Error('A customer is required to keep a refund as store credit'), { status: 400 });
+        }
+      }
+
+      // Old due the customer wants cleared on this bill, capped at what they owe.
       let previousDuePaid = 0;
       if (body.duePaid > 0) {
         if (!customer) {
-          throw Object.assign(
-            new Error('A customer (with phone number) is required to clear a previous due'),
-            { status: 400 }
-          );
+          throw Object.assign(new Error('A customer (with phone number) is required to clear a previous due'), { status: 400 });
         }
         previousDuePaid = round2(Math.min(body.duePaid, customer.totalDue));
       }
 
-      const goodsTotal = computed.totalAmount;
-      // For a cash sale the cashier enters the combined tender (goods + any
-      // due being cleared); the money covers the goods first, then the due.
-      // For UPI/CARD we assume the exact combined amount was captured.
-      const tendered = body.paymentMethod === 'CASH' ? body.amountPaid : goodsTotal + previousDuePaid;
-      const amountPaid = round2(Math.min(tendered, goodsTotal)); // portion applied to the goods invoice
-      const afterGoods = round2(Math.max(0, tendered - goodsTotal));
-      previousDuePaid = round2(Math.min(previousDuePaid, afterGoods)); // can't clear more due than money left after goods
+      // Tender covers the net payable first, then any old due being cleared.
+      const tendered = body.paymentMethod === 'CASH' ? body.amountPaid : payable + previousDuePaid;
+      const amountPaid = round2(Math.min(tendered, payable));
+      const afterGoods = round2(Math.max(0, tendered - payable));
+      previousDuePaid = round2(Math.min(previousDuePaid, afterGoods));
       const changeDue = round2(Math.max(0, afterGoods - previousDuePaid));
 
-      // A cash sale paid short of the goods total becomes a new due ("udhaar")
-      // added to the customer's running balance — only possible with a
-      // customer attached (a phone number), since there's no one to collect
-      // from otherwise.
-      const dueAmount = round2(Math.max(0, goodsTotal - amountPaid));
+      // Paying short of the net payable becomes a new due — needs a customer.
+      const dueAmount = round2(Math.max(0, payable - amountPaid));
       if (dueAmount > 0 && !customer) {
         throw Object.assign(
           new Error('A customer (with phone number) is required to record a due/partial-payment amount'),
@@ -144,6 +229,10 @@ router.post('/', async (req, res) => {
           changeDue,
           dueAmount,
           previousDuePaid,
+          returnValue,
+          creditApplied,
+          refundValue,
+          refundMode,
           pointsRedeemed: computed.pointsRedeemed,
           pointsEarned: computed.pointsEarned,
           items: { create: computed.items },
@@ -151,13 +240,27 @@ router.post('/', async (req, res) => {
         include: { items: true },
       });
 
-      // Record the old-due clearance as its own audit row (same trail as the
-      // standalone settle-due route) so a customer's payment history is
-      // complete regardless of whether they paid at the counter or on a bill.
       if (previousDuePaid > 0) {
         await tx.customerDuePayment.create({
           data: { customerId: customer.id, amount: previousDuePaid, note: `Bill ${invoiceNumber}` },
         });
+      }
+
+      // Persist the returns (audit trail) and restock the returned units.
+      for (const rr of returnRecords) {
+        await tx.return.create({
+          data: {
+            invoiceId: rr.invoiceId,
+            customerId: rr.customerId,
+            totalRefund: rr.groupRefund,
+            refundMethod: refundValue > 0 ? refundMode : 'BILL_OFFSET',
+            note: `Bill ${invoiceNumber}`,
+            items: { create: rr.lines },
+          },
+        });
+      }
+      for (const [productId, qty] of restock) {
+        await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
       }
 
       for (const item of body.items) {
@@ -173,9 +276,11 @@ router.post('/', async (req, res) => {
           data: {
             loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
             totalSpent: { increment: computed.totalAmount },
-            // Net effect on the running balance: this bill's shortfall adds to
-            // it, any old due cleared on this same bill subtracts from it.
+            // Shortfall on this bill adds to the running due; any old due
+            // cleared here subtracts from it.
             totalDue: { increment: round2(dueAmount - previousDuePaid) },
+            // Credit spent leaves the balance; a refund kept as credit joins it.
+            creditBalance: { increment: round2((refundMode === 'CREDIT' ? refundValue : 0) - creditApplied) },
             visits: { increment: 1 },
           },
         });
