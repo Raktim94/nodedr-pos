@@ -165,8 +165,13 @@ export default function PosPage() {
     setAmountPaid("");
   };
 
+  // A bill is submittable if it sells something, returns something, or
+  // collects a previous due — the last case lets a customer walk in only to
+  // pay off their udhaar, with no purchase, straight from the register.
+  const canFinalize = cart.length > 0 || returnLines.length > 0 || dueToClear > 0;
+
   const finalizeSale = useCallback(async () => {
-    if ((cart.length === 0 && returnLines.length === 0) || isCheckingOut) return;
+    if (!canFinalize || isCheckingOut) return;
     setIsCheckingOut(true);
     try {
       // Group the flat return lines back by their original invoice.
@@ -210,12 +215,25 @@ export default function PosPage() {
       setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
       resetSale();
       if (shop?.autoPrintReceipt) {
-        // Deferred one tick so the "Sale complete" card is definitely
-        // painted before the OS print dialog opens — window.print() is
-        // modal in most browsers and pauses the tab, which otherwise can
-        // read as the app having frozen mid-checkout instead of having
-        // already finished.
-        setTimeout(() => openReceiptPrint(invoice.id), 0);
+        if (shop.autoPrintMethod === "usb") {
+          // Send straight to the USB thermal printer — a plain async request,
+          // NOT the modal window.print() dialog. On a Debian till with no
+          // browser-configured printer that dialog has nothing to open and
+          // freezes the screen after every sale (which showed up as checkout
+          // "hanging", especially on store-credit/refund bills); the USB path
+          // has no dialog to hang on. Fire-and-forget with a toast on failure
+          // so a printer problem never blocks the next customer.
+          api.post(`/print/${invoice.id}/usb`).catch((err) =>
+            show(err instanceof ApiError ? err.message : "Auto-print to USB printer failed", "error")
+          );
+        } else {
+          // Deferred one tick so the "Sale complete" card is definitely
+          // painted before the OS print dialog opens — window.print() is
+          // modal in most browsers and pauses the tab, which otherwise can
+          // read as the app having frozen mid-checkout instead of having
+          // already finished.
+          setTimeout(() => openReceiptPrint(invoice.id), 0);
+        }
       }
     } catch (err) {
       show(describeApiError(err, "Checkout failed"), "error");
@@ -223,7 +241,7 @@ export default function PosPage() {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, isCheckingOut, queryClient, show, shop?.autoPrintReceipt]);
+  }, [cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, shop?.autoPrintReceipt, shop?.autoPrintMethod]);
 
   useBarcodeScanner({
     onScan: handleScan,
@@ -610,7 +628,18 @@ export default function PosPage() {
                   {!adjusted && quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
                   {returnTotal > 0 && <Row label="Returns" value={`- ${money(returnTotal)}`} />}
                   {creditUse > 0 && <Row label="Store credit used" value={`- ${money(creditUse)}`} />}
-                  {dueToClear > 0 && <Row label="Previous due cleared" value={money(dueToClear)} />}
+                  {/* Show what will ACTUALLY clear given the tender so far
+                      (duePaidFinal), not the intended amount (dueToClear) —
+                      on a cash bill that's still short, the due hasn't been
+                      funded yet, and claiming it's cleared here is exactly
+                      what made cashiers think a due had been paid when the
+                      backend correctly left it standing. */}
+                  {dueToClear > 0 && (
+                    <Row
+                      label={duePaidFinal < dueToClear ? "Due to clear (needs full payment)" : "Previous due cleared"}
+                      value={money(duePaidFinal)}
+                    />
+                  )}
                 </>
               );
             })()}
@@ -643,10 +672,16 @@ export default function PosPage() {
             )}
             <Button
               onClick={finalizeSale}
-              disabled={(cart.length === 0 && returnLines.length === 0) || isCheckingOut}
+              disabled={!canFinalize || isCheckingOut}
               className="mt-2 w-full"
             >
-              {isCheckingOut ? "Processing…" : refundValue > 0 && cart.length === 0 ? "Process Return (Enter)" : "Finalize Sale (Enter)"}
+              {isCheckingOut
+                ? "Processing…"
+                : refundValue > 0 && cart.length === 0
+                  ? "Process Return (Enter)"
+                  : cart.length === 0 && returnLines.length === 0 && dueToClear > 0
+                    ? "Collect Due (Enter)"
+                    : "Finalize Sale (Enter)"}
             </Button>
           </Card>
         </div>

@@ -304,6 +304,7 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
   const [header, setHeader] = useState(settings.receiptHeader ?? "");
   const [footer, setFooter] = useState(settings.receiptFooter ?? "");
   const [autoPrint, setAutoPrint] = useState(settings.autoPrintReceipt);
+  const [autoPrintMethod, setAutoPrintMethod] = useState(settings.autoPrintMethod ?? "browser");
   const [usbWidth, setUsbWidth] = useState(String(settings.usbPrinterWidth));
 
   return (
@@ -315,6 +316,7 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
             receiptHeader: header,
             receiptFooter: footer,
             autoPrintReceipt: autoPrint,
+            autoPrintMethod,
             usbPrinterWidth: Number(usbWidth),
           });
         }}
@@ -322,10 +324,28 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
       >
         <Toggle
           label="Print automatically after every sale"
-          description="Skips the extra click on the checkout page — the receipt opens and sends to your printer the moment a sale completes"
+          description="Skips the extra click on the checkout page — the receipt sends to your printer the moment a sale completes"
           checked={autoPrint}
           onChange={setAutoPrint}
         />
+        {autoPrint && (
+          <Select
+            label="Auto-print using"
+            value={autoPrintMethod}
+            onChange={(e) => setAutoPrintMethod(e.target.value as "browser" | "usb")}
+            options={[
+              { value: "browser", label: "Browser print dialog (Windows + printer driver)" },
+              { value: "usb", label: "Direct USB thermal printer (no dialog — for a Debian till)" },
+            ]}
+          />
+        )}
+        {autoPrint && autoPrintMethod === "usb" && (
+          <p className="-mt-2 text-xs text-foreground/60">
+            Sends the receipt straight to the USB printer with no pop-up. Use this on a till where the
+            browser print dialog has no printer set up — otherwise that dialog can freeze the screen after
+            each sale.
+          </p>
+        )}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="rh" className="text-sm font-medium text-foreground">
             Receipt header (printed above the shop name)

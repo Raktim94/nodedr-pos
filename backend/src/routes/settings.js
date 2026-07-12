@@ -36,6 +36,7 @@ const fields = {
   showGst: z.boolean(),
   autoPrintReceipt: z.boolean(),
   usbPrinterWidth: z.union([z.literal(58), z.literal(80)]),
+  autoPrintMethod: z.enum(['browser', 'usb']),
   lowStockAlert: z.number().int().min(0).max(100000),
   allowNegativeStock: z.boolean(),
 };
@@ -53,6 +54,7 @@ const createSchema = z.object({
   showGst: fields.showGst.default(true),
   autoPrintReceipt: fields.autoPrintReceipt.default(false),
   usbPrinterWidth: fields.usbPrinterWidth.default(80),
+  autoPrintMethod: fields.autoPrintMethod.default('browser'),
   lowStockAlert: fields.lowStockAlert.default(5),
   allowNegativeStock: fields.allowNegativeStock.default(false),
 });

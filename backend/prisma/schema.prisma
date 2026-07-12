@@ -47,6 +47,14 @@ model ShopSettings {
   // Paper width in mm; only 58 or 80 are meaningful (drives the fixed
   // monospace column count for the raw text layout).
   usbPrinterWidth Int @default(80)
+  // How a receipt prints when "auto-print after sale" is on:
+  //   "browser" — the OS/browser print dialog (window.print), the default
+  //               and what a Windows machine with a printer driver uses.
+  //   "usb"     — raw ESC/POS straight to the USB thermal printer, with NO
+  //               modal dialog. Required on a headless/kiosk Debian till
+  //               where the browser print dialog has no configured printer
+  //               and would otherwise hang the screen after every sale.
+  autoPrintMethod String @default("browser")
   // Inventory
   lowStockAlert  Int      @default(5)
   allowNegativeStock Boolean @default(false)
