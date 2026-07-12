@@ -371,6 +371,7 @@ To pull the latest code and redeploy:
 
 ```bash
 # 1. Get the latest commits
+cd nodedr-pos
 git pull
 
 # 2. Rebuild the images and recreate the containers with the new code.
