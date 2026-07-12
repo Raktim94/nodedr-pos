@@ -1,42 +1,53 @@
 const express = require('express');
-const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
-const { buildReceiptText } = require('../lib/receipt');
-const { printReceipt } = require('../lib/printer');
+const { buildReceiptHtml } = require('../lib/receipt');
+const { buildReceiptPdf } = require('../lib/pdf');
 
 const router = express.Router();
 router.use(requireAuth);
 
-const printSchema = z.object({
-  invoiceId: z.coerce.number().int().positive(),
-  width: z.coerce.number().int().min(32).max(48).optional(),
-});
-
-// POST /api/print — formats the receipt for a saved invoice and sends it to
-// the USB thermal printer, including the ESC/POS auto-cut command.
-router.post('/', async (req, res) => {
-  const parsed = printSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-  }
-
+async function loadInvoiceAndShop(id) {
   const [invoice, shop] = await Promise.all([
-    prisma.invoice.findUnique({ where: { id: parsed.data.invoiceId }, include: { items: true } }),
+    prisma.invoice.findUnique({ where: { id }, include: { items: true } }),
     prisma.shopSettings.findFirst(),
   ]);
+  return { invoice, shop };
+}
 
+// GET /api/print/:invoiceId/receipt — a standalone, self-printing HTML page.
+// Opened in a new tab, it triggers window.print() so the browser's own print
+// dialog handles printer selection (thermal, laser, "Save as PDF", whatever
+// the OS/CUPS has configured) — we never talk to a USB device directly.
+router.get('/:invoiceId/receipt', async (req, res) => {
+  const id = Number(req.params.invoiceId);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });
+
+  const { invoice, shop } = await loadInvoiceAndShop(id);
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   if (!shop) return res.status(400).json({ error: 'Shop settings not configured' });
 
-  const text = buildReceiptText({ shop, invoice, width: parsed.data.width || 48 });
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildReceiptHtml({ shop, invoice }));
+});
+
+// GET /api/print/:invoiceId/pdf — downloads the receipt as a PDF file.
+router.get('/:invoiceId/pdf', async (req, res) => {
+  const id = Number(req.params.invoiceId);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });
+
+  const { invoice, shop } = await loadInvoiceAndShop(id);
+  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!shop) return res.status(400).json({ error: 'Shop settings not configured' });
 
   try {
-    const result = await printReceipt(text);
-    res.json({ ...result, preview: text });
+    const pdf = await buildReceiptPdf({ shop, invoice });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoiceNumber}.pdf"`);
+    res.send(pdf);
   } catch (err) {
-    console.error('Print failed:', err);
-    res.status(502).json({ error: err.message, preview: text });
+    console.error('PDF generation failed:', err);
+    res.status(500).json({ error: 'Could not generate PDF' });
   }
 });
 

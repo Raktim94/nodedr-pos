@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertTriangle, Package, Receipt, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { SalesCharts } from "@/components/SalesCharts";
 import { useLowStock, useProducts } from "@/hooks/useProducts";
 import { useInvoices, useSalesSummary } from "@/hooks/useInvoices";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -36,6 +37,8 @@ export default function DashboardPage() {
           accent={lowStock?.products.length ? "warning" : undefined}
         />
       </div>
+
+      <SalesCharts sym={sym} />
 
       <Card className="p-5">
         <div className="mb-4 flex items-center justify-between">

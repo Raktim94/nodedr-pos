@@ -1,117 +1,123 @@
-// Builds the plain-text receipt body for ESC/POS printing and as a preview
-// string for the UI. Column widths are computed for the given character
-// width so amounts right-align on both 58mm (32 cols) and 80mm (48 cols).
+// Builds the printable HTML receipt (see buildReceiptHtml below), shared by
+// the browser print flow and used as the content reference for the PDF
+// renderer in pdf.js.
 
-function pad(str, len) {
-  str = String(str);
-  return str.length >= len ? str.slice(0, len) : str + ' '.repeat(len - str.length);
-}
-function padLeft(str, len) {
-  str = String(str);
-  return str.length >= len ? str.slice(0, len) : ' '.repeat(len - str.length) + str;
-}
-function center(str, width) {
-  str = String(str);
-  if (str.length >= width) return str.slice(0, width);
-  const left = Math.floor((width - str.length) / 2);
-  return ' '.repeat(left) + str;
-}
-function money(n) {
-  return Number(n).toFixed(2);
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function buildReceiptText({ shop, invoice, width = 48 }) {
-  const line = '='.repeat(width);
-  const thin = '-'.repeat(width);
+// Builds a standalone, self-printing HTML receipt. Opened in a new tab, it
+// calls window.print() on load — the browser's own print dialog lets the
+// user pick any printer (thermal, laser, PDF virtual printer, whatever the
+// OS/CUPS has configured) instead of us talking to a USB device directly.
+function buildReceiptHtml({ shop, invoice }) {
   const sym = shop.currencySymbol || 'Rs.';
-
-  // Item columns: Name | Qty | Rate | Amount
-  const qtyW = 4;
-  const rateW = 9;
-  const amtW = 10;
-  const nameW = width - qtyW - rateW - amtW;
-
-  const out = [];
-  const push = (s = '') => out.push(s);
-
-  // --- Header ---
-  push(line);
-  if (shop.receiptHeader) {
-    shop.receiptHeader.split('\n').forEach((l) => push(center(l, width)));
-  }
-  push(center(shop.shopName, width));
-  if (shop.legalName) push(center(shop.legalName, width));
-  push(center(shop.address1, width));
-  if (shop.address2) push(center(shop.address2, width));
-  const cityState = [shop.city, shop.state].filter(Boolean).join(', ');
-  if (cityState) push(center(cityState, width));
-  if (shop.phone) push(center(`Ph: ${shop.phone}`, width));
-  if (shop.gstEnabled && shop.gstNumber) push(center(`GSTIN: ${shop.gstNumber}`, width));
-  push(line);
-
-  // --- Meta ---
+  const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
   const date = new Date(invoice.createdAt || Date.now());
-  const dateStr = date.toLocaleDateString('en-GB').replace(/\//g, '-');
-  const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  const leftMeta = `Date: ${dateStr} ${timeStr}`;
-  const rightMeta = `Bill: #${invoice.invoiceNumber}`;
-  const gap = Math.max(1, width - leftMeta.length - rightMeta.length);
-  push(`${leftMeta}${' '.repeat(gap)}${rightMeta}`);
-  push(`Cust: ${invoice.customerName || 'Walk-in Customer'}`);
-  if (invoice.customerPhone) push(`Ph:   ${invoice.customerPhone}`);
-  push(thin);
+  const dateStr = date.toLocaleString();
 
-  // --- Items ---
-  push(`${pad('Item', nameW)}${padLeft('Qty', qtyW)}${padLeft('Rate', rateW)}${padLeft('Amount', amtW)}`);
-  push(thin);
-  for (const it of invoice.items) {
-    const base = it.price * it.quantity;
-    push(`${pad(it.name, nameW)}${padLeft(it.quantity, qtyW)}${padLeft(money(it.price), rateW)}${padLeft(money(base), amtW)}`);
-    if (shop.gstEnabled && shop.showGst && it.taxRate > 0) {
-      push(`  GST @ ${it.taxRate}%`);
-    }
-  }
-  push(thin);
+  const itemRows = invoice.items
+    .map(
+      (it) => `
+        <tr>
+          <td>${esc(it.name)}${
+            shop.gstEnabled && shop.showGst && it.taxRate > 0
+              ? `<div class="sub">GST @ ${it.taxRate}%</div>`
+              : ''
+          }</td>
+          <td class="num">${it.quantity}${it.unit ? ` ${esc(it.unit)}` : ''}</td>
+          <td class="num">${money(it.price)}</td>
+          <td class="num">${money(it.price * it.quantity)}</td>
+        </tr>`
+    )
+    .join('');
 
-  // --- Totals ---
-  const totalLine = (label, value) => {
-    const v = `${sym} ${money(value)}`;
-    const g = Math.max(1, width - label.length - v.length);
-    push(`${label}${' '.repeat(g)}${v}`);
-  };
-
-  totalLine('Subtotal', invoice.subtotal);
+  const totalRows = [];
+  totalRows.push(['Subtotal', money(invoice.subtotal)]);
   if (invoice.discountAmount > 0) {
     const label = invoice.discountType === 'percent' ? `Discount (${invoice.discountValue}%)` : 'Discount';
-    totalLine(label, -invoice.discountAmount);
+    totalRows.push([label, `- ${money(invoice.discountAmount)}`]);
   }
   if (shop.gstEnabled && invoice.taxAmount > 0) {
-    // Split into CGST + SGST (intra-state) — each half the total tax.
     const half = Math.round((invoice.taxAmount / 2 + Number.EPSILON) * 100) / 100;
-    totalLine('CGST', half);
-    totalLine('SGST', money(invoice.taxAmount - half));
+    totalRows.push(['CGST', money(half)]);
+    totalRows.push(['SGST', money(invoice.taxAmount - half)]);
   }
   if (invoice.loyaltyDiscount > 0) {
-    totalLine(`Loyalty (${invoice.pointsRedeemed} pts)`, -invoice.loyaltyDiscount);
-  }
-  push(line);
-  totalLine('GRAND TOTAL', invoice.totalAmount);
-  push(line);
-
-  totalLine(`Paid (${invoice.paymentMethod})`, invoice.amountPaid);
-  if (invoice.changeDue > 0) totalLine('Change', invoice.changeDue);
-
-  // --- Loyalty summary ---
-  if (shop.loyaltyEnabled && invoice.pointsEarned > 0) {
-    push(thin);
-    push(center(`You earned ${invoice.pointsEarned} loyalty points!`, width));
+    totalRows.push([`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${money(invoice.loyaltyDiscount)}`]);
   }
 
-  push(line);
-  (shop.receiptFooter || 'Thank You! Visit Again.').split('\n').forEach((l) => push(center(l, width)));
-  push(line);
-
-  return out.join('\n');
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${esc(invoice.invoiceNumber)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 16px; color: #111; }
+  .receipt { max-width: 340px; margin: 0 auto; }
+  h1 { font-size: 16px; text-align: center; margin: 0 0 2px; }
+  .center { text-align: center; }
+  .muted { color: #555; font-size: 12px; }
+  .rule { border: none; border-top: 1px dashed #999; margin: 10px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; color: #777; padding-bottom: 4px; }
+  td { padding: 3px 0; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  .sub { font-size: 10px; color: #777; }
+  .totals td { padding: 2px 0; }
+  .grand td { font-weight: 700; font-size: 14px; border-top: 1px solid #111; padding-top: 6px; }
+  .footer { text-align: center; margin-top: 14px; font-size: 12px; }
+  @media print {
+    body { padding: 0; }
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body onload="window.print()">
+  <div class="receipt">
+    ${shop.receiptHeader ? `<p class="center muted">${esc(shop.receiptHeader).replace(/\n/g, '<br>')}</p>` : ''}
+    <h1>${esc(shop.shopName)}</h1>
+    ${shop.legalName ? `<p class="center muted">${esc(shop.legalName)}</p>` : ''}
+    <p class="center muted">
+      ${esc(shop.address1)}${shop.address2 ? `, ${esc(shop.address2)}` : ''}<br>
+      ${[shop.city, shop.state].filter(Boolean).map(esc).join(', ')}
+      ${shop.phone ? `<br>Ph: ${esc(shop.phone)}` : ''}
+      ${shop.gstEnabled && shop.gstNumber ? `<br>GSTIN: ${esc(shop.gstNumber)}` : ''}
+    </p>
+    <hr class="rule">
+    <p class="muted">
+      ${esc(dateStr)}<br>
+      Bill: #${esc(invoice.invoiceNumber)}<br>
+      Cust: ${esc(invoice.customerName || 'Walk-in Customer')}${invoice.customerPhone ? ` · ${esc(invoice.customerPhone)}` : ''}
+    </p>
+    <hr class="rule">
+    <table>
+      <thead>
+        <tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr>
+      </thead>
+      <tbody>${itemRows}</tbody>
+    </table>
+    <hr class="rule">
+    <table class="totals">
+      ${totalRows.map(([l, v]) => `<tr><td>${esc(l)}</td><td class="num">${esc(v)}</td></tr>`).join('')}
+      <tr class="grand"><td>GRAND TOTAL</td><td class="num">${money(invoice.totalAmount)}</td></tr>
+    </table>
+    <hr class="rule">
+    <table class="totals">
+      <tr><td>Paid (${esc(invoice.paymentMethod)})</td><td class="num">${money(invoice.amountPaid)}</td></tr>
+      ${invoice.changeDue > 0 ? `<tr><td>Change</td><td class="num">${money(invoice.changeDue)}</td></tr>` : ''}
+    </table>
+    ${
+      shop.loyaltyEnabled && invoice.pointsEarned > 0
+        ? `<p class="center muted">You earned ${invoice.pointsEarned} loyalty points!</p>`
+        : ''
+    }
+    <hr class="rule">
+    <p class="footer">${esc(shop.receiptFooter || 'Thank You! Visit Again.').replace(/\n/g, '<br>')}</p>
+  </div>
+</body>
+</html>`;
 }
 
-module.exports = { buildReceiptText };
+module.exports = { buildReceiptHtml };

@@ -9,6 +9,7 @@ export interface ProductInput {
   name: string;
   category?: string;
   hsn?: string;
+  unit?: string;
   purchasePrice: number;
   sellingPrice: number;
   taxRate: number;

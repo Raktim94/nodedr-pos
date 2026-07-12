@@ -2,7 +2,7 @@
   "name": "nodedr-pos-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "Offline POS backend: API, SQLite via Prisma, ESC/POS thermal printer driver",
+  "description": "Offline POS backend: API, SQLite via Prisma, receipt PDF/print generation",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
@@ -17,11 +17,13 @@
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "escpos-usb": "^3.0.0-alpha.4",
+    "csv-parse": "^7.0.1",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.2.0",
+    "pdfkit": "^0.19.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {

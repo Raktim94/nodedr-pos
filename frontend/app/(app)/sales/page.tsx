@@ -1,13 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Search, X, Printer } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { ReceiptActions } from "@/components/ReceiptActions";
 import { useInvoices, useInvoice } from "@/hooks/useInvoices";
 import { useShopSettings } from "@/hooks/useShopSettings";
-import { useToast } from "@/components/Toast";
-import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 
 export default function SalesPage() {
@@ -80,21 +78,7 @@ export default function SalesPage() {
 
 function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose: () => void }) {
   const { data: invoice, isLoading } = useInvoice(id);
-  const { show } = useToast();
-  const [printing, setPrinting] = useState(false);
   const money = (n: number) => formatMoney(n, sym);
-
-  async function reprint() {
-    setPrinting(true);
-    try {
-      const res = await api.post<{ printed: boolean; reason?: string }>("/print", { invoiceId: id });
-      show(res.printed ? "Sent to printer" : res.reason || "No printer detected", res.printed ? "success" : "info");
-    } catch (err) {
-      show(err instanceof ApiError ? err.message : "Print failed", "error");
-    } finally {
-      setPrinting(false);
-    }
-  }
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/50" onClick={onClose}>
@@ -134,7 +118,10 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
                   {invoice.items.map((it) => (
                     <tr key={it.id}>
                       <td className="p-2 text-foreground">{it.name}</td>
-                      <td className="p-2 text-right text-foreground/70">{it.quantity}</td>
+                      <td className="p-2 text-right text-foreground/70">
+                      {it.quantity}
+                      {it.unit ? ` ${it.unit}` : ""}
+                    </td>
                       <td className="p-2 text-right text-foreground/70">{money(it.total)}</td>
                     </tr>
                   ))}
@@ -159,10 +146,7 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
               {invoice.pointsEarned > 0 && <Line label="Points earned" value={`${invoice.pointsEarned}`} />}
             </div>
 
-            <Button onClick={reprint} disabled={printing} className="w-full">
-              <Printer className="h-4 w-4" aria-hidden="true" />
-              {printing ? "Printing…" : "Reprint receipt"}
-            </Button>
+            <ReceiptActions invoiceId={id} />
           </div>
         )}
       </div>

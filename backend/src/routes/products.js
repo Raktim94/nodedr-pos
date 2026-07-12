@@ -11,6 +11,7 @@ const productSchema = z.object({
   name: z.string().trim().min(1).max(200),
   category: z.string().trim().max(80).optional().or(z.literal('')),
   hsn: z.string().trim().max(20).optional().or(z.literal('')),
+  unit: z.string().trim().max(10).optional().or(z.literal('')),
   purchasePrice: z.number().min(0),
   sellingPrice: z.number().min(0),
   taxRate: z.number().min(0).max(100).default(0),

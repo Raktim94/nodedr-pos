@@ -11,6 +11,12 @@ export interface SalesSummary {
   totalRevenue: number;
 }
 
+export interface SalesAnalytics {
+  trend: { date: string; revenue: number; count: number }[];
+  topProducts: { name: string; quantity: number; revenue: number }[];
+  paymentMethods: { method: string; count: number; revenue: number }[];
+}
+
 export function useInvoices(search = "") {
   return useQuery({
     queryKey: ["invoices", search],
@@ -31,5 +37,13 @@ export function useInvoice(id: number | null) {
     queryKey: ["invoice", id],
     queryFn: () => api.get<Invoice>(`/invoices/${id}`),
     enabled: id != null,
+  });
+}
+
+export function useSalesAnalytics() {
+  return useQuery({
+    queryKey: ["invoices", "analytics"],
+    queryFn: () => api.get<SalesAnalytics>("/invoices/analytics"),
+    refetchInterval: 60_000,
   });
 }

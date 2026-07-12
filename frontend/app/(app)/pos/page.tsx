@@ -2,10 +2,11 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, ScanBarcode, Trash2, Search, Star } from "lucide-react";
+import { Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
+import { ReceiptActions } from "@/components/ReceiptActions";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
@@ -29,6 +30,9 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [amountPaid, setAmountPaid] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [completedSale, setCompletedSale] = useState<{ id: number; invoiceNumber: string; totalAmount: number } | null>(
+    null
+  );
 
   const sym = shop?.currencySymbol || "Rs.";
   const money = (n: number) => formatMoney(n, sym);
@@ -42,6 +46,7 @@ export default function PosPage() {
 
   const addToCart = useCallback(
     (product: Product) => {
+      setCompletedSale(null);
       setCart((prev) => {
         const existing = prev.find((item) => item.product.id === product.id);
         if (!existing) return [...prev, { product, quantity: 1 }];
@@ -118,16 +123,8 @@ export default function PosPage() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
       resetSale();
-
-      try {
-        const printResult = await api.post<{ printed: boolean; reason?: string }>("/print", {
-          invoiceId: invoice.id,
-        });
-        if (!printResult.printed) show(printResult.reason || "Receipt not printed (no printer detected)", "info");
-      } catch {
-        show("Sale saved, but sending the receipt to the printer failed", "info");
-      }
     } catch (err) {
       show(err instanceof ApiError ? err.message : "Checkout failed", "error");
     } finally {
@@ -174,6 +171,26 @@ export default function PosPage() {
         </p>
       </div>
 
+      {completedSale && (
+        <Card className="flex flex-wrap items-center justify-between gap-4 border-brand/30 bg-brand/5 p-5">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-6 w-6 shrink-0 text-brand" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {completedSale.invoiceNumber} · {money(completedSale.totalAmount)}
+              </p>
+              <p className="text-xs text-foreground/60">Sale complete — print or download the receipt below.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <ReceiptActions invoiceId={completedSale.id} />
+            <Button type="button" variant="ghost" onClick={() => setCompletedSale(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Cart */}
         <Card className="p-5 lg:col-span-2">
@@ -196,7 +213,10 @@ export default function PosPage() {
                 <tbody className="divide-y divide-border">
                   {cart.map((item) => (
                     <tr key={item.product.id}>
-                      <td className="py-2.5 pr-4 font-medium text-foreground">{item.product.name}</td>
+                      <td className="py-2.5 pr-4 font-medium text-foreground">
+                        {item.product.name}
+                        {item.product.unit && <span className="ml-1.5 font-normal text-foreground/40">({item.product.unit})</span>}
+                      </td>
                       <td className="py-2.5 pr-4">
                         <div className="flex items-center gap-2">
                           <button

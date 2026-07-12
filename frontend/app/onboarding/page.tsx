@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { useCurrencies } from "@/hooks/useShopSettings";
 import { api, ApiError } from "@/lib/api";
 
 const accountSchema = z.object({
@@ -27,7 +28,7 @@ const shopSchema = z.object({
   city: z.string().trim().optional(),
   state: z.string().trim().optional(),
   phone: z.string().trim().optional(),
-  currencyCode: z.enum(["INR", "USD", "EUR", "GBP"]),
+  currencyCode: z.string().min(1, "Choose a currency"),
   lowStockAlert: z.number().int().min(0),
   gstNumber: z.string().trim().optional(),
   defaultTaxRate: z.number().min(0).max(100),
@@ -36,19 +37,18 @@ type ShopForm = z.infer<typeof shopSchema>;
 
 const STEPS = ["Account", "Company", "Done"] as const;
 
-const CURRENCY_OPTIONS = [
-  { value: "INR", label: "₹ Indian Rupee (INR)" },
-  { value: "USD", label: "$ US Dollar (USD)" },
-  { value: "EUR", label: "€ Euro (EUR)" },
-  { value: "GBP", label: "£ British Pound (GBP)" },
-];
-
 export default function OnboardingPage() {
   const router = useRouter();
+  const { data: currencies } = useCurrencies();
   const [step, setStep] = useState(0);
   const [serverError, setServerError] = useState<string | null>(null);
   const [gstEnabled, setGstEnabled] = useState(false);
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
+
+  const currencyOptions = Object.entries(currencies ?? {}).map(([value, c]) => ({
+    value,
+    label: `${c.symbol} ${c.label} (${value})`,
+  }));
 
   const accountForm = useForm<AccountForm>({ resolver: zodResolver(accountSchema) });
   const shopForm = useForm<ShopForm>({
@@ -149,7 +149,7 @@ export default function OnboardingPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Phone" {...shopForm.register("phone")} />
-              <Select label="Currency" options={CURRENCY_OPTIONS} {...shopForm.register("currencyCode")} />
+              <Select label="Currency" options={currencyOptions} {...shopForm.register("currencyCode")} />
             </div>
             <Field
               label="Low stock alert threshold"

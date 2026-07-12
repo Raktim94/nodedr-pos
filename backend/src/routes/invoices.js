@@ -170,6 +170,61 @@ router.get('/summary', async (req, res) => {
   });
 });
 
+// GET /api/invoices/analytics — feeds the dashboard charts: revenue trend
+// over the last 14 days, top-selling products, and payment method mix.
+router.get('/analytics', async (req, res) => {
+  const since = new Date();
+  since.setDate(since.getDate() - 13);
+  since.setHours(0, 0, 0, 0);
+
+  const [recent, topItems, byMethod] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { createdAt: { gte: since } },
+      select: { createdAt: true, totalAmount: true, paymentMethod: true },
+    }),
+    prisma.invoiceItem.groupBy({
+      by: ['productId', 'name'],
+      _sum: { quantity: true, total: true },
+      orderBy: { _sum: { quantity: 'desc' } },
+      take: 5,
+    }),
+    prisma.invoice.groupBy({
+      by: ['paymentMethod'],
+      _sum: { totalAmount: true },
+      _count: true,
+    }),
+  ]);
+
+  const trendMap = new Map();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(since);
+    d.setDate(d.getDate() + i);
+    trendMap.set(d.toISOString().slice(0, 10), { date: d.toISOString().slice(0, 10), revenue: 0, count: 0 });
+  }
+  for (const inv of recent) {
+    const key = new Date(inv.createdAt).toISOString().slice(0, 10);
+    const bucket = trendMap.get(key);
+    if (bucket) {
+      bucket.revenue = round2(bucket.revenue + inv.totalAmount);
+      bucket.count += 1;
+    }
+  }
+
+  res.json({
+    trend: Array.from(trendMap.values()),
+    topProducts: topItems.map((t) => ({
+      name: t.name,
+      quantity: t._sum.quantity || 0,
+      revenue: round2(t._sum.total || 0),
+    })),
+    paymentMethods: byMethod.map((m) => ({
+      method: m.paymentMethod,
+      count: m._count,
+      revenue: round2(m._sum.totalAmount || 0),
+    })),
+  });
+});
+
 router.get('/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });

@@ -1,15 +1,53 @@
 # nodedr-pos
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docker Compose](https://img.shields.io/badge/deploy-docker%20compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![Node](https://img.shields.io/badge/node-20-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
+[![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
+
 A free, open-source, **fully offline** Point of Sale and inventory management
 system for small retail shops. It runs entirely on a local machine via
 Docker — no internet connection, no subscription, no cloud dependency, and
 no data ever leaves the shop.
 
-Built for a barcode-scanner-and-thermal-printer counter setup: scan an item
-to sell it, press Enter to check out, and a receipt prints automatically.
+Built for a barcode-scanner counter setup: scan an item to sell it, press
+Enter to check out, then print or download the receipt with one click. No
+barcode? Generate one and print a label, right from the app.
 
 Access it at **`http://<machine>:1994`** — from the shop's own machine or any
 tablet/phone on the same network.
+
+## Screenshots
+
+| Dashboard | Inventory |
+| --- | --- |
+| ![Dashboard with sales charts](docs/screenshots/dashboard.png) | ![Inventory list with barcode/edit/stock actions](docs/screenshots/inventory.png) |
+
+| Generate a barcode for a new product | Print or download a barcode label |
+| --- | --- |
+| ![Generating an EAN-13 barcode in the Add Product form](docs/screenshots/generate-barcode.png) | ![Barcode label modal with print and download options](docs/screenshots/barcode-label.png) |
+
+| GSTIN / PAN validation |
+| --- |
+| ![Live GSTIN and PAN format validation in Settings](docs/screenshots/settings-tax.png) |
+
+## Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Quick start](#quick-start)
+- [Hardware setup](#hardware-setup)
+- [Reference data & validation](#reference-data--validation)
+- [Updating](#updating)
+- [Backing up your data](#backing-up-your-data)
+- [Resetting / clearing data](#resetting--clearing-data)
+- [Project structure](#project-structure)
+- [Local development (without Docker)](#local-development-without-docker)
+- [API overview](#api-overview)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -26,8 +64,23 @@ tablet/phone on the same network.
 - **Loyalty program** — customers (by phone) earn points on every purchase,
   redeemable as a discount at checkout. Configurable earn rate and point
   value.
-- **Multi-currency** — ₹ INR, $ USD, € EUR, or £ GBP, switchable in settings;
-  the symbol flows through the whole app and onto receipts.
+- **Multi-currency** — over 20 major currencies (₹ INR, $ USD, € EUR, £ GBP,
+  and more), switchable in settings; the symbol flows through the whole app
+  and onto receipts. One source of truth on the backend
+  ([`backend/src/lib/currency.js`](backend/src/lib/currency.js)) so
+  onboarding and settings can never drift apart.
+- **Offline barcode & QR generator** — no barcode on the product? Generate a
+  valid EAN-13 in one click and print or download a label, no internet or
+  external barcode service involved. See
+  [Barcode & QR label generator](#barcode--qr-label-generator).
+- **GST/PAN validation & reference data** — live format validation for GSTIN
+  and PAN, GST state-code decoding, quick-select GST rate slabs, and a
+  per-product unit (UQC). Optionally import the official HSN/SAC/PIN/IFSC
+  CSVs for autocomplete and address/bank lookups. See
+  [Reference data & validation](#reference-data--validation).
+- **Works on phones and tablets** — the nav collapses to a slide-out drawer
+  below desktop width, so the register is fully usable from a counter
+  tablet or phone, not just a desktop browser.
 - **Customers** — a directory with visit counts, total spend, and loyalty
   balances.
 - **Customizable receipts** — set a header and footer; the thermal receipt
@@ -39,8 +92,13 @@ tablet/phone on the same network.
   one-click receipt reprint.
 - **Inventory management** — scan a known barcode to edit stock; an unknown
   one opens "Add Product" pre-filled. Low-stock dashboard alerts.
-- **Thermal receipt printing** — auto-formats and prints a 58/80mm ESC/POS
-  receipt (see [layout](#receipt-layout)) and cuts the paper.
+- **Print or download receipts** — "Print" opens a formatted receipt in a
+  new tab and triggers your browser's own print dialog, so you pick whichever
+  printer the OS/CUPS has configured (thermal, laser, or "Save as PDF"); a
+  separate "Download PDF" button always generates a real PDF file. See
+  [printing & receipts](#printing--receipts).
+- **Sales dashboard with charts** — revenue trend, top-selling products, and
+  payment method mix, alongside today's totals and low-stock alerts.
 - **Zero external calls at runtime** — once built, the app never talks to
   anything outside your machine.
 
@@ -55,11 +113,15 @@ tablet/phone on the same network.
 │   Next.js / React     │ ◀────────────────────────────── │  Express + Prisma    │
 └──────────────────────┘   (internal Docker network)      └──────────┬───────────┘
                                                                       │
-                                                        ┌─────────────┼────────────┐
-                                                        ▼                          ▼
-                                              SQLite (nodedr-pos_data)     USB thermal printer
-                                              (named Docker volume)        (device passthrough)
+                                                                      ▼
+                                                        SQLite (nodedr-pos_data)
+                                                        (named Docker volume)
 ```
+
+Receipts print through the browser's own print dialog (a new tab that calls
+`window.print()`) or download as a PDF generated server-side — the backend
+never talks to a printer device directly, so no container needs raw
+hardware access.
 
 **One port, one origin.** The browser only ever talks to the frontend on
 port **1994**. The Next.js server proxies every `/api/*` request to the
@@ -71,9 +133,9 @@ to the host at all. This means:
 - session cookies are first-party, so there's no cross-origin/CORS fragility;
 - the API isn't exposed on the network, shrinking the attack surface.
 
-The backend and frontend are two separate containers: only the backend needs
-raw USB access to the printer, so only it runs `privileged: true` with a
-device mapping. Everything still comes up with a single `docker compose up`.
+The backend and frontend are two separate containers, neither of which needs
+elevated privileges or host device access — everything still comes up with a
+single `docker compose up`.
 
 ## Tech stack
 
@@ -85,7 +147,10 @@ device mapping. Everything still comes up with a single `docker compose up`.
 | Database   | SQLite via Prisma ORM, persisted in a Docker volume        |
 | Auth       | bcrypt hashing, HttpOnly JWT cookie, admin/cashier roles   |
 | API access | Browser → Next.js (:1994) → server-side `/api` proxy → backend |
-| Hardware   | `escpos-usb` (raw USB) for the printer; a custom React hook for the barcode scanner |
+| Hardware   | Browser print dialog + `pdfkit` for receipts; a custom React hook for the barcode scanner |
+| Barcodes   | `jsbarcode` (EAN-13/CODE128) + `qrcode`, both rendered client-side to canvas — no external barcode service |
+| Charts     | `recharts` for the dashboard's sales trend, top products, and payment mix graphs |
+| Bulk import | `multer` (multipart upload) + `csv-parse`, admin-only, for the Reference Data CSV imports |
 | Deployment | Docker Compose, two `node:20-alpine` multi-stage images    |
 
 ## Quick start
@@ -158,34 +223,55 @@ the vast majority of consumer scanners) works out of the box. The frontend's
 keystrokes and, based on inter-keystroke timing, tells scanner input apart
 from a human typing so it never interferes with normal form fields.
 
-### Thermal printer
+### Barcode & QR label generator
 
-The backend talks to the printer directly over USB using raw ESC/POS
-commands (via `escpos-usb`), not CUPS or a driver. To wire it up:
+Not every product arrives with a scannable barcode — loose produce, house
+brands, or anything repackaged in-store. Rather than force a manual code,
+the **Add Product** form has a **Generate** button next to the barcode
+field: it produces a structurally valid EAN-13 using the `20`–`29` prefix
+range GS1 reserves for restricted/internal circulation — i.e. exactly this
+use case, not a real resellable product code (see
+[`frontend/lib/barcode.ts`](frontend/lib/barcode.ts)). It's checked against
+your existing catalog for uniqueness and retried automatically on collision.
 
-1. Find your printer's USB device path on the host, typically
-   `/dev/usb/lp0`. If you have multiple USB devices, check `lsusb` and
-   `ls /dev/usb/`.
-2. Edit `docker-compose.yml` if your path differs from the default:
-   ```yaml
-   devices:
-     - "/dev/usb/lp0:/dev/usb/lp0"
-   ```
-3. Restart: `docker compose up -d --build backend`.
+From the Inventory page, the barcode icon on any row opens a label with a
+**Barcode** / **QR code** toggle, rendered client-side with `jsbarcode` /
+`qrcode` — no network call, works fully offline. From there:
 
-If no printer is detected at checkout time, the sale still completes — the
-backend returns `{ printed: false, reason: "..." }` and the frontend shows a
-toast instead of blocking the register. This also means you can develop and
-test the whole app on a machine with no printer attached at all.
+- **Print label** opens a new tab and calls `window.print()`, same as
+  receipts — any printer your OS/CUPS knows about, including small label
+  printers.
+- **Download PNG** saves the rendered code as an image.
+
+### Printing & receipts
+
+nodedr-pos doesn't talk to a printer device directly — no raw USB, no bundled
+driver, no `privileged: true` container. Instead, after checkout (or from the
+Sales page on any past invoice), you get two buttons:
+
+- **Print** opens a formatted receipt in a new browser tab and immediately
+  triggers `window.print()`. The browser's own print dialog shows every
+  printer your OS knows about — a USB/network thermal printer set up through
+  CUPS (Linux/macOS) or the Windows print spooler, a regular office printer,
+  or a "Save as PDF" virtual printer. Set up your thermal printer once at the
+  OS level (CUPS, or the manufacturer's driver) the same way you would for
+  any other application, and it shows up here.
+- **Download PDF** generates a real PDF file server-side (via `pdfkit`, a
+  pure-JS renderer — no shell-out, no native dependencies) and downloads it,
+  for emailing, archiving, or printing later from any device.
+
+Because printing is just a normal browser action, the whole app — including
+checkout — works identically on a machine with no printer attached at all;
+you'd simply skip the Print button and use Download PDF, or nothing.
 
 ### Receipt layout
 
-The backend formats a monospace, string-padded receipt so the Price and
-Total columns right-align on both 58mm (32-column) and 80mm (48-column)
-paper. The layout logic lives in
-[`backend/src/lib/receipt.js`](backend/src/lib/receipt.js); the paper cut is
-sent as the raw ESC/POS command `0x1D 0x56 0x41 0x00` right after the
-receipt body, from [`backend/src/lib/printer.js`](backend/src/lib/printer.js).
+Both the print view and the PDF share the same data: shop header/footer,
+GST/CGST/SGST breakdown, discount, and loyalty summary, driven by your
+settings. The HTML template lives in
+[`backend/src/lib/receipt.js`](backend/src/lib/receipt.js) (`buildReceiptHtml`)
+and the PDF renderer in [`backend/src/lib/pdf.js`](backend/src/lib/pdf.js)
+(`buildReceiptPdf`).
 
 ```
 ================================================
@@ -221,6 +307,63 @@ Paid (UPI)                             Rs. 49.00
 The header, footer, currency, GSTIN, and whether the GST breakdown shows are
 all driven by your settings, so this layout adapts to how you configure the
 shop.
+
+## Reference data & validation
+
+### Built-in (small, stable lists)
+
+[`frontend/lib/masters.ts`](frontend/lib/masters.ts) bundles small, stable
+reference data used across the app's forms:
+
+| Data | Used for |
+| --- | --- |
+| `GST_RATES` | Quick-select chips (0/5/12/18/28%) on the product GST rate field |
+| `GST_STATE_CODES` | Decoding a GSTIN's first two digits to a state name in Settings |
+| `UQC_UNITS` | The Unit dropdown on each product (KGS, PCS, BOX, …) — see [below](#product-units-uqc) |
+| `BUSINESS_TYPES` | Common Indian business registration types |
+| `GENERIC_PRODUCT_CATEGORIES` | Datalist suggestions on the product Category field (plus whatever categories are already in your catalog) |
+| `isValidGstinFormat` / `isValidPanFormat` | Live, non-blocking format hints on the GSTIN/PAN fields in Settings |
+
+These are **structural/format checks only** (regex, not the GSTIN checksum
+digit algorithm) — deliberately advisory rather than hard validation, so a
+real GSTIN/PAN is never rejected by a subtly wrong client-side rule.
+
+### Bulk data (admin-imported CSV)
+
+Full HSN/SAC code catalogs (tens of thousands of entries), PIN codes, and
+IFSC codes are **deliberately not bundled** — these are large, frequently-
+revised government/RBI datasets, and shipping a fixed snapshot in an
+offline app would go stale and risks being silently wrong on real tax
+filings or bank transfers.
+
+Instead, **Settings → Reference Data** (admin only) lets you import a CSV
+of the current official file yourself, at any time:
+
+| Dataset | CSV columns | Official source |
+| --- | --- | --- |
+| HSN codes | `code, description, gstRate` (rate optional) | CBIC HSN directory |
+| SAC codes | `code, description, gstRate` (rate optional) | CBIC SAC directory |
+| PIN codes | `pincode, area, district, state` | India Post / data.gov.in |
+| IFSC codes | `ifsc, bank, branch, address, district, state` | RBI IFSC directory |
+
+Each import **replaces** the existing rows for that dataset — re-importing
+an updated file is always safe, there's no incremental merge to reason
+about. Once loaded:
+
+- The product **HSN/SAC field** autocompletes against the imported tax codes.
+- **Company settings** gets a PIN-code lookup that autofills city/state.
+- **Reference Data** also has a standalone IFSC search box, for looking up
+  a bank/branch by code without it being tied to any other field.
+
+Nothing here is required — the app works fully without ever visiting this
+tab; it only adds autocomplete/autofill convenience once you've loaded data.
+
+### Product units (UQC)
+
+Each product has an optional **Unit** (e.g. `KGS`, `PCS`, `BOX`, from the
+standard GST Unit Quantity Codes). It's snapshotted onto each invoice line
+at sale time — same pattern as `name`/`taxRate` — so it shows on receipts
+("3 KGS") and doesn't change retroactively if you edit the product later.
 
 ## Updating
 
@@ -284,6 +427,7 @@ current admin-account-preserving "factory reset" endpoint.
 ```
 nodedr-pos/
 ├── docker-compose.yml         # declares the nodedr-pos_data named volume
+├── docs/screenshots/          # README images
 ├── backend/
 │   ├── Dockerfile
 │   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem
@@ -291,14 +435,15 @@ nodedr-pos/
 │       ├── server.js
 │       ├── routes/           # auth, settings, products, invoices, print
 │       ├── middleware/auth.js
-│       └── lib/              # prisma client, JWT secret, receipt formatting, printer driver
+│       └── lib/              # prisma client, JWT secret, currencies, receipt HTML + PDF rendering
 └── frontend/
     ├── Dockerfile
     ├── next.config.ts        # /api → backend proxy (rewrites)
     ├── app/
     │   ├── onboarding/, login/                         # unauthenticated flows
     │   └── (app)/dashboard, pos, inventory, customers, sales, settings
-    ├── components/           # AppShell, AuthGate, ProductModal, Toast, ui/*
+    ├── components/           # AppShell, ProductModal, BarcodeLabelModal, SalesCharts, ReceiptActions, ui/*
+    ├── lib/                  # api client, format helpers, barcode.ts, masters.ts (reference data)
     └── hooks/                # useBarcodeScanner, useProducts, useCustomers, useInvoices, useAuth, useShopSettings
 ```
 
@@ -343,7 +488,13 @@ All endpoints are under `/api` and reached through the frontend proxy at
 | `GET/POST/PUT /customers`       | Customer directory, `+/phone/:phone` lookup |
 | `POST /invoices`                | Finalize a sale — server computes price, tax, discount, loyalty; decrements stock; all transactional |
 | `GET /invoices`, `/invoices/summary`, `/invoices/:id` | Sales history & dashboard totals |
-| `POST /print`                   | Format + send an invoice to the thermal printer |
+| `GET /invoices/analytics`       | Dashboard chart data — revenue trend, top products, payment mix |
+| `GET /print/:invoiceId/receipt` | Self-printing HTML receipt (opens in a new tab, calls `window.print()`) |
+| `GET /print/:invoiceId/pdf`     | Downloads the receipt as a PDF file |
+| `GET /masters/summary`          | Row counts for the Reference Data settings tab |
+| `POST /masters/tax-codes/import`, `GET /masters/tax-codes/search` | Import (**admin only**) / autocomplete HSN or SAC codes |
+| `POST /masters/pincodes/import`, `GET /masters/pincodes/:code` | Import (**admin only**) / look up a PIN code |
+| `POST /masters/ifsc/import`, `GET /masters/ifsc/:code` | Import (**admin only**) / look up an IFSC code |
 
 ## Security
 
@@ -366,9 +517,14 @@ Security posture (verified end-to-end):
   customer's balance.
 - **Input validation**: every write endpoint validates with Zod (allowlisted
   fields — no mass assignment); all DB access is parameterized via Prisma.
+  CSV imports are admin-only, capped at 25MB, and parsed in-memory (no
+  temp files, no shell-out).
 - **Reduced surface**: the backend is not published to the host — only the
   frontend (:1994) is reachable, and it proxies to the backend privately.
-  Helmet sets `X-Content-Type-Options`, `X-Frame-Options`, etc.
+  Helmet sets `X-Content-Type-Options`, `X-Frame-Options`, etc. Neither
+  container runs `privileged: true` or needs host device access — printing
+  goes through the browser's own print dialog, not a driver bundled into the
+  app.
 - **Secrets**: the JWT signing secret is auto-generated on first boot and
   stored (mode 600) in the data volume — never in the repo.
 

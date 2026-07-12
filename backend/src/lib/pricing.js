@@ -47,6 +47,7 @@ function computeSale(lines, opts) {
     return {
       productId: l.product.id,
       name: l.product.name,
+      unit: l.product.unit || null,
       quantity: l.quantity,
       price: l.product.sellingPrice,
       taxRate: rate,

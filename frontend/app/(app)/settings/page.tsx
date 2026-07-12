@@ -1,25 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import { Search } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
-import { useShopSettings, useUpdateSettings } from "@/hooks/useShopSettings";
+import { useCurrencies, useShopSettings, useUpdateSettings } from "@/hooks/useShopSettings";
 import { api, ApiError } from "@/lib/api";
+import { gstStateFromGstin, isValidGstinFormat, isValidPanFormat } from "@/lib/masters";
+import type { PinCodeRecord } from "@/hooks/useMasters";
 import type { ShopSettings } from "@/lib/types";
 import { UsersPanel } from "./UsersPanel";
+import { ReferenceDataTab } from "./ReferenceDataTab";
 
-const CURRENCY_OPTIONS = [
-  { value: "INR", label: "₹ Indian Rupee (INR)" },
-  { value: "USD", label: "$ US Dollar (USD)" },
-  { value: "EUR", label: "€ Euro (EUR)" },
-  { value: "GBP", label: "£ British Pound (GBP)" },
-];
-
-const TABS = ["Company", "Tax & Loyalty", "Receipt", "Password", "Staff"] as const;
+const TABS = ["Company", "Tax & Loyalty", "Receipt", "Reference Data", "Password", "Staff"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
@@ -53,6 +50,7 @@ export default function SettingsPage() {
       {tab === "Company" && <CompanyTab settings={settings} />}
       {tab === "Tax & Loyalty" && <TaxLoyaltyTab settings={settings} />}
       {tab === "Receipt" && <ReceiptTab settings={settings} />}
+      {tab === "Reference Data" && <ReferenceDataTab />}
       {tab === "Password" && <PasswordTab />}
       {tab === "Staff" && <UsersPanel />}
     </div>
@@ -74,10 +72,34 @@ function useSaver() {
 
 function CompanyTab({ settings }: { settings: ShopSettings }) {
   const save = useSaver();
+  const { data: currencies } = useCurrencies();
+  const { show } = useToast();
   // Initialised once from the loaded settings (the parent only renders this
   // tab after settings load, and remounts it on tab switch).
   const [form, setForm] = useState(settings);
+  const [lookingUp, setLookingUp] = useState(false);
+  const currencyOptions = Object.entries(currencies ?? {}).map(([value, c]) => ({
+    value,
+    label: `${c.symbol} ${c.label} (${value})`,
+  }));
   const set = (k: keyof ShopSettings, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Only works once PIN codes have been imported on the Reference Data tab
+  // — no PIN database ships with the app (see README).
+  async function lookupPincode() {
+    const pin = (form.pincode ?? "").trim();
+    if (!pin) return;
+    setLookingUp(true);
+    try {
+      const record = await api.get<PinCodeRecord>(`/masters/pincodes/${encodeURIComponent(pin)}`);
+      setForm((f) => ({ ...f, city: record.district || f.city, state: record.state || f.state }));
+      show(`${record.area || record.district}, ${record.state}`, "success");
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "PIN code not found — import PIN codes in Reference Data first", "info");
+    } finally {
+      setLookingUp(false);
+    }
+  }
 
   return (
     <Card className="max-w-2xl p-6">
@@ -89,6 +111,7 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
             legalName: form.legalName || "",
             address1: form.address1,
             address2: form.address2 || "",
+            pincode: form.pincode || "",
             city: form.city || "",
             state: form.state || "",
             phone: form.phone || "",
@@ -103,6 +126,19 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
         <Field label="Legal name" value={form.legalName ?? ""} onChange={(e) => set("legalName", e.target.value)} />
         <Field label="Address line 1" value={form.address1} onChange={(e) => set("address1", e.target.value)} />
         <Field label="Address line 2" value={form.address2 ?? ""} onChange={(e) => set("address2", e.target.value)} />
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Field
+              label="PIN code"
+              value={form.pincode ?? ""}
+              onChange={(e) => set("pincode", e.target.value)}
+              placeholder="Auto-fills city/state below, if imported"
+            />
+          </div>
+          <Button type="button" variant="secondary" onClick={lookupPincode} disabled={lookingUp} aria-label="Look up PIN code">
+            <Search className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <Field label="City" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
           <Field label="State" value={form.state ?? ""} onChange={(e) => set("state", e.target.value)} />
@@ -114,7 +150,7 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
         <div className="grid grid-cols-2 gap-4">
           <Select
             label="Currency"
-            options={CURRENCY_OPTIONS}
+            options={currencyOptions}
             value={form.currencyCode}
             onChange={(e) => set("currencyCode", e.target.value)}
           />
@@ -155,11 +191,20 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
                 onChange={(v) => setForm((f) => ({ ...f, showGst: v }))}
               />
               <div className="grid grid-cols-2 gap-4">
-                <Field
-                  label="GSTIN"
-                  value={form.gstNumber ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, gstNumber: e.target.value }))}
-                />
+                <div>
+                  <Field
+                    label="GSTIN"
+                    value={form.gstNumber ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, gstNumber: e.target.value.toUpperCase() }))}
+                  />
+                  {form.gstNumber && (
+                    <p className={`mt-1 text-xs ${isValidGstinFormat(form.gstNumber) ? "text-success" : "text-warning"}`}>
+                      {isValidGstinFormat(form.gstNumber)
+                        ? `Looks valid · ${gstStateFromGstin(form.gstNumber) ?? "unknown state code"}`
+                        : "Doesn't match the standard 15-character GSTIN format — double-check it"}
+                    </p>
+                  )}
+                </div>
                 <Field
                   label="Default GST rate %"
                   type="number"
@@ -168,6 +213,18 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
                   value={form.defaultTaxRate}
                   onChange={(e) => setForm((f) => ({ ...f, defaultTaxRate: Number(e.target.value) }))}
                 />
+              </div>
+              <div>
+                <Field
+                  label="PAN"
+                  value={form.panNumber ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, panNumber: e.target.value.toUpperCase() }))}
+                />
+                {form.panNumber && (
+                  <p className={`mt-1 text-xs ${isValidPanFormat(form.panNumber) ? "text-success" : "text-warning"}`}>
+                    {isValidPanFormat(form.panNumber) ? "Looks valid" : "Doesn't match the standard 10-character PAN format — double-check it"}
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -178,6 +235,7 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
                 gstEnabled: form.gstEnabled,
                 showGst: form.showGst,
                 gstNumber: form.gstNumber || "",
+                panNumber: form.panNumber || "",
                 defaultTaxRate: form.defaultTaxRate,
               })
             }

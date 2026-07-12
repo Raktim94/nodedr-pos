@@ -24,13 +24,10 @@ services:
     # up / resetting data.
     volumes:
       - data:/app/data
-    # Raw USB access for the ESC/POS thermal printer requires the container
-    # to see the host's USB bus. `privileged: true` plus the device mapping
-    # below is the simplest way to get that; if your printer enumerates at a
-    # different path, update the mapping (see README > Hardware setup).
-    privileged: true
-    devices:
-      - "/dev/usb/lp0:/dev/usb/lp0"
+    # No privileged mode or device passthrough needed: receipts are printed
+    # through the browser's own print dialog (any printer the OS/CUPS has
+    # configured) or downloaded as a PDF — the backend never touches a USB
+    # device directly. See README > Printing & receipts.
 
   frontend:
     build:

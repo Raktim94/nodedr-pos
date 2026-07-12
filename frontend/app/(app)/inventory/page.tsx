@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { PackagePlus, Pencil, Plus, ScanBarcode, Search, Trash2 } from "lucide-react";
+import { Barcode as BarcodeIcon, PackagePlus, Pencil, Plus, ScanBarcode, Search, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ProductModal } from "@/components/ProductModal";
 import { StockAdjustModal } from "@/components/StockAdjustModal";
+import { BarcodeLabelModal } from "@/components/BarcodeLabelModal";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -20,6 +21,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<ModalState>(null);
   const [stockTarget, setStockTarget] = useState<Product | null>(null);
+  const [labelTarget, setLabelTarget] = useState<Product | null>(null);
   const { data: shop } = useShopSettings();
   const { data: products, isLoading } = useProducts(search);
   const deleteProduct = useDeleteProduct();
@@ -117,6 +119,7 @@ export default function InventoryPage() {
                         >
                           {product.name}
                         </button>
+                        {product.unit && <span className="ml-1.5 text-xs text-foreground/40">({product.unit})</span>}
                       </td>
                       <td className="py-2.5 pr-4 font-mono text-xs text-foreground/60">{product.barcode}</td>
                       <td className="py-2.5 pr-4 text-foreground/60">{product.category || "—"}</td>
@@ -141,6 +144,15 @@ export default function InventoryPage() {
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            aria-label={`Barcode label for ${product.name}`}
+                            title="Barcode / QR label"
+                            onClick={() => setLabelTarget(product)}
+                            className="text-foreground/40 hover:text-brand"
+                          >
+                            <BarcodeIcon className="h-4 w-4" aria-hidden="true" />
+                          </button>
                           <button
                             type="button"
                             aria-label={`Adjust stock for ${product.name}`}
@@ -184,6 +196,7 @@ export default function InventoryPage() {
       )}
       {modal?.mode === "edit" && <ProductModal mode="edit" product={modal.product} onClose={() => setModal(null)} />}
       {stockTarget && <StockAdjustModal product={stockTarget} onClose={() => setStockTarget(null)} />}
+      {labelTarget && <BarcodeLabelModal product={labelTarget} onClose={() => setLabelTarget(null)} />}
     </div>
   );
 }

@@ -1,6 +1,10 @@
-# --- deps stage: install with full build toolchain for native modules ---
+# --- deps stage ---
+# No native modules left in the dependency tree (bcryptjs, pdfkit, and
+# Prisma's client are all pure-JS or ship precompiled engines), so this
+# needs nothing beyond openssl, which Prisma's query engine links against
+# on Alpine.
 FROM node:20-alpine AS deps
-RUN apk add --no-cache python3 make g++ udev linux-headers eudev-dev libusb-dev pkgconfig
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev && npm cache clean --force
@@ -15,9 +19,9 @@ COPY prisma ./prisma
 COPY src ./src
 RUN npx prisma generate
 
-# --- runtime stage: slim image, no build toolchain ---
+# --- runtime stage: slim image ---
 FROM node:20-alpine AS runtime
-RUN apk add --no-cache openssl libusb eudev-libs
+RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app/node_modules ./node_modules

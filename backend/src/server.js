@@ -10,6 +10,7 @@ const productRoutes = require('./routes/products');
 const customerRoutes = require('./routes/customers');
 const invoiceRoutes = require('./routes/invoices');
 const printRoutes = require('./routes/print');
+const mastersRoutes = require('./routes/masters');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -42,6 +43,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/print', printRoutes);
+app.use('/api/masters', mastersRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

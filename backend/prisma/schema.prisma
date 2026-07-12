@@ -33,6 +33,7 @@ model ShopSettings {
   // Tax / GST
   gstEnabled     Boolean  @default(false)
   gstNumber      String?
+  panNumber      String?
   defaultTaxRate Float    @default(0)
   // Loyalty
   loyaltyEnabled Boolean  @default(false)
@@ -44,6 +45,8 @@ model ShopSettings {
   showGst        Boolean  @default(true)
   // Inventory
   lowStockAlert  Int      @default(5)
+  // Address lookup (see PinCode below)
+  pincode        String?
 }
 
 model Product {
@@ -52,6 +55,7 @@ model Product {
   name          String
   category      String?
   hsn           String?
+  unit          String? // UQC code, e.g. "PCS", "KGS" — see frontend/lib/masters.ts UQC_UNITS
   purchasePrice Float
   sellingPrice  Float
   taxRate       Float         @default(0) // GST % for this product
@@ -101,6 +105,7 @@ model InvoiceItem {
   invoiceId Int
   productId Int
   name      String
+  unit      String? // snapshot of the product's UQC at time of sale
   quantity  Int
   price     Float // unit selling price at time of sale
   taxRate   Float   @default(0)
@@ -108,4 +113,36 @@ model InvoiceItem {
   total     Float // line total incl. tax, after prorated discount
   invoice   Invoice @relation(fields: [invoiceId], references: [id])
   product   Product @relation(fields: [productId], references: [id])
+}
+
+// --- Bulk reference data, admin-imported from CSV (see routes/masters.js) ---
+// Large/volatile government datasets (full HSN/SAC catalogs, PIN codes,
+// IFSC) are deliberately NOT bundled with the app — see README > Reference
+// data & validation. These tables just give the admin somewhere to load
+// the official file into, if/when they want autocomplete and lookups.
+
+model TaxCode {
+  id          Int     @id @default(autoincrement())
+  type        String // "HSN" | "SAC"
+  code        String
+  description String
+  gstRate     Float?
+
+  @@unique([type, code])
+}
+
+model PinCode {
+  pincode  String  @id
+  area     String?
+  district String?
+  state    String?
+}
+
+model IfscCode {
+  ifsc     String  @id
+  bank     String?
+  branch   String?
+  address  String?
+  district String?
+  state    String?
 }

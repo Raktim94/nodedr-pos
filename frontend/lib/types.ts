@@ -22,6 +22,7 @@ export interface ShopSettings {
   currencySymbol: string;
   gstEnabled: boolean;
   gstNumber: string | null;
+  panNumber: string | null;
   defaultTaxRate: number;
   loyaltyEnabled: boolean;
   pointsPerUnit: number;
@@ -30,6 +31,7 @@ export interface ShopSettings {
   receiptFooter: string;
   showGst: boolean;
   lowStockAlert: number;
+  pincode: string | null;
 }
 
 export interface Product {
@@ -38,6 +40,7 @@ export interface Product {
   name: string;
   category: string | null;
   hsn: string | null;
+  unit: string | null;
   purchasePrice: number;
   sellingPrice: number;
   taxRate: number;
@@ -61,6 +64,7 @@ export interface InvoiceItem {
   id: number;
   productId: number;
   name: string;
+  unit: string | null;
   quantity: number;
   price: number;
   taxRate: number;
