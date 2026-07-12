@@ -104,7 +104,6 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   const taxRate = useWatch({ control, name: "taxRate" });
   const hsnValue = useWatch({ control, name: "hsn" });
   const barcodeValue = useWatch({ control, name: "barcode" });
-  const nameValue = useWatch({ control, name: "name" });
   const sellingPrice = useWatch({ control, name: "sellingPrice" });
   const discountType = useWatch({ control, name: "discountType" });
   const discountValue = useWatch({ control, name: "discountValue" });
@@ -185,7 +184,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               </button>
               {showBarcodeImage && (
                 <div className="mt-3">
-                  <BarcodeDownloadPanel value={barcodeValue.trim()} label={nameValue?.trim() || "Product"} />
+                  <BarcodeDownloadPanel value={barcodeValue.trim()} />
                 </div>
               )}
             </div>

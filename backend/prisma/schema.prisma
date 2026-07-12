@@ -113,6 +113,7 @@ model Invoice {
   amountPaid     Float         @default(0)
   changeDue      Float         @default(0)
   dueAmount      Float         @default(0) // unpaid shortfall added to the customer's running due ("udhaar")
+  previousDuePaid Float        @default(0) // old due the customer cleared as part of this same bill
   pointsRedeemed Int           @default(0)
   pointsEarned   Int           @default(0)
   createdAt      DateTime      @default(now())

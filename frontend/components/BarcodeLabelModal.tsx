@@ -25,7 +25,7 @@ export function BarcodeLabelModal({ product, onClose }: { product: Product; onCl
 
         <p className="mb-4 text-sm text-foreground/70">{product.name}</p>
 
-        <BarcodeDownloadPanel value={product.barcode} label={product.name} />
+        <BarcodeDownloadPanel value={product.barcode} />
       </div>
     </div>
   );

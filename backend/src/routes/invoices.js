@@ -23,6 +23,9 @@ const checkoutSchema = z.object({
   pointsRedeemed: z.number().int().min(0).default(0),
   paymentMethod: z.enum(['CASH', 'UPI', 'CARD']).default('CASH'),
   amountPaid: z.number().min(0).default(0),
+  // Old outstanding due the customer chooses to clear as part of this bill.
+  // Added on top of the goods total for what the cashier collects.
+  duePaid: z.number().min(0).default(0),
 });
 
 async function nextInvoiceNumber(tx) {
@@ -87,13 +90,34 @@ router.post('/', async (req, res) => {
         settings,
       });
 
-      const amountPaid = body.paymentMethod === 'CASH' ? body.amountPaid : computed.totalAmount;
-      const changeDue = round2(Math.max(0, amountPaid - computed.totalAmount));
-      // A cash sale paid short of the total becomes a due ("udhaar") added
-      // to the customer's running balance — only possible with a customer
-      // attached (a phone number), since there's no one to collect from
-      // otherwise.
-      const dueAmount = round2(Math.max(0, computed.totalAmount - amountPaid));
+      // Old due the customer wants cleared on this bill, capped at what they
+      // actually owe. Only meaningful with a customer attached.
+      let previousDuePaid = 0;
+      if (body.duePaid > 0) {
+        if (!customer) {
+          throw Object.assign(
+            new Error('A customer (with phone number) is required to clear a previous due'),
+            { status: 400 }
+          );
+        }
+        previousDuePaid = round2(Math.min(body.duePaid, customer.totalDue));
+      }
+
+      const goodsTotal = computed.totalAmount;
+      // For a cash sale the cashier enters the combined tender (goods + any
+      // due being cleared); the money covers the goods first, then the due.
+      // For UPI/CARD we assume the exact combined amount was captured.
+      const tendered = body.paymentMethod === 'CASH' ? body.amountPaid : goodsTotal + previousDuePaid;
+      const amountPaid = round2(Math.min(tendered, goodsTotal)); // portion applied to the goods invoice
+      const afterGoods = round2(Math.max(0, tendered - goodsTotal));
+      previousDuePaid = round2(Math.min(previousDuePaid, afterGoods)); // can't clear more due than money left after goods
+      const changeDue = round2(Math.max(0, afterGoods - previousDuePaid));
+
+      // A cash sale paid short of the goods total becomes a new due ("udhaar")
+      // added to the customer's running balance — only possible with a
+      // customer attached (a phone number), since there's no one to collect
+      // from otherwise.
+      const dueAmount = round2(Math.max(0, goodsTotal - amountPaid));
       if (dueAmount > 0 && !customer) {
         throw Object.assign(
           new Error('A customer (with phone number) is required to record a due/partial-payment amount'),
@@ -119,12 +143,22 @@ router.post('/', async (req, res) => {
           amountPaid,
           changeDue,
           dueAmount,
+          previousDuePaid,
           pointsRedeemed: computed.pointsRedeemed,
           pointsEarned: computed.pointsEarned,
           items: { create: computed.items },
         },
         include: { items: true },
       });
+
+      // Record the old-due clearance as its own audit row (same trail as the
+      // standalone settle-due route) so a customer's payment history is
+      // complete regardless of whether they paid at the counter or on a bill.
+      if (previousDuePaid > 0) {
+        await tx.customerDuePayment.create({
+          data: { customerId: customer.id, amount: previousDuePaid, note: `Bill ${invoiceNumber}` },
+        });
+      }
 
       for (const item of body.items) {
         await tx.product.update({
@@ -139,7 +173,9 @@ router.post('/', async (req, res) => {
           data: {
             loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
             totalSpent: { increment: computed.totalAmount },
-            totalDue: { increment: dueAmount },
+            // Net effect on the running balance: this bill's shortfall adds to
+            // it, any old due cleared on this same bill subtracts from it.
+            totalDue: { increment: round2(dueAmount - previousDuePaid) },
             visits: { increment: 1 },
           },
         });

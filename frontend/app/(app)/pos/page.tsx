@@ -9,10 +9,9 @@ import { Field } from "@/components/ui/Field";
 import { ReceiptActions } from "@/components/ReceiptActions";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useShopSettings } from "@/hooks/useShopSettings";
-import { useSettleDue } from "@/hooks/useCustomers";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, round2 } from "@/lib/format";
 import { openReceiptPrint } from "@/lib/print";
 import { effectivePrice, quoteSale } from "@/lib/quote";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
@@ -21,13 +20,12 @@ export default function PosPage() {
   const { data: shop } = useShopSettings();
   const { show } = useToast();
   const queryClient = useQueryClient();
-  const settleDue = useSettleDue();
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [dueCollect, setDueCollect] = useState("");
+  const [duePaid, setDuePaid] = useState("");
   const [discountType, setDiscountType] = useState<"percent" | "amount" | null>(null);
   const [discountValue, setDiscountValue] = useState(0);
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
@@ -46,9 +44,13 @@ export default function PosPage() {
     [cart, discountType, discountValue, pointsRedeemed, shop]
   );
 
-  const changeDue = paymentMethod === "CASH" ? Math.max(0, (Number(amountPaid) || 0) - quote.total) : 0;
-  const dueNow =
-    paymentMethod === "CASH" && Number(amountPaid) > 0 ? Math.max(0, quote.total - (Number(amountPaid) || 0)) : 0;
+  // Old due the cashier is folding into this bill (capped at what's owed).
+  const dueToClear = customer ? Math.min(Math.max(0, Number(duePaid) || 0), customer.totalDue) : 0;
+  // What the customer actually hands over now = this sale + any old due cleared.
+  const collectTotal = round2(quote.total + dueToClear);
+  const effectivePaid = paymentMethod === "CASH" ? Number(amountPaid) || 0 : collectTotal;
+  const changeDue = Math.max(0, round2(effectivePaid - collectTotal));
+  const shortNow = paymentMethod === "CASH" && Number(amountPaid) > 0 ? Math.max(0, round2(collectTotal - effectivePaid)) : 0;
 
   const addToCart = useCallback(
     (product: Product) => {
@@ -87,7 +89,7 @@ export default function PosPage() {
       const c = await api.get<Customer>(`/customers/phone/${encodeURIComponent(customerPhone.trim())}`);
       setCustomer(c);
       setCustomerName(c.name);
-      setDueCollect("");
+      setDuePaid("");
       show(`${c.name} — ${c.loyaltyPoints} points`, "success");
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -99,27 +101,12 @@ export default function PosPage() {
     }
   }
 
-  // Settling a previous due is independent of the current cart/sale — it's
-  // its own API call against the customer, not part of the invoice being
-  // built here, so it can be recorded even for a customer who isn't buying
-  // anything new right now.
-  async function collectDue(amount: number) {
-    if (!customer || amount <= 0) return;
-    try {
-      const updated = await settleDue.mutateAsync({ id: customer.id, amount });
-      setCustomer(updated);
-      setDueCollect("");
-      show(`${money(amount)} collected toward ${updated.name}'s due`, "success");
-    } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not record payment", "error");
-    }
-  }
-
   const resetSale = () => {
     setCart([]);
     setCustomer(null);
     setCustomerName("");
     setCustomerPhone("");
+    setDuePaid("");
     setDiscountType(null);
     setDiscountValue(0);
     setPointsRedeemed(0);
@@ -140,9 +127,11 @@ export default function PosPage() {
         pointsRedeemed: Number(pointsRedeemed) || 0,
         paymentMethod,
         amountPaid: paymentMethod === "CASH" ? Number(amountPaid) || 0 : 0,
+        duePaid: dueToClear,
       });
 
-      show(`Sale complete — ${invoice.invoiceNumber} · ${money(invoice.totalAmount)}`, "success");
+      const dueNote = invoice.previousDuePaid > 0 ? ` · ${money(invoice.previousDuePaid)} due cleared` : "";
+      show(`Sale complete — ${invoice.invoiceNumber} · ${money(invoice.totalAmount)}${dueNote}`, "success");
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -155,7 +144,7 @@ export default function PosPage() {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, isCheckingOut, queryClient, show, shop?.autoPrintReceipt]);
+  }, [cart, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, isCheckingOut, queryClient, show, shop?.autoPrintReceipt]);
 
   useBarcodeScanner({
     onScan: handleScan,
@@ -327,33 +316,30 @@ export default function PosPage() {
             {customer && customer.totalDue > 0 && (
               <div className="rounded-lg bg-danger/10 p-3">
                 <p className="text-sm font-medium text-danger">Owes {money(customer.totalDue)} from before</p>
+                <p className="mt-0.5 text-xs text-foreground/60">
+                  Add any amount to this bill to clear it — the customer pays it together with the sale.
+                </p>
                 <div className="mt-2 flex items-end gap-2">
                   <div className="flex-1">
                     <Field
-                      label="Collect toward due"
+                      label="Clear previous due (adds to bill)"
                       type="number"
                       min={0}
                       max={customer.totalDue}
                       step="0.01"
-                      value={dueCollect}
-                      onChange={(e) => setDueCollect(e.target.value)}
+                      value={duePaid}
+                      onChange={(e) =>
+                        setDuePaid(
+                          e.target.value === ""
+                            ? ""
+                            : String(Math.min(Math.max(0, Number(e.target.value) || 0), customer.totalDue))
+                        )
+                      }
+                      placeholder="0.00"
                     />
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={settleDue.isPending || !(Number(dueCollect) > 0)}
-                    onClick={() => collectDue(Math.min(Number(dueCollect) || 0, customer.totalDue))}
-                  >
-                    Collect
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={settleDue.isPending}
-                    onClick={() => collectDue(customer.totalDue)}
-                  >
-                    Clear all
+                  <Button type="button" variant="secondary" onClick={() => setDuePaid(String(customer.totalDue))}>
+                    Full due
                   </Button>
                 </div>
               </div>
@@ -454,7 +440,7 @@ export default function PosPage() {
                   type="button"
                   variant="secondary"
                   className="whitespace-nowrap"
-                  onClick={() => setAmountPaid(String(quote.total))}
+                  onClick={() => setAmountPaid(String(collectTotal))}
                   disabled={cart.length === 0}
                 >
                   Paid in full
@@ -469,19 +455,21 @@ export default function PosPage() {
             {quote.discountAmount > 0 && <Row label="Discount" value={`- ${money(quote.discountAmount)}`} />}
             {shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST (included)" value={money(quote.taxAmount)} />}
             {quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
+            {dueToClear > 0 && <Row label="This sale" value={money(quote.total)} />}
+            {dueToClear > 0 && <Row label="Previous due cleared" value={money(dueToClear)} />}
             <div className="my-1 border-t border-border" />
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-foreground/70">Grand Total</span>
-              <span className="text-xl font-semibold text-foreground">{money(quote.total)}</span>
+              <span className="text-sm font-semibold text-foreground/70">{dueToClear > 0 ? "To Collect" : "Grand Total"}</span>
+              <span className="text-xl font-semibold text-foreground">{money(collectTotal)}</span>
             </div>
-            {paymentMethod === "CASH" && Number(amountPaid) > 0 && (
+            {paymentMethod === "CASH" && Number(amountPaid) > 0 && changeDue > 0 && (
               <Row label="Change" value={money(changeDue)} />
             )}
-            {dueNow > 0 && (
+            {shortNow > 0 && (
               <p className={`rounded-lg px-3 py-2 text-xs font-medium ${customer ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"}`}>
                 {customer
-                  ? `${money(dueNow)} will be added to ${customer.name}'s due balance`
-                  : `${money(dueNow)} short — add a customer (phone) to record this as a due, or collect the full amount`}
+                  ? `${money(shortNow)} short — the unpaid part stays on ${customer.name}'s due balance`
+                  : `${money(shortNow)} short — add a customer (phone) to record this as a due, or collect the full amount`}
               </p>
             )}
             {shop?.loyaltyEnabled && customer && quote.pointsEarned > 0 && (

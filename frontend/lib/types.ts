@@ -94,6 +94,7 @@ export interface Invoice {
   amountPaid: number;
   changeDue: number;
   dueAmount: number;
+  previousDuePaid: number;
   pointsRedeemed: number;
   pointsEarned: number;
   createdAt: string;

@@ -1,19 +1,17 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Download, Printer } from "lucide-react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { BarcodeCanvas } from "@/components/BarcodeCanvas";
-
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
 
 // Shared by BarcodeLabelModal (Inventory row, after a product is saved) and
 // ProductModal (right where the barcode is generated, before saving) — one
 // implementation so a fix here applies everywhere the barcode can be
-// downloaded or printed.
-export function BarcodeDownloadPanel({ value, label }: { value: string; label: string }) {
+// downloaded. Downloads the barcode as a PNG/JPG image; the shopkeeper prints
+// that file with their own label software (no in-app print — it opened an
+// extra browser tab and clipped on thermal label printers).
+export function BarcodeDownloadPanel({ value }: { value: string }) {
   const canvasId = useId();
   const [format, setFormat] = useState<"EAN13" | "QR">("EAN13");
   const [imageType, setImageType] = useState<"png" | "jpg">("png");
@@ -44,34 +42,6 @@ export function BarcodeDownloadPanel({ value, label }: { value: string; label: s
       link.href = canvas.toDataURL("image/png");
     }
     link.click();
-  }
-
-  // Opens a self-printing tab (same pattern as receipts): the browser's own
-  // print dialog handles the printer, so any label/thermal printer the OS
-  // knows about works without a bundled driver.
-  function print() {
-    const canvas = getCanvas();
-    if (!canvas) return;
-    const dataUrl = canvas.toDataURL("image/png");
-    const win = window.open("", "_blank", "noopener,noreferrer");
-    if (!win) return;
-    win.document.write(`<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>${escapeHtml(label)}</title>
-<style>
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; text-align: center; padding: 24px; }
-  img { max-width: 260px; }
-  p { margin: 4px 0; font-size: 13px; }
-</style>
-</head>
-<body onload="window.print()">
-  <p><strong>${escapeHtml(label)}</strong></p>
-  <img src="${dataUrl}" alt="${escapeHtml(value)}">
-</body>
-</html>`);
-    win.document.close();
   }
 
   if (!value) return null;
@@ -115,16 +85,10 @@ export function BarcodeDownloadPanel({ value, label }: { value: string; label: s
         </label>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" variant="secondary" onClick={download}>
-          <Download className="h-4 w-4" aria-hidden="true" />
-          Download {imageType.toUpperCase()}
-        </Button>
-        <Button type="button" variant="secondary" onClick={print}>
-          <Printer className="h-4 w-4" aria-hidden="true" />
-          Print label
-        </Button>
-      </div>
+      <Button type="button" variant="secondary" onClick={download} className="w-full">
+        <Download className="h-4 w-4" aria-hidden="true" />
+        Download {imageType.toUpperCase()}
+      </Button>
     </div>
   );
 }
