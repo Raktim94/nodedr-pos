@@ -1,18 +1,31 @@
-// Talks directly to a USB thermal receipt printer over raw ESC/POS, as an
-// alternative to the browser-print/PDF flow in receipt.js/pdf.js. Uses the
-// `usb` package's legacy API (not WebUSB) — pinned to an exact 2.18.0 in
-// package.json because `usb`'s 3.x line is a from-scratch Rust rewrite with
-// a completely different API surface (no `getDeviceList`), and the escpos
-// ecosystem hasn't caught up to it.
+// Sends raw ESC/POS bytes (see escposReceipt.js) to a USB thermal receipt
+// printer. Two transports are tried in order, so it "just works" on a Debian
+// till without the operator finding vendor:product IDs or running anything:
 //
-// No vendor/product ID configuration: this looks for the standard USB
-// Printer device class (interface class 7), which virtually every ESC/POS
-// thermal printer advertises regardless of manufacturer, so a "generic
-// 80mm thermal printer" works without the user ever finding a vendor:product
-// ID.
+//   1. The kernel usblp CHARACTER DEVICE (/dev/usb/lp0). This is the SAME
+//      path a plain `echo "hi" > /dev/usb/lp0` in a terminal uses — so if
+//      that works, this works. It also covers the many generic 80mm printers
+//      that present a *vendor-specific* USB class (0xFF) rather than the
+//      Printer class (7): the kernel binds them via usblp anyway, but a
+//      libusb class-7 scan (transport #2) would miss them entirely and report
+//      "no printer found". This is the primary path for exactly that reason.
+//
+//   2. libusb raw bulk transfer (the `usb` npm package). Fallback for setups
+//      where usblp isn't bound (no lp node) — e.g. a printer claimed by a
+//      different driver, or a non-Linux host. Detaches any kernel driver
+//      first so the interface can be claimed.
+//
+// In a container the lp node may not exist even though the HOST kernel has
+// the printer bound; with the major-180 device_cgroup_rules entry (see
+// docker-compose.yml) we can mknod it on demand and write straight through to
+// the same kernel driver — no host bind mount, and nothing to fail at
+// `compose up` when no printer is attached.
+const fs = require('fs');
+const { execFileSync } = require('child_process');
 const usb = require('usb');
 
 const PRINTER_INTERFACE_CLASS = 7;
+const USBLP_MAJOR = 180; // major device number of the kernel usblp driver
 
 class PrinterNotFoundError extends Error {
   constructor(message) {
@@ -22,11 +35,76 @@ class PrinterNotFoundError extends Error {
   }
 }
 
+// --- Transport 1: kernel usblp character device --------------------------
+
+// The device nodes usblp creates, most-common first. Both layouts exist
+// across distros (/dev/usb/lp0 on Debian/udev, /dev/usblp0 on some others).
+function candidateLpPaths() {
+  const paths = [];
+  for (let i = 0; i < 8; i++) paths.push(`/dev/usb/lp${i}`, `/dev/usblp${i}`);
+  return paths;
+}
+
+// Returns a writable lp node path, or null. Prefers one that already exists;
+// otherwise tries to create the standard first-printer node (major 180,
+// minor 0) — which only succeeds where we have the privilege/cgroup grant to
+// do so (root + `c 180:* rmw`). Any failure just returns null so sendRaw
+// falls through to libusb.
+function resolveLpPath() {
+  for (const p of candidateLpPaths()) {
+    try {
+      fs.accessSync(p, fs.constants.W_OK);
+      return p;
+    } catch {
+      // not this one
+    }
+  }
+  const target = '/dev/usb/lp0';
+  try {
+    fs.mkdirSync('/dev/usb', { recursive: true });
+    // Node has no fs.mknod(); shell out to coreutils/busybox mknod. The
+    // device_cgroup_rules 'm' (mknod) + 'w' grants on major 180 make this
+    // legal inside the container; on a bare host the node normally already
+    // exists so we never reach here.
+    execFileSync('mknod', ['-m', '660', target, 'c', String(USBLP_MAJOR), '0']);
+    fs.accessSync(target, fs.constants.W_OK);
+    return target;
+  } catch {
+    return null;
+  }
+}
+
+// Writes the buffer to the lp node in one open/write/close, exactly like
+// redirecting to it from a shell. Returns true if it wrote, false if there
+// was no usable node (caller then tries libusb). A node that exists but
+// errors on write (printer offline/unplugged) throws — that's a real
+// failure, not a "try the other transport" signal.
+async function sendViaCharDevice(buffer) {
+  const path = resolveLpPath();
+  if (!path) return false;
+  let handle;
+  try {
+    handle = await fs.promises.open(path, 'w');
+  } catch (err) {
+    // The node exists (or we just mknod'd it) but nothing is bound to it —
+    // no printer reachable this way (ENODEV/ENXIO), or it disappeared
+    // (ENOENT). Fall through to libusb rather than reporting a write error.
+    if (['ENODEV', 'ENXIO', 'ENOENT'].includes(err.code)) return false;
+    throw err;
+  }
+  try {
+    await handle.write(buffer);
+  } finally {
+    await handle.close();
+  }
+  return true;
+}
+
+// --- Transport 2: libusb raw bulk ----------------------------------------
+
 // Scans every USB device for one exposing a Printer-class interface. Devices
 // that can't be opened (wrong permissions, host controllers, hubs, devices
-// that vanished mid-scan) are skipped rather than aborting the whole scan —
-// on a real machine plenty of unrelated devices (webcam, keyboard, hubs)
-// share the bus with the printer.
+// that vanished mid-scan) are skipped rather than aborting the whole scan.
 function findPrinterInterface() {
   for (const device of usb.getDeviceList()) {
     let opened = false;
@@ -51,16 +129,10 @@ function findPrinterInterface() {
   return null;
 }
 
-// On Linux the kernel's `usblp` module auto-binds to any USB Printer-class
-// device the moment it's plugged in (creating /dev/usb/lp0) and CLAIMS its
-// interface. libusb then can't claim the same interface — iface.claim()
-// fails with LIBUSB_ERROR_BUSY — which is exactly why direct-USB printing
-// works on Windows (a vendor/usbprint driver, not a kernel grab we can undo)
-// but silently fails on a Debian machine. The fix is to detach the kernel
-// driver first, print, then reattach it so the OS print path (CUPS/lp) keeps
-// working afterwards. On Windows/macOS these calls throw
-// LIBUSB_ERROR_NOT_SUPPORTED (there's no detachable kernel driver), so they
-// are best-effort and swallowed — the plain claim() path there is unaffected.
+// On Linux usblp claims the printer's interface, so libusb's iface.claim()
+// fails with LIBUSB_ERROR_BUSY unless we detach the kernel driver first. On
+// Windows/macOS these calls throw LIBUSB_ERROR_NOT_SUPPORTED, so they're
+// best-effort and swallowed.
 function detachKernelDriver(iface) {
   try {
     if (iface.isKernelDriverActive()) {
@@ -68,33 +140,20 @@ function detachKernelDriver(iface) {
       return true;
     }
   } catch {
-    // Not supported on this platform (Windows/macOS) or already detached —
-    // fall through and let claim() proceed / surface its own error.
+    // not supported / already detached
   }
   return false;
 }
 
-// Sends a raw ESC/POS byte buffer (see escposReceipt.js) to the first
-// detected USB printer. Detaches any kernel driver, claims the interface,
-// writes to its bulk OUT endpoint, then always releases/reattaches/closes —
-// even on failure — so a failed print doesn't leave the device claimed for
-// the next attempt or stranded away from the OS print stack.
-async function sendRaw(buffer) {
+async function sendViaLibusb(buffer) {
   const found = findPrinterInterface();
-  if (!found) {
-    throw new PrinterNotFoundError(
-      'No USB printer found. Check it is powered on, connected, and not in use by another app.'
-    );
-  }
+  if (!found) return false;
   const { device, iface } = found;
   const reattach = detachKernelDriver(iface);
   try {
     try {
       iface.claim();
     } catch (err) {
-      // The most common real-world failure on Linux: another process (usblp,
-      // CUPS, a previous crashed print) still holds the interface. Give the
-      // operator an actionable message instead of a generic 500.
       if (/LIBUSB_ERROR_BUSY|EBUSY|resource busy/i.test(String(err && err.message))) {
         throw new PrinterNotFoundError(
           'The USB printer is busy — another program (or the OS print queue) is using it. Close it and try again.'
@@ -106,9 +165,8 @@ async function sendRaw(buffer) {
     if (!outEndpoint) {
       throw new Error('USB printer has no OUT endpoint on its printer-class interface');
     }
-    // A generic bulk endpoint can stall on an over-long single transfer;
-    // give it a real timeout instead of the default 0 (== wait forever), so
-    // an unresponsive printer surfaces as an error rather than a hung request.
+    // Give the bulk transfer a real timeout instead of the default 0 (wait
+    // forever) so an unresponsive printer errors rather than hanging.
     outEndpoint.timeout = 5000;
     await outEndpoint.transferAsync(buffer);
   } finally {
@@ -126,6 +184,41 @@ async function sendRaw(buffer) {
       // already closed/gone
     }
   }
+  return true;
 }
 
-module.exports = { sendRaw, findPrinterInterface, PrinterNotFoundError };
+// --- Public API ----------------------------------------------------------
+
+// Tries the kernel char device first (matches a working `echo > /dev/usb/lp0`
+// and handles vendor-class printers), then libusb. Throws PrinterNotFoundError
+// only when neither transport can reach a printer.
+async function sendRaw(buffer) {
+  let charDeviceError = null;
+  try {
+    if (await sendViaCharDevice(buffer)) return;
+  } catch (err) {
+    // A node existed but the write failed (offline/unplugged). Remember it,
+    // but still try libusb in case a different device is reachable that way.
+    charDeviceError = err;
+  }
+
+  try {
+    if (await sendViaLibusb(buffer)) return;
+  } catch (err) {
+    // A concrete libusb failure (busy, no endpoint, etc.) is more useful than
+    // the generic char-device error, so surface it.
+    throw err;
+  }
+
+  // Neither transport found a printer.
+  if (charDeviceError) {
+    throw new PrinterNotFoundError(
+      'Found a printer device but could not write to it. Check it is powered on, has paper, and is connected.'
+    );
+  }
+  throw new PrinterNotFoundError(
+    'No USB printer found. Check it is powered on, connected, and not in use by another app.'
+  );
+}
+
+module.exports = { sendRaw, findPrinterInterface, resolveLpPath, PrinterNotFoundError };
