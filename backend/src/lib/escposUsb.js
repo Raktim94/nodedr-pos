@@ -37,67 +37,102 @@ class PrinterNotFoundError extends Error {
 
 // --- Transport 1: kernel usblp character device --------------------------
 
-// The device nodes usblp creates, most-common first. Both layouts exist
-// across distros (/dev/usb/lp0 on Debian/udev, /dev/usblp0 on some others).
+// The usblp node layouts across distros (/dev/usb/lpN on Debian/udev,
+// /dev/usblpN on some others). Only the first few minors — a till has one
+// printer, occasionally a second; scanning higher just wastes syscalls.
 function candidateLpPaths() {
   const paths = [];
-  for (let i = 0; i < 8; i++) paths.push(`/dev/usb/lp${i}`, `/dev/usblp${i}`);
+  for (let i = 0; i < 4; i++) paths.push(`/dev/usb/lp${i}`, `/dev/usblp${i}`);
   return paths;
 }
 
-// Returns a writable lp node path, or null. Prefers one that already exists;
-// otherwise tries to create the standard first-printer node (major 180,
-// minor 0) — which only succeeds where we have the privilege/cgroup grant to
-// do so (root + `c 180:* rmw`). Any failure just returns null so sendRaw
-// falls through to libusb.
-function resolveLpPath() {
-  for (const p of candidateLpPaths()) {
+// The lp nodes we can attempt to write to. Prefers nodes ALREADY present (any
+// minor, so a printer at lp1 is found too); only when none exist does it try
+// to create /dev/usb/lp{0..3} (major 180, minor N). Node creation succeeds
+// only with the privilege/cgroup grant to do so (root + `c 180:* rmw` — see
+// docker-compose.yml); every step is best-effort, so with no privilege we
+// simply return whatever already exists and let libusb take over. All mknod
+// arguments are constant (no user input), so there's no shell-injection
+// surface here.
+function usableLpPaths() {
+  const existing = candidateLpPaths().filter((p) => {
     try {
-      fs.accessSync(p, fs.constants.W_OK);
-      return p;
+      return fs.statSync(p).isCharacterDevice();
     } catch {
-      // not this one
+      return false;
     }
-  }
-  const target = '/dev/usb/lp0';
+  });
+  if (existing.length > 0) return existing;
+
+  const made = [];
   try {
     fs.mkdirSync('/dev/usb', { recursive: true });
-    // Node has no fs.mknod(); shell out to coreutils/busybox mknod. The
-    // device_cgroup_rules 'm' (mknod) + 'w' grants on major 180 make this
-    // legal inside the container; on a bare host the node normally already
-    // exists so we never reach here.
-    execFileSync('mknod', ['-m', '660', target, 'c', String(USBLP_MAJOR), '0']);
-    fs.accessSync(target, fs.constants.W_OK);
-    return target;
+    for (let minor = 0; minor < 4; minor++) {
+      const target = `/dev/usb/lp${minor}`;
+      try {
+        execFileSync('mknod', ['-m', '660', target, 'c', String(USBLP_MAJOR), String(minor)]);
+        made.push(target);
+      } catch {
+        // couldn't create this minor (already exists / not permitted)
+      }
+    }
   } catch {
-    return null;
+    // no privilege even to mkdir — fall through with an empty list
   }
+  return made;
 }
 
-// Writes the buffer to the lp node in one open/write/close, exactly like
-// redirecting to it from a shell. Returns true if it wrote, false if there
-// was no usable node (caller then tries libusb). A node that exists but
-// errors on write (printer offline/unplugged) throws — that's a real
-// failure, not a "try the other transport" signal.
+// A stalled write to an offline/out-of-paper printer would otherwise hang the
+// request until the client aborts AND pin a libuv threadpool thread; cap it.
+const CHAR_WRITE_TIMEOUT_MS = 8000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out writing to ${label} — printer not responding`)), ms);
+  });
+  return Promise.race([promise.finally(() => clearTimeout(timer)), timeout]);
+}
+
+// Writes the buffer to the first usblp node backed by a real printer, exactly
+// like redirecting to it from a shell. Returns true on a successful write;
+// false when no node is backed by a printer (caller then tries libusb). A node
+// that IS backed but errors mid-write (out of paper, etc.) throws.
 async function sendViaCharDevice(buffer) {
-  const path = resolveLpPath();
-  if (!path) return false;
-  let handle;
-  try {
-    handle = await fs.promises.open(path, 'w');
-  } catch (err) {
-    // The node exists (or we just mknod'd it) but nothing is bound to it —
-    // no printer reachable this way (ENODEV/ENXIO), or it disappeared
-    // (ENOENT). Fall through to libusb rather than reporting a write error.
-    if (['ENODEV', 'ENXIO', 'ENOENT'].includes(err.code)) return false;
-    throw err;
+  const paths = usableLpPaths();
+  let lastRealError = null;
+  for (const path of paths) {
+    let handle;
+    try {
+      handle = await fs.promises.open(path, 'w');
+    } catch (err) {
+      // Node present but nothing bound to it (phantom node / printer on a
+      // different minor / not writable) — try the next candidate rather than
+      // failing outright.
+      if (['ENODEV', 'ENXIO', 'ENOENT', 'EACCES'].includes(err.code)) continue;
+      lastRealError = err;
+      continue;
+    }
+    try {
+      // A single write() may not flush the whole buffer, so loop until every
+      // byte is sent (each chunk under the same stall timeout).
+      let offset = 0;
+      while (offset < buffer.length) {
+        const { bytesWritten } = await withTimeout(
+          handle.write(buffer, offset, buffer.length - offset),
+          CHAR_WRITE_TIMEOUT_MS,
+          path
+        );
+        if (bytesWritten <= 0) break;
+        offset += bytesWritten;
+      }
+      return true;
+    } finally {
+      await handle.close().catch(() => {});
+    }
   }
-  try {
-    await handle.write(buffer);
-  } finally {
-    await handle.close();
-  }
-  return true;
+  if (lastRealError) throw lastRealError;
+  return false;
 }
 
 // --- Transport 2: libusb raw bulk ----------------------------------------
@@ -221,4 +256,4 @@ async function sendRaw(buffer) {
   );
 }
 
-module.exports = { sendRaw, findPrinterInterface, resolveLpPath, PrinterNotFoundError };
+module.exports = { sendRaw, findPrinterInterface, usableLpPaths, PrinterNotFoundError };
