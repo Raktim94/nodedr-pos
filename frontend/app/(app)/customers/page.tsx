@@ -4,13 +4,13 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Search, Star, X } from "lucide-react";
+import { Check, Plus, Search, Star, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { SettleDueModal } from "@/components/SettleDueModal";
 import { useToast } from "@/components/Toast";
-import { useCustomers, useCreateCustomer } from "@/hooks/useCustomers";
+import { useCustomers, useCreateCustomer, useSettleDue } from "@/hooks/useCustomers";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { formatMoney } from "@/lib/format";
 import { ApiError } from "@/lib/api";
@@ -30,8 +30,19 @@ export default function CustomersPage() {
   const { data: customers, isLoading } = useCustomers(search);
   const { data: shop } = useShopSettings();
   const createCustomer = useCreateCustomer();
+  const settleDue = useSettleDue();
   const { show } = useToast();
   const sym = shop?.currencySymbol || "Rs.";
+
+  async function clearDue(c: Customer) {
+    if (!window.confirm(`Clear ${formatMoney(c.totalDue, sym)} due for ${c.name}? This marks it fully paid.`)) return;
+    try {
+      await settleDue.mutateAsync({ id: c.id, amount: c.totalDue });
+      show(`Due cleared for ${c.name}`, "success");
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Could not clear due", "error");
+    }
+  }
 
   const {
     register,
@@ -121,14 +132,25 @@ export default function CustomersPage() {
                     <td className="py-2.5 pr-4 text-right text-foreground/70">{formatMoney(c.totalSpent, sym)}</td>
                     <td className="py-2.5 pr-4 text-right">
                       {c.totalDue > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setSettleTarget(c)}
-                          className="rounded-full bg-danger/10 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger/20"
-                          title="Record a payment"
-                        >
-                          {formatMoney(c.totalDue, sym)}
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSettleTarget(c)}
+                            className="rounded-full bg-danger/10 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger/20"
+                            title="Record a payment"
+                          >
+                            {formatMoney(c.totalDue, sym)}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => clearDue(c)}
+                            aria-label={`Clear due for ${c.name}`}
+                            title="Clear due (mark fully paid)"
+                            className="text-foreground/40 hover:text-success"
+                          >
+                            <Check className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-foreground/30">—</span>
                       )}

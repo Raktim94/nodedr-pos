@@ -13,7 +13,8 @@ export interface ProductInput {
   purchasePrice: number;
   sellingPrice: number;
   taxRate: number;
-  discountPercent?: number;
+  discountType?: "percent" | "amount" | null;
+  discountValue?: number;
   stock: number;
 }
 

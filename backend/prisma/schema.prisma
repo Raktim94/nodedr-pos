@@ -60,7 +60,8 @@ model Product {
   purchasePrice Float
   sellingPrice  Float
   taxRate       Float         @default(0) // GST % for this product
-  discountPercent Float       @default(0) // standing per-product discount, applied automatically at checkout
+  discountType  String?       // "percent" | "amount" | null (no standing discount)
+  discountValue Float         @default(0) // interpreted per discountType; applied automatically at checkout
   stock         Int           @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

@@ -3,9 +3,16 @@ import { round2 } from "./format";
 
 // A product's standing per-product discount (set in Inventory) is applied
 // before anything else — this is the price actually charged for one unit.
+// Mirrors backend/src/lib/pricing.js's `effectivePrice` exactly.
 export function effectivePrice(product: Product): number {
-  const pct = Math.min(100, Math.max(0, product.discountPercent || 0));
-  return pct > 0 ? round2(product.sellingPrice * (1 - pct / 100)) : product.sellingPrice;
+  const { discountType, discountValue } = product;
+  if (!discountType || !discountValue) return product.sellingPrice;
+  if (discountType === "percent") {
+    const pct = Math.min(100, Math.max(0, discountValue));
+    return round2(product.sellingPrice * (1 - pct / 100));
+  }
+  const amt = Math.min(product.sellingPrice, Math.max(0, discountValue));
+  return round2(product.sellingPrice - amt);
 }
 
 export interface QuoteInput {
@@ -28,6 +35,10 @@ export interface Quote {
 // Client-side preview of the sale totals. Mirrors the backend pricing engine
 // (backend/src/lib/pricing.js) so the cashier sees accurate numbers before
 // checkout — the server always recomputes authoritatively on submit.
+//
+// `sellingPrice` is the MRP — legally GST-inclusive in India, not a
+// pre-tax price GST gets added to — so GST is backed OUT of the inclusive
+// total for the on-screen breakup, never added on top of it.
 export function quoteSale({ cart, discountType, discountValue, pointsRedeemed, settings }: QuoteInput): Quote {
   const gstEnabled = !!settings?.gstEnabled;
   const effectivePrices = cart.map((c) => effectivePrice(c.product));
@@ -42,14 +53,15 @@ export function quoteSale({ cart, discountType, discountValue, pointsRedeemed, s
   let taxAmount = 0;
   cart.forEach((c, i) => {
     const share = subtotal > 0 ? bases[i] / subtotal : 0;
-    const discountedBase = round2(bases[i] - round2(discountAmount * share));
+    const discountedBase = round2(bases[i] - round2(discountAmount * share)); // still inclusive
     const rate = gstEnabled ? c.product.taxRate || 0 : 0;
-    taxAmount = round2(taxAmount + round2(discountedBase * (rate / 100)));
+    const lineTax = rate > 0 ? round2(discountedBase - discountedBase / (1 + rate / 100)) : 0;
+    taxAmount = round2(taxAmount + lineTax);
   });
 
   const loyaltyEnabled = !!settings?.loyaltyEnabled;
   const pointValue = loyaltyEnabled ? settings!.pointValue || 0 : 0;
-  const preLoyalty = round2(subtotal - discountAmount + taxAmount);
+  const preLoyalty = round2(subtotal - discountAmount); // GST is already included, not added again
   let loyaltyDiscount = round2(Math.max(0, Math.floor(pointsRedeemed)) * pointValue);
   if (loyaltyDiscount > preLoyalty) loyaltyDiscount = preLoyalty;
 

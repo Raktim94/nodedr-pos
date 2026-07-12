@@ -8,11 +8,13 @@ import { Barcode as BarcodeIcon, X } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
+import { BarcodeDownloadPanel } from "@/components/BarcodeDownloadPanel";
 import { useCreateProduct, useProducts, useUpdateProduct } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { generateEan13 } from "@/lib/barcode";
+import { formatMoney } from "@/lib/format";
 import { GENERIC_PRODUCT_CATEGORIES, GST_RATES, UQC_UNITS } from "@/lib/masters";
 import type { Product } from "@/lib/types";
 
@@ -25,7 +27,8 @@ const productSchema = z.object({
   purchasePrice: z.number().min(0, "Must be 0 or more"),
   sellingPrice: z.number().min(0, "Must be 0 or more"),
   taxRate: z.number().min(0).max(100),
-  discountPercent: z.number().min(0, "Must be 0 or more").max(100, "Can't exceed 100%"),
+  discountType: z.enum(["percent", "amount"]).nullable(),
+  discountValue: z.number().min(0, "Must be 0 or more"),
   stock: z.number().int().min(0, "Must be 0 or more"),
 });
 type ProductForm = z.infer<typeof productSchema>;
@@ -68,7 +71,8 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
       purchasePrice: product?.purchasePrice ?? 0,
       sellingPrice: product?.sellingPrice ?? 0,
       taxRate: product?.taxRate ?? shop?.defaultTaxRate ?? 0,
-      discountPercent: product?.discountPercent ?? 0,
+      discountType: product?.discountType ?? null,
+      discountValue: product?.discountValue ?? 0,
       stock: product?.stock ?? 0,
     },
   });
@@ -99,10 +103,21 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   const gst = shop?.gstEnabled;
   const taxRate = useWatch({ control, name: "taxRate" });
   const hsnValue = useWatch({ control, name: "hsn" });
+  const barcodeValue = useWatch({ control, name: "barcode" });
+  const nameValue = useWatch({ control, name: "name" });
   const sellingPrice = useWatch({ control, name: "sellingPrice" });
-  const discountPercent = useWatch({ control, name: "discountPercent" });
-  const discountedPrice =
-    discountPercent > 0 ? Math.round(sellingPrice * (1 - discountPercent / 100) * 100) / 100 : sellingPrice;
+  const discountType = useWatch({ control, name: "discountType" });
+  const discountValue = useWatch({ control, name: "discountValue" });
+  const sym = shop?.currencySymbol ?? "Rs.";
+  const discountedPrice = (() => {
+    if (!discountType || !discountValue) return sellingPrice;
+    if (discountType === "percent") {
+      const pct = Math.min(100, Math.max(0, discountValue));
+      return Math.round(sellingPrice * (1 - pct / 100) * 100) / 100;
+    }
+    const amt = Math.min(sellingPrice, Math.max(0, discountValue));
+    return Math.round((sellingPrice - amt) * 100) / 100;
+  })();
 
   function generateBarcode() {
     const code = generateEan13(products?.map((p) => p.barcode) ?? []);
@@ -114,6 +129,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
     return Array.from(new Set([...existing, ...GENERIC_PRODUCT_CATEGORIES])).sort();
   }, [products]);
 
+  const [showBarcodeImage, setShowBarcodeImage] = useState(false);
   const [hsnSuggestions, setHsnSuggestions] = useState<TaxCodeSuggestion[]>([]);
   useEffect(() => {
     const query = hsnValue?.trim() ?? "";
@@ -158,6 +174,22 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               Generate
             </Button>
           </div>
+          {barcodeValue?.trim() && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowBarcodeImage((v) => !v)}
+                className="text-sm font-medium text-brand hover:underline"
+              >
+                {showBarcodeImage ? "Hide barcode image" : "Get barcode image to print (PNG/JPG)"}
+              </button>
+              {showBarcodeImage && (
+                <div className="mt-3">
+                  <BarcodeDownloadPanel value={barcodeValue.trim()} label={nameValue?.trim() || "Product"} />
+                </div>
+              )}
+            </div>
+          )}
           <Field label="Product name" error={errors.name?.message} {...register("name")} />
           <div className="grid grid-cols-2 gap-4">
             <Field label="Category" list="category-options" {...register("category")} />
@@ -195,19 +227,33 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
             />
           </div>
           <div>
-            <Field
-              label="Standing discount % (applied automatically at checkout)"
-              type="number"
-              step="0.01"
-              min={0}
-              max={100}
-              error={errors.discountPercent?.message}
-              {...register("discountPercent", { valueAsNumber: true })}
-            />
-            {discountPercent > 0 && (
-              <p className="mt-1 text-xs text-success">
-                Sells at {shop?.currencySymbol ?? "Rs."} {discountedPrice.toFixed(2)}
-              </p>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
+              Standing discount (applied automatically at checkout)
+            </label>
+            <div className="flex gap-2">
+              <select
+                aria-label="Discount type"
+                className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground"
+                {...register("discountType", { setValueAs: (v) => (v === "" ? null : v) })}
+              >
+                <option value="">None</option>
+                <option value="percent">%</option>
+                <option value="amount">{sym}</option>
+              </select>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                disabled={!discountType}
+                placeholder="Discount value"
+                aria-label="Discount value"
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground disabled:opacity-50"
+                {...register("discountValue", { valueAsNumber: true })}
+              />
+            </div>
+            {errors.discountValue?.message && <p className="mt-1 text-sm text-danger">{errors.discountValue.message}</p>}
+            {discountType && discountValue > 0 && (
+              <p className="mt-1 text-xs text-success">Sells at {formatMoney(discountedPrice, sym)}</p>
             )}
           </div>
           <div className="grid grid-cols-2 gap-4">

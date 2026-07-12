@@ -8,7 +8,7 @@ router.use(requireAuth);
 
 // No `.default()` here on purpose — see settings.js for why. `.default()`
 // fires whenever a key is absent, which would make `productSchema.partial()`
-// silently reset taxRate/discountPercent/stock to 0 on any partial update
+// silently reset taxRate/discountValue/stock to 0 on any partial update
 // that omits them (e.g. the Inventory "adjust stock" quick action, which
 // only ever sends `{ stock }`). `createSchema` adds the defaults back for
 // the POST (create) route, where every field really is required-or-defaulted.
@@ -21,16 +21,39 @@ const fields = {
   purchasePrice: z.number().min(0),
   sellingPrice: z.number().min(0),
   taxRate: z.number().min(0).max(100),
-  discountPercent: z.number().min(0).max(100),
+  // A standing per-product discount — either a percent (capped at 100) or a
+  // flat currency amount (capped against sellingPrice, checked in the
+  // route below since that needs both fields together, not just one).
+  discountType: z.enum(['percent', 'amount']).nullish(),
+  discountValue: z.number().min(0),
   stock: z.number().int().min(0),
 };
 const createSchema = z.object({
   ...fields,
   taxRate: fields.taxRate.default(0),
-  discountPercent: fields.discountPercent.default(0),
+  discountValue: fields.discountValue.default(0),
   stock: fields.stock.default(0),
 });
 const updateSchema = z.object(fields).partial();
+
+function normalizeDiscount(data) {
+  // A discountType with no value (or vice versa) doesn't make sense —
+  // treat "no type" as "no discount" regardless of what discountValue holds.
+  if (!data.discountType) {
+    if ('discountType' in data || 'discountValue' in data) {
+      data.discountType = null;
+      data.discountValue = 0;
+    }
+    return data;
+  }
+  if (data.discountType === 'percent' && data.discountValue > 100) {
+    throw Object.assign(new Error('Percent discount cannot exceed 100'), { status: 400 });
+  }
+  if (data.discountType === 'amount' && data.sellingPrice != null && data.discountValue > data.sellingPrice) {
+    throw Object.assign(new Error('Flat discount cannot exceed the selling price'), { status: 400 });
+  }
+  return data;
+}
 
 // GET /api/products?q=search
 router.get('/', async (req, res) => {
@@ -70,7 +93,13 @@ router.post('/', async (req, res) => {
   const existing = await prisma.product.findUnique({ where: { barcode: parsed.data.barcode } });
   if (existing) return res.status(409).json({ error: 'Barcode already exists', product: existing });
 
-  const product = await prisma.product.create({ data: parsed.data });
+  let data;
+  try {
+    data = normalizeDiscount(parsed.data);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const product = await prisma.product.create({ data });
   res.status(201).json(product);
 });
 
@@ -82,8 +111,14 @@ router.put('/:id', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
+  let data;
   try {
-    const product = await prisma.product.update({ where: { id }, data: parsed.data });
+    data = normalizeDiscount(parsed.data);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  try {
+    const product = await prisma.product.update({ where: { id }, data });
     res.json(product);
   } catch {
     res.status(404).json({ error: 'Product not found' });

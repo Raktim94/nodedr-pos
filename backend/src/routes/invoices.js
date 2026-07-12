@@ -199,7 +199,7 @@ router.get('/analytics', async (req, res) => {
       by: ['productId', 'name'],
       _sum: { quantity: true, total: true },
       orderBy: { _sum: { quantity: 'desc' } },
-      take: 5,
+      take: 10,
     }),
     prisma.invoice.groupBy({
       by: ['paymentMethod'],

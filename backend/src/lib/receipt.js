@@ -39,9 +39,12 @@ function buildReceiptHtml({ shop, invoice }) {
     totalRows.push([label, `- ${money(invoice.discountAmount)}`]);
   }
   if (shop.gstEnabled && invoice.taxAmount > 0) {
+    // Prices are MRP — GST-inclusive by law — so these are a breakup of
+    // tax already inside the total above, not additional charges. Labelled
+    // "(incl.)" so the receipt doesn't read as if they should be added.
     const half = Math.round((invoice.taxAmount / 2 + Number.EPSILON) * 100) / 100;
-    totalRows.push(['CGST', money(half)]);
-    totalRows.push(['SGST', money(invoice.taxAmount - half)]);
+    totalRows.push(['CGST (incl.)', money(half)]);
+    totalRows.push(['SGST (incl.)', money(invoice.taxAmount - half)]);
   }
   if (invoice.loyaltyDiscount > 0) {
     totalRows.push([`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${money(invoice.loyaltyDiscount)}`]);
@@ -71,9 +74,15 @@ function buildReceiptHtml({ shop, invoice }) {
   .totals td { padding: 1px 0; }
   .grand td { font-weight: 700; font-size: 13px; border-top: 1px solid #111; padding-top: 3px; }
   .footer { text-align: center; margin-top: 6px; font-size: 11px; }
-  @page { margin: 0; }
+  /* A 0 page margin tells the browser to print edge-to-edge, but most
+     printers (thermal included) have a small hardware area they physically
+     can't print in — right-aligned amounts (white-space: nowrap, so they
+     don't wrap) were landing in that dead zone and getting clipped instead
+     of just printing tight. A few mm of margin is still far tighter than a
+     browser's ~13-25mm print default, and keeps everything on the page. */
+  @page { margin: 3mm; }
   @media print {
-    body { padding: 4px; }
+    body { padding: 0; }
     .no-print { display: none; }
   }
 </style>

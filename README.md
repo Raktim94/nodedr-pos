@@ -58,8 +58,10 @@ tablet/phone on the same network.
 - **Barcode-driven POS checkout** — scan to add to the cart, scan again to
   bump quantity, press **Enter** to finalize. Unknown barcodes surface a
   toast instead of blocking the register.
-- **GST / tax** — per-product GST rates with HSN/SAC codes; bills show a
-  CGST/SGST breakdown and your GSTIN. Toggle on/off in settings.
+- **GST / tax** — per-product GST rates with HSN/SAC codes. The price you
+  enter is treated as MRP (GST-inclusive, as required by law) — GST is
+  never added on top of it, only broken out as CGST/SGST on the receipt for
+  compliance, alongside your GSTIN. Toggle GST on/off in settings.
 - **Discounts** — percentage or flat-amount discount per sale (applied
   correctly across mixed tax rates), *and* a standing per-product discount
   % you can set once in Inventory that applies automatically every time
@@ -311,23 +313,28 @@ Ph:   9990001111
 ------------------------------------------------
 Item                      Qty     Rate    Amount
 ------------------------------------------------
-Biscuits                    1    50.00     50.00
+Biscuits                    1   118.00    118.00
   GST @ 18%
 ------------------------------------------------
-Subtotal                               Rs. 50.00
-CGST                                    Rs. 4.50
-SGST                                    Rs. 4.50
+Subtotal                              Rs. 118.00
+CGST (incl.)                            Rs. 9.00
+SGST (incl.)                            Rs. 9.00
 Loyalty (100 pts)                     Rs. -10.00
 ================================================
-GRAND TOTAL                            Rs. 49.00
+GRAND TOTAL                           Rs. 108.00
 ================================================
-Paid (UPI)                             Rs. 49.00
+Paid (UPI)                            Rs. 108.00
 ------------------------------------------------
-         You earned 49 loyalty points!
+         You earned 108 loyalty points!
 ================================================
             Thank You! Visit Again.
 ================================================
 ```
+
+The "Rate" you enter on a product is its MRP — GST-inclusive, as required
+by law — so CGST/SGST are a breakup of tax already inside that price, not
+an addition to it: Subtotal is the MRP total, and GRAND TOTAL is Subtotal
+minus discounts, full stop.
 
 The header, footer, currency, GSTIN, and whether the GST breakdown shows are
 all driven by your settings, so this layout adapts to how you configure the
@@ -409,8 +416,9 @@ what and when.
 To pull the latest code and redeploy:
 
 ```bash
-# 1. Get the latest commits
-cd nodedr-pos
+# 1. Get the latest commits. Run this from inside your nodedr-pos
+#    directory — if you're not already there, cd into it first:
+#    cd nodedr-pos
 git pull
 
 # 2. Rebuild the images and recreate the containers with the new code.

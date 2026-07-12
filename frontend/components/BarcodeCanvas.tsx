@@ -7,10 +7,12 @@ import QRCode from "qrcode";
 export function BarcodeCanvas({
   value,
   format,
+  id,
   className,
 }: {
   value: string;
   format: "EAN13" | "QR";
+  id: string;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,5 +35,5 @@ export function BarcodeCanvas({
     }
   }, [value, format]);
 
-  return <canvas ref={canvasRef} id="barcode-label-canvas" className={className} />;
+  return <canvas ref={canvasRef} id={id} className={className} />;
 }

@@ -18,7 +18,7 @@ export default function DashboardPage() {
   const { data: summary } = useSalesSummary();
   const { data: invoices } = useInvoices();
   const { data: analytics } = useSalesAnalytics();
-  const { data: topCustomers } = useTopLoyaltyCustomers(5);
+  const { data: topCustomers } = useTopLoyaltyCustomers(10);
 
   const sym = shop?.currencySymbol || "Rs.";
   const money = (n: number) => formatMoney(n, sym);

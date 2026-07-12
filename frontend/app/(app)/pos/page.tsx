@@ -246,8 +246,10 @@ export default function PosPage() {
                       </td>
                       <td className="py-2.5 pr-4 text-right text-foreground/70">
                         {money(effectivePrice(item.product))}
-                        {item.product.discountPercent > 0 && (
-                          <div className="text-xs text-success">-{item.product.discountPercent}%</div>
+                        {item.product.discountType && item.product.discountValue > 0 && (
+                          <div className="text-xs text-success">
+                            -{item.product.discountType === "percent" ? `${item.product.discountValue}%` : money(item.product.discountValue)}
+                          </div>
                         )}
                       </td>
                       {shop?.gstEnabled && (
@@ -416,7 +418,7 @@ export default function PosPage() {
           <Card className="flex flex-col gap-2 p-5">
             <Row label="Subtotal" value={money(quote.subtotal)} />
             {quote.discountAmount > 0 && <Row label="Discount" value={`- ${money(quote.discountAmount)}`} />}
-            {shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST" value={money(quote.taxAmount)} />}
+            {shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST (included)" value={money(quote.taxAmount)} />}
             {quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
             <div className="my-1 border-t border-border" />
             <div className="flex items-center justify-between">

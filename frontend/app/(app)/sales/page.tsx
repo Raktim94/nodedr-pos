@@ -132,7 +132,7 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
             <div className="flex flex-col gap-1">
               <Line label="Subtotal" value={money(invoice.subtotal)} />
               {invoice.discountAmount > 0 && <Line label="Discount" value={`- ${money(invoice.discountAmount)}`} />}
-              {invoice.taxAmount > 0 && <Line label="GST" value={money(invoice.taxAmount)} />}
+              {invoice.taxAmount > 0 && <Line label="GST (included)" value={money(invoice.taxAmount)} />}
               {invoice.loyaltyDiscount > 0 && (
                 <Line label={`Loyalty (${invoice.pointsRedeemed} pts)`} value={`- ${money(invoice.loyaltyDiscount)}`} />
               )}

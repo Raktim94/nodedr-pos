@@ -153,9 +153,11 @@ function buildReceiptPdf({ shop, invoice }) {
       totalLine(label, `- ${money(sym, invoice.discountAmount)}`);
     }
     if (shop.gstEnabled && invoice.taxAmount > 0) {
+      // Prices are MRP — GST-inclusive by law — so this is a breakup of
+      // tax already inside the total, not an addition to it.
       const half = Math.round((invoice.taxAmount / 2 + Number.EPSILON) * 100) / 100;
-      totalLine('CGST', money(sym, half));
-      totalLine('SGST', money(sym, invoice.taxAmount - half));
+      totalLine('CGST (incl.)', money(sym, half));
+      totalLine('SGST (incl.)', money(sym, invoice.taxAmount - half));
     }
     if (invoice.loyaltyDiscount > 0) {
       totalLine(`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${money(sym, invoice.loyaltyDiscount)}`);
