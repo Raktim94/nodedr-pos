@@ -54,6 +54,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+// Zod's `.flatten()` shape from the backend's `{ error, details }` 400s.
+// Turns "Invalid input" (which tells no one anything) into e.g.
+// "Invalid input — creditApplied: Expected number, received null" so the
+// actual bad field is visible in the toast instead of only in devtools.
+export function describeApiError(err: unknown, fallback = "Something went wrong"): string {
+  if (!(err instanceof ApiError)) return fallback;
+  const details = err.details as { formErrors?: string[]; fieldErrors?: Record<string, string[]> } | undefined;
+  const parts = [...(details?.formErrors ?? [])];
+  for (const [field, msgs] of Object.entries(details?.fieldErrors ?? {})) {
+    for (const m of msgs ?? []) parts.push(`${field}: ${m}`);
+  }
+  return parts.length > 0 ? `${err.message} — ${parts.join("; ")}` : err.message;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, data?: unknown) =>

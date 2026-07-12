@@ -61,14 +61,18 @@ function estimateHeight({ shop, invoice }) {
   if (invoice.discountAmount > 0) h += 13;
   if (shop.gstEnabled && invoice.taxAmount > 0) h += 26; // CGST + SGST
   if (invoice.loyaltyDiscount > 0) h += 13;
-  h += 8 + 16; // rule + grand total
   if (invoice.returnValue > 0) h += 13;
   if (invoice.creditApplied > 0) h += 13;
-  h += 8 + 13; // rule + paid
-  if (invoice.previousDuePaid > 0) h += 26; // old due cleared + total collected
-  if (invoice.changeDue > 0) h += 13;
-  if (invoice.dueAmount > 0) h += 13;
-  if (invoice.refundValue > 0) h += 13;
+  // Refund-outcome bill: "Old Due Cleared" (if any) sits above the closing
+  // rule, no separate "Paid" section below it.
+  if (invoice.refundValue > 0 && invoice.previousDuePaid > 0) h += 13;
+  h += 8 + 16; // rule + grand/net-payable/refund line
+  if (invoice.refundValue === 0) {
+    h += 8 + 13; // rule + paid
+    if (invoice.previousDuePaid > 0) h += 26; // old due cleared + total collected
+    if (invoice.changeDue > 0) h += 13;
+    if (invoice.dueAmount > 0) h += 13;
+  }
   if (shop.loyaltyEnabled && invoice.pointsEarned > 0) h += 14;
   h += 12 + 8; // spacer + rule
   h += wrappedLines(shop.receiptFooter || 'Thank You! Visit Again.', CHARS_PER_LINE_FULL) * 10;
@@ -172,6 +176,12 @@ function buildReceiptPdf({ shop, invoice }) {
 
     const payable = Math.max(0, Math.round((invoice.totalAmount - invoice.returnValue - invoice.creditApplied) * 100) / 100);
     const hasRefund = invoice.refundValue > 0;
+    // Same netting story as receipt.js: on a refund-outcome bill, show where
+    // an old due went before the final refund line, or the receipt reads as
+    // "Returns -500 / REFUND 200" with 300 unaccounted for.
+    if (hasRefund && invoice.previousDuePaid > 0) {
+      totalLine('Old Due Cleared', `- ${money(sym, invoice.previousDuePaid)}`);
+    }
     rule(doc);
     if (hasRefund) {
       totalLine(`REFUND (${invoice.refundMode === 'CREDIT' ? 'store credit' : 'cash'})`, money(sym, invoice.refundValue), true);

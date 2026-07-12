@@ -176,30 +176,45 @@ router.post('/', async (req, res) => {
       // is what the customer still pays; a negative net is money owed back.
       const netBill = round2(saleTotal - returnValue - creditApplied);
       const payable = round2(Math.max(0, netBill));
-      const refundValue = round2(Math.max(0, -netBill));
+      const grossRefund = round2(Math.max(0, -netBill));
       let refundMode = null;
-      if (refundValue > 0) {
+      if (grossRefund > 0) {
         refundMode = body.refundMode;
         if (refundMode === 'CREDIT' && !customer) {
           throw Object.assign(new Error('A customer is required to keep a refund as store credit'), { status: 400 });
         }
       }
 
-      // Old due the customer wants cleared on this bill, capped at what they owe.
-      let previousDuePaid = 0;
+      // Old due the customer wants cleared on this bill, capped at what they
+      // actually owe (never raised by anything the client sends).
+      let duePaidIntent = 0;
       if (body.duePaid > 0) {
         if (!customer) {
           throw Object.assign(new Error('A customer (with phone number) is required to clear a previous due'), { status: 400 });
         }
-        previousDuePaid = round2(Math.min(body.duePaid, customer.totalDue));
+        duePaidIntent = round2(Math.min(body.duePaid, customer.totalDue));
       }
 
-      // Tender covers the net payable first, then any old due being cleared.
-      const tendered = body.paymentMethod === 'CASH' ? body.amountPaid : payable + previousDuePaid;
-      const amountPaid = round2(Math.min(tendered, payable));
-      const afterGoods = round2(Math.max(0, tendered - payable));
-      previousDuePaid = round2(Math.min(previousDuePaid, afterGoods));
-      const changeDue = round2(Math.max(0, afterGoods - previousDuePaid));
+      // Every source of money on this bill goes into ONE pool before being
+      // allocated, in order: goods first, then the old due, then whatever's
+      // left goes back to the customer as change/refund. Pooling the gross
+      // refund together with tendered cash is the key fix here — a customer
+      // returning something worth more than what they're buying can have
+      // that refund fund an old-due clearance directly, with no fresh cash
+      // changing hands. The previous version only pulled from tendered cash,
+      // so a due-clear requested on a pure-return bill (nothing to "tender")
+      // silently never applied — the balance just sat there unchanged.
+      const tenderedCash = body.paymentMethod === 'CASH' ? body.amountPaid : payable + duePaidIntent;
+      const pool = round2(tenderedCash + grossRefund);
+      const amountPaid = round2(Math.min(pool, payable));
+      const afterGoods = round2(Math.max(0, pool - amountPaid));
+      const previousDuePaid = round2(Math.min(duePaidIntent, afterGoods));
+      const leftover = round2(Math.max(0, afterGoods - previousDuePaid));
+      // Only ever one of these is nonzero: a change-y "leftover" reads as
+      // GST/receipt "Change" on an ordinary purchase, and as "Refund" on a
+      // bill whose net was a return/credit overage.
+      const changeDue = grossRefund > 0 ? 0 : leftover;
+      const refundValue = grossRefund > 0 ? leftover : 0;
 
       // Paying short of the net payable becomes a new due — needs a customer.
       const dueAmount = round2(Math.max(0, payable - amountPaid));

@@ -11,7 +11,7 @@ import { ReturnPanel, type ReturnDraftLine } from "@/components/ReturnPanel";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, describeApiError } from "@/lib/api";
 import { formatMoney, round2 } from "@/lib/format";
 import { openReceiptPrint } from "@/lib/print";
 import { effectivePrice, quoteSale } from "@/lib/quote";
@@ -62,13 +62,31 @@ export default function PosPage() {
   // negative → the shop owes them (refund).
   const netBill = round2(quote.total - returnTotal - creditUse);
   const payable = Math.max(0, netBill);
-  const refundValue = Math.max(0, round2(-netBill));
+  const grossRefund = Math.max(0, round2(-netBill));
 
-  // What the customer actually hands over now = net payable + any old due cleared.
+  // Mirrors backend/src/routes/invoices.js exactly: every source of money on
+  // this bill (tendered cash, and any gross refund from returns/credit) goes
+  // into one pool, allocated goods first, then the old due, then whatever's
+  // left is change/refund. Without pooling the refund in here too, this
+  // preview showed the FULL return value as "refund" even when some of it
+  // was about to go straight to clearing the customer's due — a cashier
+  // reading that number had no way to tell the due-clear had actually worked.
+  const tenderedCash = paymentMethod === "CASH" ? Number(amountPaid) || 0 : payable + dueToClear;
+  const pool = round2(tenderedCash + grossRefund);
+  const amountAppliedToGoods = round2(Math.min(pool, payable));
+  const afterGoods = round2(Math.max(0, pool - amountAppliedToGoods));
+  const duePaidFinal = round2(Math.min(dueToClear, afterGoods));
+  const leftover = round2(Math.max(0, afterGoods - duePaidFinal));
+  const changeDue = grossRefund > 0 ? 0 : leftover;
+  const refundValue = grossRefund > 0 ? leftover : 0;
+
+  // "Paid in full" convenience total: goods + due, assuming the cashier
+  // brings fresh cash rather than drawing the due-clear out of a refund.
   const collectTotal = round2(payable + dueToClear);
-  const effectivePaid = paymentMethod === "CASH" ? Number(amountPaid) || 0 : collectTotal;
-  const changeDue = Math.max(0, round2(effectivePaid - collectTotal));
-  const shortNow = paymentMethod === "CASH" && Number(amountPaid) > 0 ? Math.max(0, round2(collectTotal - effectivePaid)) : 0;
+  const shortNow =
+    paymentMethod === "CASH" && Number(amountPaid) > 0 && grossRefund === 0
+      ? Math.max(0, round2(collectTotal - (Number(amountPaid) || 0)))
+      : 0;
 
   const addToCart = useCallback(
     (product: Product) => {
@@ -200,7 +218,7 @@ export default function PosPage() {
         setTimeout(() => openReceiptPrint(invoice.id), 0);
       }
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Checkout failed", "error");
+      show(describeApiError(err, "Checkout failed"), "error");
     } finally {
       setIsCheckingOut(false);
     }

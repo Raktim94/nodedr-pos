@@ -57,6 +57,14 @@ function buildReceiptHtml({ shop, invoice }) {
   // raw sale total. Decide the bold bottom line accordingly.
   const payable = Math.max(0, Math.round((invoice.totalAmount - invoice.returnValue - invoice.creditApplied) * 100) / 100);
   const hasRefund = invoice.refundValue > 0;
+  // On a refund-outcome bill, an old due cleared out of that refund is part
+  // of the same netting story (Returns → Old Due Cleared → REFUND), so it
+  // belongs in the running total list, not the separate "Paid" section
+  // below — otherwise the receipt shows e.g. "Returns -500 / REFUND 200"
+  // with no explanation for where the other 300 went.
+  if (hasRefund && invoice.previousDuePaid > 0) {
+    totalRows.push(['Old Due Cleared', `- ${money(invoice.previousDuePaid)}`]);
+  }
   const grandLabel = hasRefund
     ? `REFUND (${invoice.refundMode === 'CREDIT' ? 'store credit' : 'cash'})`
     : invoice.returnValue > 0 || invoice.creditApplied > 0
