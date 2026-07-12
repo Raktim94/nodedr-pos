@@ -6,7 +6,13 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth);
 
-const productSchema = z.object({
+// No `.default()` here on purpose — see settings.js for why. `.default()`
+// fires whenever a key is absent, which would make `productSchema.partial()`
+// silently reset taxRate/discountPercent/stock to 0 on any partial update
+// that omits them (e.g. the Inventory "adjust stock" quick action, which
+// only ever sends `{ stock }`). `createSchema` adds the defaults back for
+// the POST (create) route, where every field really is required-or-defaulted.
+const fields = {
   barcode: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
   category: z.string().trim().max(80).optional().or(z.literal('')),
@@ -14,9 +20,17 @@ const productSchema = z.object({
   unit: z.string().trim().max(10).optional().or(z.literal('')),
   purchasePrice: z.number().min(0),
   sellingPrice: z.number().min(0),
-  taxRate: z.number().min(0).max(100).default(0),
-  stock: z.number().int().min(0).default(0),
+  taxRate: z.number().min(0).max(100),
+  discountPercent: z.number().min(0).max(100),
+  stock: z.number().int().min(0),
+};
+const createSchema = z.object({
+  ...fields,
+  taxRate: fields.taxRate.default(0),
+  discountPercent: fields.discountPercent.default(0),
+  stock: fields.stock.default(0),
 });
+const updateSchema = z.object(fields).partial();
 
 // GET /api/products?q=search
 router.get('/', async (req, res) => {
@@ -49,7 +63,7 @@ router.get('/barcode/:barcode', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const parsed = productSchema.safeParse(req.body);
+  const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
@@ -64,7 +78,7 @@ router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
 
-  const parsed = productSchema.partial().safeParse(req.body);
+  const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }

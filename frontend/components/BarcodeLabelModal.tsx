@@ -12,6 +12,7 @@ function escapeHtml(s: string) {
 
 export function BarcodeLabelModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const [format, setFormat] = useState<"EAN13" | "QR">("EAN13");
+  const [imageType, setImageType] = useState<"png" | "jpg">("png");
 
   function getCanvas() {
     return document.getElementById("barcode-label-canvas") as HTMLCanvasElement | null;
@@ -21,8 +22,23 @@ export function BarcodeLabelModal({ product, onClose }: { product: Product; onCl
     const canvas = getCanvas();
     if (!canvas) return;
     const link = document.createElement("a");
-    link.download = `${product.barcode}.png`;
-    link.href = canvas.toDataURL("image/png");
+    if (imageType === "jpg") {
+      // Canvases are transparent by default and JPEG has no alpha channel,
+      // so flatten onto a white background first or the "transparent"
+      // areas render black in most viewers.
+      const flat = document.createElement("canvas");
+      flat.width = canvas.width;
+      flat.height = canvas.height;
+      const ctx = flat.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, flat.width, flat.height);
+      ctx.drawImage(canvas, 0, 0);
+      link.download = `${product.barcode}.jpg`;
+      link.href = flat.toDataURL("image/jpeg", 0.95);
+    } else {
+      link.download = `${product.barcode}.png`;
+      link.href = canvas.toDataURL("image/png");
+    }
     link.click();
   }
 
@@ -99,10 +115,22 @@ export function BarcodeLabelModal({ product, onClose }: { product: Product; onCl
           <BarcodeCanvas value={product.barcode} format={format} />
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 flex items-center justify-center gap-3 text-sm">
+          <span className="text-foreground/60">Download as</span>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" name="image-type" checked={imageType === "png"} onChange={() => setImageType("png")} />
+            PNG
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" name="image-type" checked={imageType === "jpg"} onChange={() => setImageType("jpg")} />
+            JPG
+          </label>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <Button type="button" variant="secondary" onClick={download}>
             <Download className="h-4 w-4" aria-hidden="true" />
-            Download PNG
+            Download {imageType.toUpperCase()}
           </Button>
           <Button type="button" variant="secondary" onClick={print}>
             <Printer className="h-4 w-4" aria-hidden="true" />

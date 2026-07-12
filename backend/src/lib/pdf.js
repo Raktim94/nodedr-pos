@@ -22,9 +22,58 @@ function rule(doc, { dashed = false } = {}) {
   doc.y = y + 6;
 }
 
+// A fixed page height wastes real thermal paper: pdfkit still emits the
+// full page regardless of how little content is on it, and continuous-roll
+// printers cut at the page boundary. Estimate a page height tight to this
+// specific invoice's content instead of using one flat size for every
+// receipt. Deliberately generous — if it still undershoots, pdfkit starts a
+// second page rather than clipping anything, but a bare-minimum single
+// wrapped line spilling onto an otherwise-blank second page is exactly the
+// waste this is meant to prevent, so wrapping text (long item names, a
+// multi-line custom footer) is measured properly rather than flat-rated.
+const CHARS_PER_LINE_NAME = 12; // ~colName width (0.28 * ~195pt) at 8pt Helvetica
+const CHARS_PER_LINE_FULL = 30; // full receipt width at 8pt Helvetica, centered text
+
+function wrappedLines(text, charsPerLine) {
+  return String(text)
+    .split('\n')
+    .reduce((total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)), 0);
+}
+
+function estimateHeight({ shop, invoice }) {
+  let h = 40; // top/bottom margins + rounding buffer
+  h += 16; // shop name
+  if (shop.legalName) h += 10;
+  if ([shop.address1, shop.address2].filter(Boolean).join(', ')) h += 10;
+  if ([shop.city, shop.state].filter(Boolean).join(', ')) h += 10;
+  if (shop.phone) h += 10;
+  if (shop.gstEnabled && shop.gstNumber) h += 10;
+  h += 12; // spacer + rule
+  h += 32; // date/bill/customer, 3 lines
+  h += 8; // rule
+  h += 20; // table header row
+  for (const it of invoice.items) {
+    h += wrappedLines(it.name, CHARS_PER_LINE_NAME) * 10 + 4;
+    if (shop.gstEnabled && shop.showGst && it.taxRate > 0) h += 9;
+  }
+  h += 8; // rule
+  h += 13; // subtotal
+  if (invoice.discountAmount > 0) h += 13;
+  if (shop.gstEnabled && invoice.taxAmount > 0) h += 26; // CGST + SGST
+  if (invoice.loyaltyDiscount > 0) h += 13;
+  h += 8 + 16; // rule + grand total
+  h += 8 + 13; // rule + paid
+  if (invoice.changeDue > 0) h += 13;
+  if (shop.loyaltyEnabled && invoice.pointsEarned > 0) h += 14;
+  h += 12 + 8; // spacer + rule
+  h += wrappedLines(shop.receiptFooter || 'Thank You! Visit Again.', CHARS_PER_LINE_FULL) * 10;
+  return Math.max(300, Math.ceil(h) + 40);
+}
+
 function buildReceiptPdf({ shop, invoice }) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: [227, 700], margin: 16 }); // ~80mm wide, tall enough for most bills
+    const height = estimateHeight({ shop, invoice });
+    const doc = new PDFDocument({ size: [227, height], margin: 16 }); // ~80mm wide, height fit to this receipt
     const chunks = [];
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

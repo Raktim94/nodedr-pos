@@ -39,6 +39,7 @@ tablet/phone on the same network.
 - [Quick start](#quick-start)
 - [Hardware setup](#hardware-setup)
 - [Reference data & validation](#reference-data--validation)
+- [Customer dues ("udhaar")](#customer-dues-udhaar)
 - [Updating](#updating)
 - [Backing up your data](#backing-up-your-data)
 - [Resetting / clearing data](#resetting--clearing-data)
@@ -59,19 +60,26 @@ tablet/phone on the same network.
   toast instead of blocking the register.
 - **GST / tax** — per-product GST rates with HSN/SAC codes; bills show a
   CGST/SGST breakdown and your GSTIN. Toggle on/off in settings.
-- **Discounts** — percentage or flat-amount discount per sale, applied
-  correctly across mixed tax rates.
+- **Discounts** — percentage or flat-amount discount per sale (applied
+  correctly across mixed tax rates), *and* a standing per-product discount
+  % you can set once in Inventory that applies automatically every time
+  that product is sold.
 - **Loyalty program** — customers (by phone) earn points on every purchase,
-  redeemable as a discount at checkout. Configurable earn rate and point
-  value.
+  redeemable as a discount at checkout — enter an amount or tap **Use all**.
+  Configurable earn rate and point value. The dashboard ranks your top
+  customers by current point balance.
+- **Customer dues ("udhaar")** — a cash sale can be paid short of the total
+  when a customer is attached; the shortfall becomes a running due balance
+  you can record payments against later, with a full payment history. See
+  [Customer dues](#customer-dues-udhaar).
 - **Multi-currency** — over 20 major currencies (₹ INR, $ USD, € EUR, £ GBP,
   and more), switchable in settings; the symbol flows through the whole app
   and onto receipts. One source of truth on the backend
   ([`backend/src/lib/currency.js`](backend/src/lib/currency.js)) so
   onboarding and settings can never drift apart.
 - **Offline barcode & QR generator** — no barcode on the product? Generate a
-  valid EAN-13 in one click and print or download a label, no internet or
-  external barcode service involved. See
+  valid EAN-13 in one click and print or download a label as a PNG or JPG,
+  no internet or external barcode service involved. See
   [Barcode & QR label generator](#barcode--qr-label-generator).
 - **GST/PAN validation & reference data** — live format validation for GSTIN
   and PAN, GST state-code decoding, quick-select GST rate slabs, and a
@@ -91,14 +99,20 @@ tablet/phone on the same network.
 - **Sales history** — searchable past invoices with a detail view and
   one-click receipt reprint.
 - **Inventory management** — scan a known barcode to edit stock; an unknown
-  one opens "Add Product" pre-filled. Low-stock dashboard alerts.
+  one opens "Add Product" pre-filled. Low-stock dashboard alerts. An
+  "allow negative stock" setting lets you keep selling past zero when your
+  counts run behind reality, instead of blocking the register.
 - **Print or download receipts** — "Print" opens a formatted receipt in a
   new tab and triggers your browser's own print dialog, so you pick whichever
   printer the OS/CUPS has configured (thermal, laser, or "Save as PDF"); a
-  separate "Download PDF" button always generates a real PDF file. See
-  [printing & receipts](#printing--receipts).
-- **Sales dashboard with charts** — revenue trend, top-selling products, and
-  payment method mix, alongside today's totals and low-stock alerts.
+  separate "Download PDF" button always generates a real PDF file. Both are
+  laid out to use as little paper as possible — the PDF's page height fits
+  the specific receipt instead of a fixed size. An "auto-print" setting can
+  skip the extra click and send the receipt to print the moment a sale
+  completes. See [printing & receipts](#printing--receipts).
+- **Sales dashboard with charts** — revenue trend, best seller, top-selling
+  products, payment method mix, top loyalty customers, and today's totals
+  and low-stock alerts — plus a one-click CSV export of your sales history.
 - **Zero external calls at runtime** — once built, the app never talks to
   anything outside your machine.
 
@@ -241,7 +255,8 @@ From the Inventory page, the barcode icon on any row opens a label with a
 - **Print label** opens a new tab and calls `window.print()`, same as
   receipts — any printer your OS/CUPS knows about, including small label
   printers.
-- **Download PNG** saves the rendered code as an image.
+- **Download PNG or JPG** saves the rendered code as an image — pick the
+  format with the radio buttons above the download button.
 
 ### Printing & receipts
 
@@ -259,6 +274,16 @@ Sales page on any past invoice), you get two buttons:
 - **Download PDF** generates a real PDF file server-side (via `pdfkit`, a
   pure-JS renderer — no shell-out, no native dependencies) and downloads it,
   for emailing, archiving, or printing later from any device.
+
+Turn on **Settings → Receipt → Print automatically after every sale** to
+skip the extra click entirely — the receipt opens and sends to your
+printer the moment checkout completes.
+
+Both layouts are kept deliberately tight, since every extra millimetre of
+whitespace is real, recurring thermal paper cost: the HTML receipt's CSS
+has no unnecessary paragraph margins, and the PDF's page height is
+computed per-receipt (short receipts get a short page) instead of a fixed
+size — a one-item receipt is roughly half the page length it used to be.
 
 Because printing is just a normal browser action, the whole app — including
 checkout — works identically on a machine with no printer attached at all;
@@ -364,6 +389,20 @@ Each product has an optional **Unit** (e.g. `KGS`, `PCS`, `BOX`, from the
 standard GST Unit Quantity Codes). It's snapshotted onto each invoice line
 at sale time — same pattern as `name`/`taxRate` — so it shows on receipts
 ("3 KGS") and doesn't change retroactively if you edit the product later.
+
+## Customer dues ("udhaar")
+
+A cash sale can be finalized with **Amount received** less than the total
+whenever a customer (with a phone number) is attached — the shortfall is
+added to that customer's running due balance instead of blocking the sale.
+The POS warns you before checkout if a looked-up customer already has an
+outstanding due, and again if the current sale will add to it.
+
+Record a payment against a due from the **Customers** page — click the due
+amount next to any customer to open a small form; it's capped at their
+current balance and kept as its own history (`CustomerDuePayment`) rather
+than just decrementing a number, so there's an audit trail of who paid
+what and when.
 
 ## Updating
 
@@ -486,10 +525,12 @@ All endpoints are under `/api` and reached through the frontend proxy at
 | `GET/POST/PUT /auth/users`      | Staff account management (**admin only**) |
 | `GET/POST/PUT /settings`        | Company/currency/GST/loyalty/receipt config (PUT is **admin only**) |
 | `GET/POST/PUT/DELETE /products` | Catalog CRUD, `+/barcode/:code`, `/low-stock` |
-| `GET/POST/PUT /customers`       | Customer directory, `+/phone/:phone` lookup |
-| `POST /invoices`                | Finalize a sale — server computes price, tax, discount, loyalty; decrements stock; all transactional |
+| `GET/POST/PUT /customers`       | Customer directory, `+/phone/:phone` lookup, `+/top-loyalty` ranking |
+| `POST /customers/:id/settle-due`, `GET /customers/:id/due-payments` | Record / list payments against a customer's due balance |
+| `POST /invoices`                | Finalize a sale — server computes price, tax, discount, loyalty, due; decrements stock; all transactional |
 | `GET /invoices`, `/invoices/summary`, `/invoices/:id` | Sales history & dashboard totals |
 | `GET /invoices/analytics`       | Dashboard chart data — revenue trend, top products, payment mix |
+| `GET /invoices/export.csv`      | Downloads sales history as CSV (optional `?from=&to=` range) |
 | `GET /print/:invoiceId/receipt` | Self-printing HTML receipt (opens in a new tab, calls `window.print()`) |
 | `GET /print/:invoiceId/pdf`     | Downloads the receipt as a PDF file |
 | `GET /masters/summary`          | Row counts for the Reference Data settings tab |

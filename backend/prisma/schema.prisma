@@ -42,8 +42,10 @@ model ShopSettings {
   receiptHeader  String?
   receiptFooter  String   @default("Thank You! Visit Again.")
   showGst        Boolean  @default(true)
+  autoPrintReceipt Boolean @default(false)
   // Inventory
   lowStockAlert  Int      @default(5)
+  allowNegativeStock Boolean @default(false)
   // Address lookup (see PinCode below)
   pincode        String?
 }
@@ -58,6 +60,7 @@ model Product {
   purchasePrice Float
   sellingPrice  Float
   taxRate       Float         @default(0) // GST % for this product
+  discountPercent Float       @default(0) // standing per-product discount, applied automatically at checkout
   stock         Int           @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -71,9 +74,23 @@ model Customer {
   email         String?
   loyaltyPoints Int       @default(0)
   totalSpent    Float     @default(0)
+  totalDue      Float     @default(0) // outstanding credit ("udhaar") owed by this customer
   visits        Int       @default(0)
   createdAt     DateTime  @default(now())
   invoices      Invoice[]
+  duePayments   CustomerDuePayment[]
+}
+
+// A record of each payment a customer makes against their running due
+// balance — kept as its own audit trail rather than just decrementing
+// Customer.totalDue with no history.
+model CustomerDuePayment {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  amount     Float
+  note       String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
 }
 
 model Invoice {
@@ -92,6 +109,7 @@ model Invoice {
   paymentMethod  String        @default("CASH") // CASH | UPI | CARD
   amountPaid     Float         @default(0)
   changeDue      Float         @default(0)
+  dueAmount      Float         @default(0) // unpaid shortfall added to the customer's running due ("udhaar")
   pointsRedeemed Int           @default(0)
   pointsEarned   Int           @default(0)
   createdAt      DateTime      @default(now())

@@ -12,7 +12,8 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import { quoteSale } from "@/lib/quote";
+import { openReceiptPrint } from "@/lib/print";
+import { effectivePrice, quoteSale } from "@/lib/quote";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
 
 export default function PosPage() {
@@ -43,6 +44,8 @@ export default function PosPage() {
   );
 
   const changeDue = paymentMethod === "CASH" ? Math.max(0, (Number(amountPaid) || 0) - quote.total) : 0;
+  const dueNow =
+    paymentMethod === "CASH" && Number(amountPaid) > 0 ? Math.max(0, quote.total - (Number(amountPaid) || 0)) : 0;
 
   const addToCart = useCallback(
     (product: Product) => {
@@ -125,13 +128,14 @@ export default function PosPage() {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
       resetSale();
+      if (shop?.autoPrintReceipt) openReceiptPrint(invoice.id);
     } catch (err) {
       show(err instanceof ApiError ? err.message : "Checkout failed", "error");
     } finally {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, isCheckingOut, queryClient, show]);
+  }, [cart, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, isCheckingOut, queryClient, show, shop?.autoPrintReceipt]);
 
   useBarcodeScanner({
     onScan: handleScan,
@@ -179,7 +183,9 @@ export default function PosPage() {
               <p className="text-sm font-semibold text-foreground">
                 {completedSale.invoiceNumber} · {money(completedSale.totalAmount)}
               </p>
-              <p className="text-xs text-foreground/60">Sale complete — print or download the receipt below.</p>
+              <p className="text-xs text-foreground/60">
+                {shop?.autoPrintReceipt ? "Sale complete — receipt sent to print." : "Sale complete — print or download the receipt below."}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -238,12 +244,17 @@ export default function PosPage() {
                           </button>
                         </div>
                       </td>
-                      <td className="py-2.5 pr-4 text-right text-foreground/70">{money(item.product.sellingPrice)}</td>
+                      <td className="py-2.5 pr-4 text-right text-foreground/70">
+                        {money(effectivePrice(item.product))}
+                        {item.product.discountPercent > 0 && (
+                          <div className="text-xs text-success">-{item.product.discountPercent}%</div>
+                        )}
+                      </td>
                       {shop?.gstEnabled && (
                         <td className="py-2.5 pr-4 text-right text-foreground/50">{item.product.taxRate}%</td>
                       )}
                       <td className="py-2.5 pr-4 text-right font-medium text-foreground">
-                        {money(item.product.sellingPrice * item.quantity)}
+                        {money(effectivePrice(item.product) * item.quantity)}
                       </td>
                       <td className="py-2.5 text-right">
                         <button
@@ -291,22 +302,43 @@ export default function PosPage() {
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Walk-in Customer"
             />
+            {customer && customer.totalDue > 0 && (
+              <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
+                Owes {money(customer.totalDue)} from before
+              </p>
+            )}
             {customer && shop?.loyaltyEnabled && (
               <div className="rounded-lg bg-brand/5 p-3">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                   <Star className="h-4 w-4 text-warning" aria-hidden="true" />
                   {customer.loyaltyPoints} points available
                 </p>
-                <div className="mt-2">
-                  <Field
-                    label={`Redeem points (1 pt = ${money(shop.pointValue).replace(sym + " ", sym)})`}
-                    type="number"
-                    min={0}
-                    max={maxRedeemable}
-                    value={pointsRedeemed || ""}
-                    onChange={(e) => setPointsRedeemed(Math.min(Number(e.target.value) || 0, maxRedeemable))}
-                  />
-                </div>
+                {maxRedeemable > 0 ? (
+                  <>
+                    <div className="mt-2 flex items-end gap-2">
+                      <div className="flex-1">
+                        <Field
+                          label={`Redeem points (1 pt = ${money(shop.pointValue).replace(sym + " ", sym)})`}
+                          type="number"
+                          min={0}
+                          max={maxRedeemable}
+                          value={pointsRedeemed || ""}
+                          onChange={(e) => setPointsRedeemed(Math.min(Number(e.target.value) || 0, maxRedeemable))}
+                        />
+                      </div>
+                      <Button type="button" variant="secondary" onClick={() => setPointsRedeemed(maxRedeemable)}>
+                        Use all
+                      </Button>
+                    </div>
+                    {pointsRedeemed > 0 && (
+                      <p className="mt-1.5 text-xs text-success">
+                        {pointsRedeemed} pts = {money(pointsRedeemed * shop.pointValue)} off this sale
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-1 text-xs text-foreground/50">Not enough points to redeem yet.</p>
+                )}
               </div>
             )}
           </Card>
@@ -356,14 +388,27 @@ export default function PosPage() {
               ))}
             </div>
             {paymentMethod === "CASH" && (
-              <Field
-                label="Amount received"
-                type="number"
-                min={0}
-                step="0.01"
-                value={amountPaid}
-                onChange={(e) => setAmountPaid(e.target.value)}
-              />
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Field
+                    label="Amount received"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={amountPaid}
+                    onChange={(e) => setAmountPaid(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="whitespace-nowrap"
+                  onClick={() => setAmountPaid(String(quote.total))}
+                  disabled={cart.length === 0}
+                >
+                  Paid in full
+                </Button>
+              </div>
             )}
           </Card>
 
@@ -380,6 +425,13 @@ export default function PosPage() {
             </div>
             {paymentMethod === "CASH" && Number(amountPaid) > 0 && (
               <Row label="Change" value={money(changeDue)} />
+            )}
+            {dueNow > 0 && (
+              <p className={`rounded-lg px-3 py-2 text-xs font-medium ${customer ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"}`}>
+                {customer
+                  ? `${money(dueNow)} will be added to ${customer.name}'s due balance`
+                  : `${money(dueNow)} short — add a customer (phone) to record this as a due, or collect the full amount`}
+              </p>
             )}
             {shop?.loyaltyEnabled && customer && quote.pointsEarned > 0 && (
               <p className="text-xs text-foreground/50">Earns {quote.pointsEarned} points</p>

@@ -13,6 +13,7 @@ export interface ProductInput {
   purchasePrice: number;
   sellingPrice: number;
   taxRate: number;
+  discountPercent?: number;
   stock: number;
 }
 

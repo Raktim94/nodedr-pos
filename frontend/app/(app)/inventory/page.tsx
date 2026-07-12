@@ -13,6 +13,7 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { effectivePrice } from "@/lib/quote";
 import type { Product } from "@/lib/types";
 
 type ModalState = { mode: "add"; initialBarcode?: string } | { mode: "edit"; product: Product } | null;
@@ -127,7 +128,16 @@ export default function InventoryPage() {
                         <td className="py-2.5 pr-4 text-right text-foreground/60">{product.taxRate}%</td>
                       )}
                       <td className="py-2.5 pr-4 text-right text-foreground/70">{money(product.purchasePrice)}</td>
-                      <td className="py-2.5 pr-4 text-right text-foreground/70">{money(product.sellingPrice)}</td>
+                      <td className="py-2.5 pr-4 text-right text-foreground/70">
+                        {product.discountPercent > 0 ? (
+                          <>
+                            <span className="text-xs text-foreground/40 line-through">{money(product.sellingPrice)}</span>{" "}
+                            <span className="text-success">{money(effectivePrice(product))}</span>
+                          </>
+                        ) : (
+                          money(product.sellingPrice)
+                        )}
+                      </td>
                       <td className="py-2.5 pr-4 text-right">
                         <button
                           type="button"

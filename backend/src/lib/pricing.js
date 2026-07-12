@@ -2,10 +2,17 @@
 // reasoned about and unit-tested in isolation.
 //
 // Model:
-//   - Each line has a base = unit price * quantity (tax-exclusive).
-//   - An order-level manual discount is applied to the subtotal, then
-//     prorated across lines by their share of the subtotal so each line's
-//     GST is computed on its discounted base (correct per-product tax).
+//   - Each product may carry a standing discountPercent (set on the
+//     product itself, e.g. a clearance markdown) — this is applied first,
+//     so the line's effective unit price is already discounted before
+//     anything else happens. It's baked into `price` on the invoice line,
+//     not tracked as a separate visible discount, matching how a marked-
+//     down price tag normally works.
+//   - Each line has a base = effective unit price * quantity (tax-excl).
+//   - An order-level manual discount (from the POS discount field) is
+//     applied to the subtotal on top of that, then prorated across lines
+//     by their share of the subtotal so each line's GST is computed on
+//     its discounted base (correct per-product tax).
 //   - Loyalty points redeemed convert to a further cash discount at
 //     settings.pointValue, capped so the total never goes below zero.
 //   - Points earned accrue on the final payable amount.
@@ -24,7 +31,11 @@ function computeSale(lines, opts) {
 
   const gstEnabled = !!settings?.gstEnabled;
 
-  const bases = lines.map((l) => round2(l.product.sellingPrice * l.quantity));
+  const effectivePrices = lines.map((l) => {
+    const pct = Math.min(100, Math.max(0, l.product.discountPercent || 0));
+    return pct > 0 ? round2(l.product.sellingPrice * (1 - pct / 100)) : l.product.sellingPrice;
+  });
+  const bases = lines.map((l, i) => round2(effectivePrices[i] * l.quantity));
   const subtotal = round2(bases.reduce((a, b) => a + b, 0));
 
   // Manual order-level discount
@@ -49,7 +60,7 @@ function computeSale(lines, opts) {
       name: l.product.name,
       unit: l.product.unit || null,
       quantity: l.quantity,
-      price: l.product.sellingPrice,
+      price: effectivePrices[i],
       taxRate: rate,
       taxAmount,
       total: round2(discountedBase + taxAmount),

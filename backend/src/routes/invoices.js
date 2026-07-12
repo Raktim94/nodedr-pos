@@ -55,7 +55,7 @@ router.post('/', async (req, res) => {
       for (const item of body.items) {
         const product = productMap.get(item.productId);
         if (!product) throw Object.assign(new Error(`Product ${item.productId} not found`), { status: 404 });
-        if (product.stock < item.quantity) {
+        if (!settings.allowNegativeStock && product.stock < item.quantity) {
           throw Object.assign(
             new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${item.quantity})`),
             { status: 409 }
@@ -89,6 +89,17 @@ router.post('/', async (req, res) => {
 
       const amountPaid = body.paymentMethod === 'CASH' ? body.amountPaid : computed.totalAmount;
       const changeDue = round2(Math.max(0, amountPaid - computed.totalAmount));
+      // A cash sale paid short of the total becomes a due ("udhaar") added
+      // to the customer's running balance — only possible with a customer
+      // attached (a phone number), since there's no one to collect from
+      // otherwise.
+      const dueAmount = round2(Math.max(0, computed.totalAmount - amountPaid));
+      if (dueAmount > 0 && !customer) {
+        throw Object.assign(
+          new Error('A customer (with phone number) is required to record a due/partial-payment amount'),
+          { status: 400 }
+        );
+      }
 
       const invoiceNumber = await nextInvoiceNumber(tx);
       const created = await tx.invoice.create({
@@ -107,6 +118,7 @@ router.post('/', async (req, res) => {
           paymentMethod: body.paymentMethod,
           amountPaid,
           changeDue,
+          dueAmount,
           pointsRedeemed: computed.pointsRedeemed,
           pointsEarned: computed.pointsEarned,
           items: { create: computed.items },
@@ -127,6 +139,7 @@ router.post('/', async (req, res) => {
           data: {
             loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
             totalSpent: { increment: computed.totalAmount },
+            totalDue: { increment: dueAmount },
             visits: { increment: 1 },
           },
         });
@@ -223,6 +236,59 @@ router.get('/analytics', async (req, res) => {
       revenue: round2(m._sum.totalAmount || 0),
     })),
   });
+});
+
+// Minimal CSV cell escaping: wrap in quotes and double up any embedded
+// quotes if the value contains a comma, quote, or newline.
+function csvCell(value) {
+  const s = String(value ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// GET /api/invoices/export.csv?from=&to= — one row per invoice. Defaults to
+// all invoices; from/to (ISO dates) narrow the range for a period report.
+router.get('/export.csv', async (req, res) => {
+  const where = {};
+  if (req.query.from || req.query.to) {
+    where.createdAt = {};
+    if (req.query.from) where.createdAt.gte = new Date(req.query.from);
+    if (req.query.to) where.createdAt.lte = new Date(req.query.to);
+  }
+  const invoices = await prisma.invoice.findMany({ where, orderBy: { createdAt: 'desc' } });
+
+  const header = [
+    'Invoice Number',
+    'Date',
+    'Customer',
+    'Phone',
+    'Payment Method',
+    'Subtotal',
+    'Discount',
+    'Tax',
+    'Loyalty Discount',
+    'Total',
+    'Amount Paid',
+    'Change Due',
+  ];
+  const rows = invoices.map((inv) => [
+    inv.invoiceNumber,
+    new Date(inv.createdAt).toISOString(),
+    inv.customerName,
+    inv.customerPhone || '',
+    inv.paymentMethod,
+    inv.subtotal,
+    inv.discountAmount,
+    inv.taxAmount,
+    inv.loyaltyDiscount,
+    inv.totalAmount,
+    inv.amountPaid,
+    inv.changeDue,
+  ]);
+  const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="sales-export-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
 });
 
 router.get('/:id', async (req, res) => {

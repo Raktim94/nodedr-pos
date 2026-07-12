@@ -118,6 +118,7 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
             email: form.email || "",
             currencyCode: form.currencyCode,
             lowStockAlert: form.lowStockAlert,
+            allowNegativeStock: form.allowNegativeStock,
           });
         }}
         className="flex flex-col gap-4"
@@ -162,6 +163,12 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
             onChange={(e) => set("lowStockAlert", Number(e.target.value))}
           />
         </div>
+        <Toggle
+          label="Allow selling below zero stock"
+          description="Checkout won't be blocked when a scanned item's stock is already at 0 or lower than the quantity sold — useful if you sell faster than you update counts and reconcile later"
+          checked={form.allowNegativeStock}
+          onChange={(v) => setForm((f) => ({ ...f, allowNegativeStock: v }))}
+        />
         <Button type="submit" className="self-start">Save company details</Button>
       </form>
     </Card>
@@ -296,16 +303,23 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
   const save = useSaver();
   const [header, setHeader] = useState(settings.receiptHeader ?? "");
   const [footer, setFooter] = useState(settings.receiptFooter ?? "");
+  const [autoPrint, setAutoPrint] = useState(settings.autoPrintReceipt);
 
   return (
     <Card className="max-w-2xl p-6">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          save({ receiptHeader: header, receiptFooter: footer });
+          save({ receiptHeader: header, receiptFooter: footer, autoPrintReceipt: autoPrint });
         }}
         className="flex flex-col gap-4"
       >
+        <Toggle
+          label="Print automatically after every sale"
+          description="Skips the extra click on the checkout page — the receipt opens and sends to your printer the moment a sale completes"
+          checked={autoPrint}
+          onChange={setAutoPrint}
+        />
         <div className="flex flex-col gap-1.5">
           <label htmlFor="rh" className="text-sm font-medium text-foreground">
             Receipt header (printed above the shop name)

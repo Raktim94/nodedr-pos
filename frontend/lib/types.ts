@@ -30,7 +30,9 @@ export interface ShopSettings {
   receiptHeader: string | null;
   receiptFooter: string;
   showGst: boolean;
+  autoPrintReceipt: boolean;
   lowStockAlert: number;
+  allowNegativeStock: boolean;
   pincode: string | null;
 }
 
@@ -44,6 +46,7 @@ export interface Product {
   purchasePrice: number;
   sellingPrice: number;
   taxRate: number;
+  discountPercent: number;
   stock: number;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +59,7 @@ export interface Customer {
   email: string | null;
   loyaltyPoints: number;
   totalSpent: number;
+  totalDue: number;
   visits: number;
   createdAt: string;
 }
@@ -88,6 +92,7 @@ export interface Invoice {
   paymentMethod: "CASH" | "UPI" | "CARD";
   amountPaid: number;
   changeDue: number;
+  dueAmount: number;
   pointsRedeemed: number;
   pointsEarned: number;
   createdAt: string;

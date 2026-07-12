@@ -25,6 +25,7 @@ const productSchema = z.object({
   purchasePrice: z.number().min(0, "Must be 0 or more"),
   sellingPrice: z.number().min(0, "Must be 0 or more"),
   taxRate: z.number().min(0).max(100),
+  discountPercent: z.number().min(0, "Must be 0 or more").max(100, "Can't exceed 100%"),
   stock: z.number().int().min(0, "Must be 0 or more"),
 });
 type ProductForm = z.infer<typeof productSchema>;
@@ -67,6 +68,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
       purchasePrice: product?.purchasePrice ?? 0,
       sellingPrice: product?.sellingPrice ?? 0,
       taxRate: product?.taxRate ?? shop?.defaultTaxRate ?? 0,
+      discountPercent: product?.discountPercent ?? 0,
       stock: product?.stock ?? 0,
     },
   });
@@ -97,6 +99,10 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   const gst = shop?.gstEnabled;
   const taxRate = useWatch({ control, name: "taxRate" });
   const hsnValue = useWatch({ control, name: "hsn" });
+  const sellingPrice = useWatch({ control, name: "sellingPrice" });
+  const discountPercent = useWatch({ control, name: "discountPercent" });
+  const discountedPrice =
+    discountPercent > 0 ? Math.round(sellingPrice * (1 - discountPercent / 100) * 100) / 100 : sellingPrice;
 
   function generateBarcode() {
     const code = generateEan13(products?.map((p) => p.barcode) ?? []);
@@ -187,6 +193,22 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               error={errors.sellingPrice?.message}
               {...register("sellingPrice", { valueAsNumber: true })}
             />
+          </div>
+          <div>
+            <Field
+              label="Standing discount % (applied automatically at checkout)"
+              type="number"
+              step="0.01"
+              min={0}
+              max={100}
+              error={errors.discountPercent?.message}
+              {...register("discountPercent", { valueAsNumber: true })}
+            />
+            {discountPercent > 0 && (
+              <p className="mt-1 text-xs text-success">
+                Sells at {shop?.currencySymbol ?? "Rs."} {discountedPrice.toFixed(2)}
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Field

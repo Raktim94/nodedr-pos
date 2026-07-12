@@ -1,5 +1,6 @@
 import { Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { openReceiptPrint } from "@/lib/print";
 
 // Printing goes through the browser's own print dialog (new tab, auto
 // window.print()) so the user picks whichever printer the OS/CUPS has
@@ -9,11 +10,7 @@ import { Button } from "@/components/ui/Button";
 export function ReceiptActions({ invoiceId, className }: { invoiceId: number; className?: string }) {
   return (
     <div className={`grid grid-cols-2 gap-2 ${className || ""}`}>
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => window.open(`/api/print/${invoiceId}/receipt`, "_blank", "noopener,noreferrer")}
-      >
+      <Button type="button" variant="secondary" onClick={() => openReceiptPrint(invoiceId)}>
         <Printer className="h-4 w-4" aria-hidden="true" />
         Print
       </Button>

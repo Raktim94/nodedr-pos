@@ -53,23 +53,27 @@ function buildReceiptHtml({ shop, invoice }) {
 <meta charset="utf-8">
 <title>${esc(invoice.invoiceNumber)}</title>
 <style>
+  /* Kept deliberately tight: every extra pixel of vertical whitespace here
+     is real thermal paper on every single receipt printed, forever. */
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 16px; color: #111; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 10px; color: #111; }
+  p { margin: 0 0 3px; }
   .receipt { max-width: 340px; margin: 0 auto; }
-  h1 { font-size: 16px; text-align: center; margin: 0 0 2px; }
+  h1 { font-size: 15px; text-align: center; margin: 0 0 2px; }
   .center { text-align: center; }
-  .muted { color: #555; font-size: 12px; }
-  .rule { border: none; border-top: 1px dashed #999; margin: 10px 0; }
+  .muted { color: #555; font-size: 11px; line-height: 1.35; }
+  .rule { border: none; border-top: 1px dashed #999; margin: 5px 0; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; font-size: 10px; text-transform: uppercase; color: #777; padding-bottom: 4px; }
-  td { padding: 3px 0; vertical-align: top; }
+  th { text-align: left; font-size: 10px; text-transform: uppercase; color: #777; padding-bottom: 2px; }
+  td { padding: 1px 0; vertical-align: top; }
   .num { text-align: right; white-space: nowrap; }
   .sub { font-size: 10px; color: #777; }
-  .totals td { padding: 2px 0; }
-  .grand td { font-weight: 700; font-size: 14px; border-top: 1px solid #111; padding-top: 6px; }
-  .footer { text-align: center; margin-top: 14px; font-size: 12px; }
+  .totals td { padding: 1px 0; }
+  .grand td { font-weight: 700; font-size: 13px; border-top: 1px solid #111; padding-top: 3px; }
+  .footer { text-align: center; margin-top: 6px; font-size: 11px; }
+  @page { margin: 0; }
   @media print {
-    body { padding: 0; }
+    body { padding: 4px; }
     .no-print { display: none; }
   }
 </style>

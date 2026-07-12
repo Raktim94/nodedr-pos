@@ -1,5 +1,12 @@
-import type { CartItem, ShopSettings } from "./types";
+import type { CartItem, Product, ShopSettings } from "./types";
 import { round2 } from "./format";
+
+// A product's standing per-product discount (set in Inventory) is applied
+// before anything else — this is the price actually charged for one unit.
+export function effectivePrice(product: Product): number {
+  const pct = Math.min(100, Math.max(0, product.discountPercent || 0));
+  return pct > 0 ? round2(product.sellingPrice * (1 - pct / 100)) : product.sellingPrice;
+}
 
 export interface QuoteInput {
   cart: CartItem[];
@@ -23,7 +30,8 @@ export interface Quote {
 // checkout — the server always recomputes authoritatively on submit.
 export function quoteSale({ cart, discountType, discountValue, pointsRedeemed, settings }: QuoteInput): Quote {
   const gstEnabled = !!settings?.gstEnabled;
-  const bases = cart.map((c) => round2(c.product.sellingPrice * c.quantity));
+  const effectivePrices = cart.map((c) => effectivePrice(c.product));
+  const bases = cart.map((c, i) => round2(effectivePrices[i] * c.quantity));
   const subtotal = round2(bases.reduce((a, b) => a + b, 0));
 
   let discountAmount = 0;

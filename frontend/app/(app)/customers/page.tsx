@@ -8,11 +8,13 @@ import { Plus, Search, Star, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
+import { SettleDueModal } from "@/components/SettleDueModal";
 import { useToast } from "@/components/Toast";
 import { useCustomers, useCreateCustomer } from "@/hooks/useCustomers";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { formatMoney } from "@/lib/format";
 import { ApiError } from "@/lib/api";
+import type { Customer } from "@/lib/types";
 
 const schema = z.object({
   name: z.string().trim().min(1, "Name is required"),
@@ -24,6 +26,7 @@ type Form = z.infer<typeof schema>;
 export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [settleTarget, setSettleTarget] = useState<Customer | null>(null);
   const { data: customers, isLoading } = useCustomers(search);
   const { data: shop } = useShopSettings();
   const createCustomer = useCreateCustomer();
@@ -105,6 +108,7 @@ export default function CustomersPage() {
                   <th className="py-2 pr-4">Phone</th>
                   <th className="py-2 pr-4 text-right">Visits</th>
                   <th className="py-2 pr-4 text-right">Total spent</th>
+                  <th className="py-2 pr-4 text-right">Due</th>
                   {shop?.loyaltyEnabled && <th className="py-2 text-right">Points</th>}
                 </tr>
               </thead>
@@ -115,6 +119,20 @@ export default function CustomersPage() {
                     <td className="py-2.5 pr-4 text-foreground/70">{c.phone}</td>
                     <td className="py-2.5 pr-4 text-right text-foreground/70">{c.visits}</td>
                     <td className="py-2.5 pr-4 text-right text-foreground/70">{formatMoney(c.totalSpent, sym)}</td>
+                    <td className="py-2.5 pr-4 text-right">
+                      {c.totalDue > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSettleTarget(c)}
+                          className="rounded-full bg-danger/10 px-2.5 py-1 text-xs font-semibold text-danger hover:bg-danger/20"
+                          title="Record a payment"
+                        >
+                          {formatMoney(c.totalDue, sym)}
+                        </button>
+                      ) : (
+                        <span className="text-foreground/30">—</span>
+                      )}
+                    </td>
                     {shop?.loyaltyEnabled && (
                       <td className="py-2.5 text-right">
                         <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
@@ -130,6 +148,8 @@ export default function CustomersPage() {
           </div>
         )}
       </Card>
+
+      {settleTarget && <SettleDueModal customer={settleTarget} sym={sym} onClose={() => setSettleTarget(null)} />}
     </div>
   );
 }
