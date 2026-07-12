@@ -104,14 +104,15 @@ tablet/phone on the same network.
   one opens "Add Product" pre-filled. Low-stock dashboard alerts. An
   "allow negative stock" setting lets you keep selling past zero when your
   counts run behind reality, instead of blocking the register.
-- **Print or download receipts** — "Print" opens a formatted receipt in a
-  new tab and triggers your browser's own print dialog, so you pick whichever
-  printer the OS/CUPS has configured (thermal, laser, or "Save as PDF"); a
-  separate "Download PDF" button always generates a real PDF file. Both are
-  laid out to use as little paper as possible — the PDF's page height fits
-  the specific receipt instead of a fixed size. An "auto-print" setting can
-  skip the extra click and send the receipt to print the moment a sale
-  completes. See [printing & receipts](#printing--receipts).
+- **Print or download receipts, three ways** — "Print" opens a formatted
+  receipt and triggers your browser's own print dialog, so you pick
+  whichever printer the OS/CUPS has configured (thermal, laser, or "Save as
+  PDF"); "Download PDF" always generates a real PDF file; "Print via USB"
+  sends raw ESC/POS bytes straight to a USB thermal printer with no print
+  dialog at all. All three are laid out to use as little paper as
+  possible. An "auto-print" setting can skip the extra click and send the
+  receipt to print the moment a sale completes. See
+  [printing & receipts](#printing--receipts).
 - **Sales dashboard with charts** — revenue trend, best seller, top-selling
   products, payment method mix, top loyalty customers, and today's totals
   and low-stock alerts — plus a one-click CSV export of your sales history.
@@ -134,10 +135,11 @@ tablet/phone on the same network.
                                                         (named Docker volume)
 ```
 
-Receipts print through the browser's own print dialog (a new tab that calls
-`window.print()`) or download as a PDF generated server-side — the backend
-never talks to a printer device directly, so no container needs raw
-hardware access.
+Receipts print through the browser's own print dialog (a hidden iframe that
+calls `window.print()`), download as a server-generated PDF, or — via
+"Print via USB" — go straight to a USB thermal printer as raw ESC/POS bytes
+from the backend, which is the one place in this app that does need
+scoped hardware access (see [printing & receipts](#printing--receipts)).
 
 **One port, one origin.** The browser only ever talks to the frontend on
 port **1994**. The Next.js server proxies every `/api/*` request to the
@@ -262,34 +264,73 @@ From the Inventory page, the barcode icon on any row opens a label with a
 
 ### Printing & receipts
 
-nodedr-pos doesn't talk to a printer device directly — no raw USB, no bundled
-driver, no `privileged: true` container. Instead, after checkout (or from the
-Sales page on any past invoice), you get two buttons:
+After checkout (or from the Sales page on any past invoice), you get three
+buttons:
 
-- **Print** opens a formatted receipt in a new browser tab and immediately
+- **Print** opens a formatted receipt in a hidden iframe and immediately
   triggers `window.print()`. The browser's own print dialog shows every
   printer your OS knows about — a USB/network thermal printer set up through
   CUPS (Linux/macOS) or the Windows print spooler, a regular office printer,
   or a "Save as PDF" virtual printer. Set up your thermal printer once at the
   OS level (CUPS, or the manufacturer's driver) the same way you would for
-  any other application, and it shows up here.
+  any other application, and it shows up here. The backend never touches a
+  USB device for this path.
 - **Download PDF** generates a real PDF file server-side (via `pdfkit`, a
   pure-JS renderer — no shell-out, no native dependencies) and downloads it,
   for emailing, archiving, or printing later from any device.
+- **Print via USB** sends the receipt straight to a USB thermal printer as
+  raw ESC/POS commands (see
+  [`backend/src/lib/escposUsb.js`](backend/src/lib/escposUsb.js) and
+  [`escposReceipt.js`](backend/src/lib/escposReceipt.js)) — no print
+  dialog, no OS driver/CUPS setup, just the receipt cutting off the roll a
+  moment after you click. This needs the one-time Docker device
+  passthrough described below.
 
 Turn on **Settings → Receipt → Print automatically after every sale** to
-skip the extra click entirely — the receipt opens and sends to your
-printer the moment checkout completes.
+skip the extra click on the **Print** button entirely — it does not
+trigger USB printing, since that has no print-dialog "preview" step to
+skip in the first place; use "Print via USB" directly when you want that.
 
-Both layouts are kept deliberately tight, since every extra millimetre of
-whitespace is real, recurring thermal paper cost: the HTML receipt's CSS
-has no unnecessary paragraph margins, and the PDF's page height is
-computed per-receipt (short receipts get a short page) instead of a fixed
-size — a one-item receipt is roughly half the page length it used to be.
+Both the HTML and PDF layouts are kept deliberately tight, since every
+extra millimetre of whitespace is real, recurring thermal paper cost: the
+HTML receipt's CSS has no unnecessary paragraph margins, and the PDF's
+page height is computed per-receipt (short receipts get a short page)
+instead of a fixed size — a one-item receipt is roughly half the page
+length it used to be.
 
-Because printing is just a normal browser action, the whole app — including
-checkout — works identically on a machine with no printer attached at all;
-you'd simply skip the Print button and use Download PDF, or nothing.
+Because Print/Download PDF are just normal browser actions, the whole
+app — including checkout — works identically on a machine with no printer
+attached at all; you'd simply skip those buttons, or "Print via USB" would
+fail with a clear "no USB printer found" message instead of crashing
+anything.
+
+#### Direct-USB (ESC/POS) printer setup
+
+"Print via USB" looks for any connected USB device advertising the
+standard USB Printer device class — true of virtually every generic
+ESC/POS thermal printer regardless of brand, so there's no vendor/product
+ID to configure. Two things are required for it to reach your printer:
+
+1. **Docker device passthrough** — `docker-compose.yml`'s `backend`
+   service bind-mounts `/dev/bus/usb` and adds a `device_cgroup_rules` entry
+   scoped to the USB device major number (`189`). This is **not**
+   `privileged: true` — the backend still can't see or touch anything else
+   on the host, only USB device nodes. If your printer is plugged in after
+   `docker compose up`, no restart is needed; if you're on a locked-down
+   host where `/dev/bus/usb` itself isn't world-visible, you may need a
+   udev rule granting the relevant group access (see your distro's docs;
+   the backend container runs as root, so this is rarely necessary).
+2. **Settings → Receipt → USB printer paper width** — 80mm (standard) or
+   58mm (compact), so the fixed-width text layout uses the right column
+   count for your printer.
+
+One real limitation worth knowing: generic ESC/POS printers default to a
+single-byte codepage (usually CP437), not UTF-8. The USB print path
+transliterates accented Latin letters (café → cafe) and falls back
+non-ASCII currency symbols to the 3-letter currency code (€ → EUR), but
+non-Latin scripts (Devanagari, Arabic, etc.) print as `?` — the Print and
+Download PDF buttons remain the correct choice whenever exact non-Latin
+text on the receipt matters, since both render full Unicode.
 
 ### Receipt layout
 

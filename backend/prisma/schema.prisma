@@ -43,6 +43,10 @@ model ShopSettings {
   receiptFooter  String   @default("Thank You! Visit Again.")
   showGst        Boolean  @default(true)
   autoPrintReceipt Boolean @default(false)
+  // Direct-USB (ESC/POS) printing — see backend/src/lib/escposReceipt.js.
+  // Paper width in mm; only 58 or 80 are meaningful (drives the fixed
+  // monospace column count for the raw text layout).
+  usbPrinterWidth Int @default(80)
   // Inventory
   lowStockAlert  Int      @default(5)
   allowNegativeStock Boolean @default(false)

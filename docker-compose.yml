@@ -31,10 +31,24 @@ services:
     # up / resetting data.
     volumes:
       - data:/app/data
-    # No privileged mode or device passthrough needed: receipts are printed
-    # through the browser's own print dialog (any printer the OS/CUPS has
-    # configured) or downloaded as a PDF — the backend never touches a USB
-    # device directly. See README > Printing & receipts.
+      # Direct-USB thermal printing (see backend/src/lib/escposUsb.js) needs
+      # the backend to see the host's USB device nodes. Bind-mounting the
+      # whole /dev/bus/usb tree (not `devices:` with a literal path, which
+      # only handles device nodes that already exist at container-start —
+      # USB bus/device numbers are dynamic and can renumber on reconnect)
+      # keeps this working across printer unplug/replug without a restart.
+      - /dev/bus/usb:/dev/bus/usb
+    # Grants read/write/mknod on any device under the USB char-device major
+    # (189, covers every /dev/bus/usb/BBB/DDD node regardless of its dynamic
+    # bus/device number) WITHOUT full `privileged: true` — the backend still
+    # can't see or touch anything else on the host. This is the standard
+    # least-privilege Docker USB passthrough pattern. See README > Printing
+    # & receipts for the one-time host udev rule some distros also need so
+    # a non-root container user could open these nodes (this backend runs
+    # as root in-container, so that step is optional here, but documented
+    # for anyone who locks it down further).
+    device_cgroup_rules:
+      - 'c 189:* rmw'
 
   frontend:
     build:

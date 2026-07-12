@@ -304,13 +304,19 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
   const [header, setHeader] = useState(settings.receiptHeader ?? "");
   const [footer, setFooter] = useState(settings.receiptFooter ?? "");
   const [autoPrint, setAutoPrint] = useState(settings.autoPrintReceipt);
+  const [usbWidth, setUsbWidth] = useState(String(settings.usbPrinterWidth));
 
   return (
     <Card className="max-w-2xl p-6">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          save({ receiptHeader: header, receiptFooter: footer, autoPrintReceipt: autoPrint });
+          save({
+            receiptHeader: header,
+            receiptFooter: footer,
+            autoPrintReceipt: autoPrint,
+            usbPrinterWidth: Number(usbWidth),
+          });
         }}
         className="flex flex-col gap-4"
       >
@@ -344,6 +350,15 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
             className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
+        <Select
+          label="USB printer paper width (for the 'Print via USB' button)"
+          value={usbWidth}
+          onChange={(e) => setUsbWidth(e.target.value)}
+          options={[
+            { value: "80", label: "80mm (standard)" },
+            { value: "58", label: "58mm (compact)" },
+          ]}
+        />
         <Button type="submit" className="self-start">Save receipt settings</Button>
       </form>
     </Card>
