@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docker Compose](https://img.shields.io/badge/deploy-docker%20compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
-[![Node](https://img.shields.io/badge/node-20-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
+[![Node](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
 
 A free, open-source, **fully offline** Point of Sale and inventory management
@@ -144,14 +144,14 @@ single `docker compose up`.
 | Frontend   | Next.js (App Router), React, TypeScript, Tailwind CSS     |
 | Data layer | TanStack Query, react-hook-form + Zod                    |
 | Backend    | Node.js, Express, Zod validation, helmet, rate limiting   |
-| Database   | SQLite via Prisma ORM, persisted in a Docker volume        |
+| Database   | SQLite via Prisma ORM (`better-sqlite3` driver adapter), persisted in a Docker volume |
 | Auth       | bcrypt hashing, HttpOnly JWT cookie, admin/cashier roles   |
 | API access | Browser → Next.js (:1994) → server-side `/api` proxy → backend |
 | Hardware   | Browser print dialog + `pdfkit` for receipts; a custom React hook for the barcode scanner |
 | Barcodes   | `jsbarcode` (EAN-13/CODE128) + `qrcode`, both rendered client-side to canvas — no external barcode service |
 | Charts     | `recharts` for the dashboard's sales trend, top products, and payment mix graphs |
 | Bulk import | `multer` (multipart upload) + `csv-parse`, admin-only, for the Reference Data CSV imports |
-| Deployment | Docker Compose, two `node:20-alpine` multi-stage images    |
+| Deployment | Docker Compose, two `node:24-alpine` multi-stage images    |
 
 ## Quick start
 
@@ -178,7 +178,7 @@ setup), here's exactly what it does, one command at a time:
 git clone https://github.com/Raktim94/nodedr-pos.git
 cd nodedr-pos
 
-# 2. Build the backend and frontend images (multi-stage, node:20-alpine).
+# 2. Build the backend and frontend images (multi-stage, node:24-alpine).
 #    First run takes a few minutes; later runs are cached and fast.
 docker compose build
 
