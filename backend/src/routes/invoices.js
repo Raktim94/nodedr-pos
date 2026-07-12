@@ -52,8 +52,8 @@ const checkoutSchema = z
     // Existing store credit the customer spends on this bill.
     creditApplied: z.number().min(0).default(0),
   })
-  .refine((d) => d.items.length > 0 || d.returns.length > 0, {
-    message: 'Add at least one item to sell or return',
+  .refine((d) => d.items.length > 0 || d.returns.length > 0 || d.duePaid > 0, {
+    message: 'Add an item to sell, a return, or a previous due to collect',
   });
 
 async function nextInvoiceNumber(tx) {

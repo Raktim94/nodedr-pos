@@ -38,17 +38,21 @@ services:
       # USB bus/device numbers are dynamic and can renumber on reconnect)
       # keeps this working across printer unplug/replug without a restart.
       - /dev/bus/usb:/dev/bus/usb
-    # Grants read/write/mknod on any device under the USB char-device major
-    # (189, covers every /dev/bus/usb/BBB/DDD node regardless of its dynamic
-    # bus/device number) WITHOUT full `privileged: true` — the backend still
-    # can't see or touch anything else on the host. This is the standard
-    # least-privilege Docker USB passthrough pattern. See README > Printing
-    # & receipts for the one-time host udev rule some distros also need so
-    # a non-root container user could open these nodes (this backend runs
-    # as root in-container, so that step is optional here, but documented
-    # for anyone who locks it down further).
+    # Grants read/write/mknod WITHOUT full `privileged: true` on the two
+    # device majors the printer needs, so the backend still can't see or touch
+    # anything else on the host:
+    #   189 — usbfs (/dev/bus/usb/BBB/DDD), used by the libusb transport.
+    #   180 — usblp, the kernel printer driver behind /dev/usb/lp0. This is
+    #         the PRIMARY transport (see backend/src/lib/escposUsb.js): the
+    #         same node a working `echo > /dev/usb/lp0` writes to, and the one
+    #         generic vendor-class 80mm printers only expose through the
+    #         kernel. The 'm' (mknod) grant lets the backend create the lp
+    #         node inside the container on demand and write straight through
+    #         to the host kernel's already-bound printer — no host bind mount,
+    #         so nothing fails at `compose up` when no printer is attached.
     device_cgroup_rules:
       - 'c 189:* rmw'
+      - 'c 180:* rmw'
 
   frontend:
     build:
