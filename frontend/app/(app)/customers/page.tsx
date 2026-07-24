@@ -120,6 +120,7 @@ export default function CustomersPage() {
                   <th className="py-2 pr-4 text-right">Visits</th>
                   <th className="py-2 pr-4 text-right">Total spent</th>
                   <th className="py-2 pr-4 text-right">Due</th>
+                  <th className="py-2 pr-4 text-right">Store credit</th>
                   {shop?.loyaltyEnabled && <th className="py-2 text-right">Points</th>}
                 </tr>
               </thead>
@@ -131,7 +132,7 @@ export default function CustomersPage() {
                     <td className="py-2.5 pr-4 text-right text-foreground/70">{c.visits}</td>
                     <td className="py-2.5 pr-4 text-right text-foreground/70">{formatMoney(c.totalSpent, sym)}</td>
                     <td className="py-2.5 pr-4 text-right">
-                      {c.totalDue > 0 ? (
+                      {c.totalDue >= 0.01 ? (
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
@@ -151,6 +152,15 @@ export default function CustomersPage() {
                             <Check className="h-4 w-4" aria-hidden="true" />
                           </button>
                         </div>
+                      ) : (
+                        <span className="text-foreground/30">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right">
+                      {c.creditBalance >= 0.01 ? (
+                        <span className="inline-flex items-center rounded-full bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
+                          {formatMoney(c.creditBalance, sym)}
+                        </span>
                       ) : (
                         <span className="text-foreground/30">—</span>
                       )}

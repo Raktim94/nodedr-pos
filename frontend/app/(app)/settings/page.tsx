@@ -299,13 +299,47 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
   );
 }
 
+type PrinterDiag = {
+  lpDevices: string[];
+  libusbPrinter: { id: string } | null;
+  canPrint: boolean;
+  notes: string[];
+};
+
 function ReceiptTab({ settings }: { settings: ShopSettings }) {
   const save = useSaver();
+  const { show } = useToast();
   const [header, setHeader] = useState(settings.receiptHeader ?? "");
   const [footer, setFooter] = useState(settings.receiptFooter ?? "");
   const [autoPrint, setAutoPrint] = useState(settings.autoPrintReceipt);
   const [autoPrintMethod, setAutoPrintMethod] = useState(settings.autoPrintMethod ?? "browser");
   const [usbWidth, setUsbWidth] = useState(String(settings.usbPrinterWidth));
+  const [diag, setDiag] = useState<PrinterDiag | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  async function checkPrinter() {
+    setChecking(true);
+    try {
+      setDiag(await api.get<PrinterDiag>("/print/diagnostics"));
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Could not check the printer", "error");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function testPrint() {
+    setTesting(true);
+    try {
+      await api.post("/print/test");
+      show("Test slip sent to the USB printer", "success");
+    } catch (err) {
+      show(err instanceof ApiError ? err.message : "Test print failed", "error");
+    } finally {
+      setTesting(false);
+    }
+  }
 
   return (
     <Card className="max-w-2xl p-6">
@@ -381,6 +415,42 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
         />
         <Button type="submit" className="self-start">Save receipt settings</Button>
       </form>
+
+      {/* USB printer check — one click to see what the backend detects and to
+          send a physical test slip, so a shop can confirm the printer works
+          without ringing up a real sale. */}
+      <div className="mt-6 border-t border-border pt-5">
+        <h3 className="text-sm font-semibold text-foreground">USB printer check</h3>
+        <p className="mt-1 text-xs text-foreground/60">
+          Confirms the &ldquo;Print via USB&rdquo; button can reach a thermal printer on this machine.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" onClick={checkPrinter} disabled={checking}>
+            {checking ? "Checking…" : "Check printer"}
+          </Button>
+          <Button type="button" variant="secondary" onClick={testPrint} disabled={testing}>
+            {testing ? "Printing…" : "Print test slip"}
+          </Button>
+        </div>
+        {diag && (
+          <div
+            className={`mt-3 rounded-lg border p-3 text-xs ${
+              diag.canPrint ? "border-success/30 bg-success/10 text-success" : "border-danger/30 bg-danger/10 text-danger"
+            }`}
+          >
+            <p className="font-semibold">
+              {diag.canPrint ? "Printer detected — direct USB printing should work." : "No USB printer detected."}
+            </p>
+            <ul className="mt-1.5 space-y-0.5 text-foreground/70">
+              <li>Kernel printer nodes: {diag.lpDevices.length > 0 ? diag.lpDevices.join(", ") : "none"}</li>
+              <li>USB printer-class device: {diag.libusbPrinter ? diag.libusbPrinter.id : "none"}</li>
+              {diag.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </Card>
   );
 }

@@ -51,6 +51,20 @@ async function requireAuth(req, res, next) {
   next();
 }
 
+// Non-blocking session check: returns the token payload if a valid session
+// cookie is present, else null. Unlike requireAuth it never responds — for
+// endpoints that serve BOTH logged-in and anonymous callers different data
+// (e.g. GET /api/settings hides tax identifiers from anonymous LAN clients).
+function readSession(req) {
+  const token = req.cookies?.[TOKEN_COOKIE];
+  if (!token) return null;
+  try {
+    return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  } catch {
+    return null;
+  }
+}
+
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
@@ -64,5 +78,6 @@ module.exports = {
   clearSessionCookie,
   requireAuth,
   requireAdmin,
+  readSession,
   TOKEN_COOKIE,
 };

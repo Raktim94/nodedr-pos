@@ -286,16 +286,26 @@ router.post('/', async (req, res) => {
       }
 
       if (customer) {
+        // totalDue ("udhaar") and creditBalance are the running balances the
+        // POS reads back on the customer's next visit. They used to be kept
+        // with Prisma `increment`, which performs the addition inside SQLite's
+        // REAL (float) column — so tiny binary rounding residue accumulated
+        // across many bills and a fully-paid customer could keep showing e.g.
+        // Rs. 0.00…03 still owing that never cleared, and reappeared on the
+        // next bill. Compute the new balances in JS and round to paise so the
+        // stored value is always clean (round2 collapses sub-paise noise to
+        // exactly 0). Safe read-modify-write: we're inside the checkout
+        // $transaction and already hold this customer row.
+        const newTotalDue = round2(customer.totalDue + dueAmount - previousDuePaid);
+        const creditDelta = (refundMode === 'CREDIT' ? refundValue : 0) - creditApplied;
+        const newCredit = round2(customer.creditBalance + creditDelta);
         await tx.customer.update({
           where: { id: customer.id },
           data: {
             loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
-            totalSpent: { increment: computed.totalAmount },
-            // Shortfall on this bill adds to the running due; any old due
-            // cleared here subtracts from it.
-            totalDue: { increment: round2(dueAmount - previousDuePaid) },
-            // Credit spent leaves the balance; a refund kept as credit joins it.
-            creditBalance: { increment: round2((refundMode === 'CREDIT' ? refundValue : 0) - creditApplied) },
+            totalSpent: round2(customer.totalSpent + computed.totalAmount),
+            totalDue: newTotalDue,
+            creditBalance: newCredit,
             visits: { increment: 1 },
           },
         });

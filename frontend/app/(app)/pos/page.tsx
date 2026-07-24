@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2 } from "lucide-react";
+import { Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { ReceiptActions } from "@/components/ReceiptActions";
 import { ReturnPanel, type ReturnDraftLine } from "@/components/ReturnPanel";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
+import { useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError, describeApiError } from "@/lib/api";
@@ -39,6 +40,18 @@ export default function PosPage() {
   const [completedSale, setCompletedSale] = useState<{ id: number; invoiceNumber: string; totalAmount: number } | null>(
     null
   );
+
+  // Manual add — the fallback for when the barcode scanner isn't working: type
+  // a product name or barcode and pick from the matches. Debounced so we don't
+  // hit the API on every keystroke; setState lives in the timeout callback (not
+  // the effect body) to satisfy the React Compiler lint rules.
+  const [manualQuery, setManualQuery] = useState("");
+  const [committedQuery, setCommittedQuery] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setCommittedQuery(manualQuery.trim()), 200);
+    return () => clearTimeout(t);
+  }, [manualQuery]);
+  const { data: manualResults } = useProducts(committedQuery);
 
   const sym = shop?.currencySymbol || "Rs.";
   const money = (n: number) => formatMoney(n, sym);
@@ -307,6 +320,69 @@ export default function PosPage() {
         {/* Cart */}
         <Card className="p-5 lg:col-span-2">
           <h2 className="mb-4 text-base font-semibold text-foreground">Cart</h2>
+
+          {/* Manual add — the scanner fallback. Always visible so a cashier can
+              still bill by typing a product name or barcode when the barcode
+              scanner is unplugged, dead, or the code won't scan. */}
+          <div className="relative mb-4">
+            <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+              <Search className="h-4 w-4 shrink-0 text-foreground/40" aria-hidden="true" />
+              <input
+                type="text"
+                value={manualQuery}
+                onChange={(e) => setManualQuery(e.target.value)}
+                placeholder="Scanner not working? Type a product name or barcode to add…"
+                aria-label="Add product manually"
+                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/40"
+              />
+              {manualQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setManualQuery("")}
+                  className="text-foreground/40 hover:text-foreground"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+            {committedQuery && (
+              <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-surface shadow-lg">
+                {!manualResults ? (
+                  <p className="px-3 py-2.5 text-sm text-foreground/50">Searching…</p>
+                ) : manualResults.length === 0 ? (
+                  <p className="px-3 py-2.5 text-sm text-foreground/50">No products match &ldquo;{committedQuery}&rdquo;.</p>
+                ) : (
+                  manualResults.slice(0, 8).map((p) => {
+                    const outOfStock = p.stock <= 0 && !shop?.allowNegativeStock;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={outOfStock}
+                        onClick={() => {
+                          addToCart(p);
+                          setManualQuery("");
+                          setCommittedQuery("");
+                        }}
+                        className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                          {p.name}
+                          {p.barcode && <span className="ml-1.5 font-normal text-foreground/40">· {p.barcode}</span>}
+                        </span>
+                        <span className="shrink-0 text-foreground/70">{money(effectivePrice(p))}</span>
+                        <span className={`shrink-0 text-xs ${outOfStock ? "text-danger" : "text-foreground/40"}`}>
+                          {outOfStock ? "Out of stock" : `${p.stock} in stock`}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
           {cart.length === 0 ? (
             <p className="py-10 text-center text-sm text-foreground/50">Cart is empty. Scan a product to begin.</p>
           ) : (
@@ -410,7 +486,7 @@ export default function PosPage() {
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Walk-in Customer"
             />
-            {customer && customer.totalDue > 0 && (
+            {customer && customer.totalDue >= 0.01 && (
               <div className="rounded-lg bg-danger/10 p-3">
                 <p className="text-sm font-medium text-danger">Owes {money(customer.totalDue)} from before</p>
                 <p className="mt-0.5 text-xs text-foreground/60">
@@ -441,7 +517,7 @@ export default function PosPage() {
                 </div>
               </div>
             )}
-            {customer && creditAvail > 0 && (
+            {customer && creditAvail >= 0.01 && (
               <label className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm">
                 <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)} />
                 <span className="font-medium text-success">Use store credit ({money(creditAvail)})</span>

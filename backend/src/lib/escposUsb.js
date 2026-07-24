@@ -135,6 +135,28 @@ async function sendViaCharDevice(buffer) {
   return false;
 }
 
+// Like usableLpPaths(), but proves each node is actually backed by a printer
+// by briefly opening it for write — a node we mknod'd on demand but that has
+// no printer bound to its minor fails to open (ENODEV/ENXIO). Used by the
+// diagnostics endpoint so an empty phantom node is never reported as a
+// working printer. Opening O_WRONLY writes nothing, so this is side-effect
+// free (it does not feed paper or print).
+async function probeCharDevices() {
+  const out = [];
+  for (const path of usableLpPaths()) {
+    let handle;
+    try {
+      handle = await fs.promises.open(path, 'w');
+      out.push(path);
+    } catch {
+      // node not backed by a printer
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+    }
+  }
+  return out;
+}
+
 // --- Transport 2: libusb raw bulk ----------------------------------------
 
 // Scans every USB device for one exposing a Printer-class interface. Devices
@@ -256,4 +278,4 @@ async function sendRaw(buffer) {
   );
 }
 
-module.exports = { sendRaw, findPrinterInterface, usableLpPaths, PrinterNotFoundError };
+module.exports = { sendRaw, findPrinterInterface, usableLpPaths, probeCharDevices, PrinterNotFoundError };

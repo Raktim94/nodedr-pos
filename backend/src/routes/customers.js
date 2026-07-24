@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { round2 } = require('../lib/pricing');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -85,7 +86,11 @@ router.post('/:id/settle-due', async (req, res) => {
       await tx.customerDuePayment.create({
         data: { customerId: id, amount, note: parsed.data.note || null },
       });
-      return tx.customer.update({ where: { id }, data: { totalDue: { decrement: amount } } });
+      // Compute + round in JS rather than a DB-side float `decrement`, so a
+      // fully-settled due lands on exactly 0 and can never leave sub-paise
+      // residue that keeps displaying as an uncleared balance.
+      const newTotalDue = round2(existing.totalDue - amount);
+      return tx.customer.update({ where: { id }, data: { totalDue: newTotalDue } });
     });
     res.json(customer);
   } catch (err) {

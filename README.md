@@ -306,23 +306,113 @@ anything.
 
 #### Direct-USB (ESC/POS) printer setup
 
-"Print via USB" looks for any connected USB device advertising the
-standard USB Printer device class — true of virtually every generic
-ESC/POS thermal printer regardless of brand, so there's no vendor/product
-ID to configure. Two things are required for it to reach your printer:
+On a **Linux till this works by default after `docker compose up`** — the
+backend container ships with the USB access it needs and no vendor/product
+ID to configure. "Print via USB" reaches the printer over two transports,
+tried in order (see [`backend/src/lib/escposUsb.js`](backend/src/lib/escposUsb.js)):
 
-1. **Docker device passthrough** — `docker-compose.yml`'s `backend`
-   service bind-mounts `/dev/bus/usb` and adds a `device_cgroup_rules` entry
-   scoped to the USB device major number (`189`). This is **not**
-   `privileged: true` — the backend still can't see or touch anything else
-   on the host, only USB device nodes. If your printer is plugged in after
-   `docker compose up`, no restart is needed; if you're on a locked-down
-   host where `/dev/bus/usb` itself isn't world-visible, you may need a
-   udev rule granting the relevant group access (see your distro's docs;
-   the backend container runs as root, so this is rarely necessary).
-2. **Settings → Receipt → USB printer paper width** — 80mm (standard) or
-   58mm (compact), so the fixed-width text layout uses the right column
-   count for your printer.
+1. The **kernel usblp character device** (`/dev/usb/lp0`) — the exact path a
+   plain `echo "hi" > /dev/usb/lp0` writes to. This is the primary transport
+   because most cheap 80mm printers present a *vendor-specific* USB class,
+   which the kernel binds via `usblp` but a class-based scan would miss.
+2. **libusb** raw bulk transfer — a fallback for printers exposing the
+   standard USB Printer class, detaching the kernel driver first so the
+   interface can be claimed.
+
+**Check it works — one click, no sale needed:** go to **Settings → Receipt
+→ USB printer check** and press **Check printer** (reports the kernel
+printer nodes and any USB printer-class device the backend can see) and
+**Print test slip** (sends a real cut-off test receipt). Set **USB printer
+paper width** (80mm standard / 58mm compact) so the fixed-width layout uses
+the right column count. Optionally turn on **Print automatically after every
+sale** and set **Auto-print using → Direct USB** so every receipt prints
+with no dialog.
+
+**What the container needs (already in `docker-compose.yml`, Linux host
+only):** the `backend` service bind-mounts `/dev/bus/usb` and grants
+`device_cgroup_rules` on two device majors — `189` (usbfs, for libusb) and
+`180` (usblp, the kernel printer driver). This is **not** `privileged: true`;
+the backend still can't touch anything else on the host, and the container
+runs as root only so it can open the printer node. Nothing here fails at
+`compose up` when no printer is attached.
+
+##### Does it need root?
+
+**The backend container runs as root — this is required for direct-USB
+printing and is already configured, so you do not run anything extra.** The
+kernel printer node `/dev/usb/lp0` is owned `root:lp` (mode `660`), and the
+container creates it on demand with `mknod`; both need root inside the
+container. That's why `backend/Dockerfile` has **no `USER` line** and
+`docker-compose.yml` sets **no `user:`** for the backend — leave it that way.
+If you add a non-root `USER`/`user:`, "Print via USB" stops working (it can't
+open or create the printer node); the browser **Print** button still works.
+
+On the **host** you run Docker the normal way — root is only needed if your
+login isn't in the `docker` group:
+
+```bash
+# If your user is in the `docker` group (check with: id -nG | grep docker):
+docker compose up -d --build
+
+# Otherwise, run Docker with sudo:
+sudo docker compose up -d --build
+```
+
+To print a receipt straight from the host terminal (bypassing the app, e.g.
+to confirm the hardware), you need root or membership of the `lp` group,
+because of that `root:lp 660` node:
+
+```bash
+sudo sh -c 'printf "test\n\n\n" > /dev/usb/lp0'   # one-off, as root
+# ...or grant your user ongoing access and skip sudo next time:
+sudo usermod -aG lp "$USER"      # then log out and back in
+printf "test\n\n\n" > /dev/usb/lp0
+```
+
+**Windows / macOS:** the USB passthrough above is Linux-only. On a Windows
+till, install the printer's own driver and use the **Print** button (the
+browser print dialog) — set **Auto-print using → Browser print dialog**. If
+`docker compose up` errors on the `/dev/bus/usb` mount on Docker Desktop,
+delete the `volumes:` `/dev/bus/usb` line and the `device_cgroup_rules:`
+block from the `backend` service — only direct-USB printing needs them.
+
+##### Printer compatibility
+
+Any **USB thermal receipt printer that speaks ESC/POS** works — the
+overwhelming majority of 58mm and 80mm receipt printers, cheap to premium:
+
+- **Budget / generic 58mm & 80mm:** Xprinter (XP-58, XP-80, XP-T80), Everycom
+  (EC-58, EC-80), Rugtek, Retsol, TVS RP series, Pos-80 / POS-5890 clones,
+  Black Copper, Hoin, Gprinter — the typical `₹1,500–5,000` counter printers.
+- **Mid / premium:** Epson TM-T82 / TM-T88, Bixolon SRP series, Citizen
+  CT-S series, TVS RP 3200/3230.
+
+Not supported by the *USB* path: non-ESC/POS label printers (e.g. Zebra ZPL),
+and Bluetooth/Wi-Fi-only printers. For those, or on Windows, use **Print**
+(browser dialog) or **Download PDF** instead — those work with any printer
+your OS knows about.
+
+##### Troubleshooting (Linux till)
+
+Run these on the **host** (the machine with the printer), not inside Docker:
+
+```bash
+lsusb                          # confirm the printer is listed at all
+ls -l /dev/usb/lp0             # confirm the kernel bound it (usblp)
+dmesg | grep -i usblp          # what happened when you plugged it in
+echo -e "TEST\n\n\n" > /dev/usb/lp0   # print directly, bypassing the app
+```
+
+- If `echo > /dev/usb/lp0` prints but the app's **Print via USB** doesn't,
+  re-run **Check printer** in Settings — and make sure the backend container
+  has the `/dev/bus/usb` mount and `device_cgroup_rules` (see above).
+- **Permission denied** writing to `/dev/usb/lp0`: add your user to the
+  `lp` group — `sudo usermod -aG lp $USER`, then log out and back in.
+- **"Printer is busy"**: another program or the OS/CUPS print queue is
+  holding the device. Close it (or remove the printer from CUPS) and retry —
+  the raw USB path wants exclusive access.
+- **Nothing detected**: try a different USB cable/port; some printers only
+  bind `usblp` when powered on *before* being plugged in.
 
 One real limitation worth knowing: generic ESC/POS printers default to a
 single-byte codepage (usually CP437), not UTF-8. The USB print path

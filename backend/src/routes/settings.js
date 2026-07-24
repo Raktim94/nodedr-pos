@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, readSession } = require('../middleware/auth');
 const { CURRENCIES, symbolFor } = require('../lib/currency');
 
 const router = express.Router();
@@ -73,10 +73,18 @@ router.get('/currencies', (req, res) => {
   res.json(CURRENCIES);
 });
 
-// GET /api/settings — public read (receipt/branding needed before login)
+// GET /api/settings — branding/receipt config is read before login (login and
+// onboarding screens), so this stays public. But the full row carries tax
+// identifiers (GSTIN, PAN) that anonymous callers on the shop LAN have no
+// reason to see, so those are stripped unless the request is authenticated.
 router.get('/', async (req, res) => {
   const settings = await prisma.shopSettings.findFirst();
-  res.json(settings || null);
+  if (!settings) return res.json(null);
+  if (readSession(req)) return res.json(settings);
+  const { gstNumber, panNumber, ...publicSettings } = settings;
+  void gstNumber;
+  void panNumber;
+  res.json(publicSettings);
 });
 
 // POST /api/settings — onboarding step 2, only once
