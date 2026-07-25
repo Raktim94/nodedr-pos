@@ -5,10 +5,13 @@
 [![Node](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
 
-A free, open-source, **fully offline** Point of Sale and inventory management
-system for small retail shops. It runs entirely on a local machine via
-Docker — no internet connection, no subscription, no cloud dependency, and
-no data ever leaves the shop.
+A free, open-source, **offline-first** Point of Sale and inventory
+management system for small retail shops. It runs entirely via Docker
+Compose, so by default it lives on a machine in the shop — no internet
+connection required, no subscription, no data ever leaving the premises.
+It's also just a portable two-container stack, so if you'd rather manage
+it remotely, the identical setup runs on any VPS/cloud provider too — see
+[Where to run it](#where-to-run-it) for the trade-offs either way.
 
 Built for a barcode-scanner counter setup: scan an item to sell it, press
 Enter to check out, then print or download the receipt with one click. No
@@ -37,9 +40,11 @@ tablet/phone on the same network.
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
 - [Quick start](#quick-start)
+- [Where to run it](#where-to-run-it)
 - [Hardware setup](#hardware-setup)
 - [Reference data & validation](#reference-data--validation)
 - [Customer dues ("udhaar")](#customer-dues-udhaar)
+- [Returns & exchanges](#returns--exchanges)
 - [Updating](#updating)
 - [Backing up your data](#backing-up-your-data)
 - [Resetting / clearing data](#resetting--clearing-data)
@@ -74,6 +79,22 @@ tablet/phone on the same network.
   when a customer is attached; the shortfall becomes a running due balance
   you can record payments against later, with a full payment history. See
   [Customer dues](#customer-dues-udhaar).
+- **Returns & exchanges** — look up any past bill by invoice number right
+  from the register, queue one or more lines to return, and either settle
+  it as a standalone refund or fold it straight into a new sale as an
+  exchange. Returned stock goes back into inventory automatically, and the
+  same unit can never be returned twice, even across several partial
+  returns. See [Returns & exchanges](#returns--exchanges).
+- **Store credit** — a refund can be kept with the customer as store
+  credit instead of paid out in cash, tracked as its own running balance
+  per customer (separate from an udhaar due) and spendable on any future
+  purchase with a tap of **Use store credit** at checkout. See
+  [Returns & exchanges](#returns--exchanges).
+- **Runs on your own hardware or in the cloud** — it's a two-container
+  Docker Compose stack, so the same `docker compose up` that runs it on a
+  shop's counter machine also runs it unmodified on any VPS/cloud
+  provider, if you'd rather manage it remotely or across locations. See
+  [Where to run it](#where-to-run-it).
 - **Multi-currency** — over 20 major currencies (₹ INR, $ USD, € EUR, £ GBP,
   and more), switchable in settings; the symbol flows through the whole app
   and onto receipts. One source of truth on the backend
@@ -229,6 +250,35 @@ Want the web UI on a different port? Change the left-hand side of
 `"1994:3000"` under the `frontend` service's `ports:` in `docker-compose.yml`,
 and update `FRONTEND_ORIGIN` under the `backend` service to match (it's used
 for CORS, so the two must agree).
+
+## Where to run it
+
+Because the whole app is just the two containers in `docker-compose.yml`,
+`git clone` + `docker compose up` is *all* that's required to run it
+anywhere Docker runs — there's nothing hardcoded to a local machine.
+
+- **On your own machine or shop LAN (recommended default).** The
+  register, the database, and the receipts never leave a box you
+  physically control — no provider has your sales data, and there's
+  nothing to keep paying for. This is what the rest of this README
+  (and the [Security](#security) section) assumes: HTTP is fine because
+  only the shop's trusted network can reach it.
+- **On a VPS/cloud host, if you want it.** The identical
+  `docker compose up` also runs on any VPS (DigitalOcean, Hetzner, a
+  Raspberry Pi you colo, etc.) if you'd rather manage one instance
+  remotely, run it from a machine you don't keep on-site, or reach it
+  from more than one location. Nothing about the app is tied to a
+  specific host. The trade-off: a VPS is reachable from the internet, not
+  just your shop's LAN, so treat it like any other publicly reachable
+  service — put a reverse proxy with real HTTPS in front (Caddy/Nginx +
+  Let's Encrypt), set `COOKIE_SECURE=true` on the backend so the session
+  cookie is never sent over plain HTTP, and firewall the port to only the
+  IPs that should reach it. See [Security](#security) for the full list —
+  none of it is optional once this stops being a purely local box.
+
+If data residency or "nothing leaves the building" is the priority, the
+local-machine option is the more secure default and needs none of the
+above; the VPS option trades a bit of that isolation for remote reach.
 
 ## Hardware setup
 
@@ -542,6 +592,44 @@ current balance and kept as its own history (`CustomerDuePayment`) rather
 than just decrementing a number, so there's an audit trail of who paid
 what and when.
 
+## Returns & exchanges
+
+The **Return / Exchange** panel on the POS screen lets a cashier look up
+any past bill by invoice number, then choose which lines — and what
+quantity of each — to return. There's no separate "returns" page: it's
+part of the same checkout screen as a new sale, so a customer swapping one
+item for another is a single transaction, not two.
+
+- **Standalone return.** Queue lines from a past bill with nothing else in
+  the cart and finalize — the returned quantity restocks immediately, and
+  the refund pays out as **Cash, UPI, Card**, or is kept as the customer's
+  **store credit** (a running `creditBalance`, separate from an
+  udhaar/due balance) for them to spend on a future purchase.
+- **Exchange.** Queue a return *and* ring up new items in the same
+  checkout. The return's value is netted against the new sale total before
+  anything else: if the new items cost more, the customer pays the
+  difference as usual; if the return is worth more, the leftover pays down
+  any outstanding due first, then refunds as cash/UPI/card or store credit
+  for whatever's still left over. A return netted this way is recorded
+  with `refundMethod: "BILL_OFFSET"` rather than one of the payment
+  methods above, since no money actually changed hands for that portion.
+- **Partial & repeat returns are safe.** How much of a line is still
+  returnable is computed by summing every prior `ReturnItem` against that
+  invoice line (not a running counter), so returning 1 of 3 units today
+  and the remaining 2 next week works correctly, and a unit that's already
+  been returned can never be returned again.
+- **Refund amount is capped, not just quantity.** The refund per line
+  defaults to what was actually charged for that quantity (accounting for
+  any per-line discount already applied), and the cashier can lower it —
+  but never raise it above what the customer paid.
+
+See [`backend/src/routes/returns.js`](backend/src/routes/returns.js) for
+the standalone flow and the `returns` handling inside
+[`backend/src/routes/invoices.js`](backend/src/routes/invoices.js) for how
+an exchange nets against a new sale; both share the same `Return` /
+`ReturnItem` tables so a bill's full return history is queryable either
+way.
+
 ## Updating
 
 To pull the latest code and redeploy:
@@ -609,10 +697,10 @@ nodedr-pos/
 ├── docs/screenshots/          # README images
 ├── backend/
 │   ├── Dockerfile
-│   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem
+│   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem, Return
 │   └── src/
 │       ├── server.js
-│       ├── routes/           # auth, settings, products, invoices, print
+│       ├── routes/           # auth, settings, products, invoices, returns, print
 │       ├── middleware/auth.js
 │       └── lib/              # prisma client, JWT secret, currencies, receipt HTML + PDF rendering
 └── frontend/
@@ -621,9 +709,9 @@ nodedr-pos/
     ├── app/
     │   ├── onboarding/, login/                         # unauthenticated flows
     │   └── (app)/dashboard, pos, inventory, customers, sales, settings
-    ├── components/           # AppShell, ProductModal, BarcodeLabelModal, SalesCharts, ReceiptActions, ui/*
+    ├── components/           # AppShell, ProductModal, BarcodeLabelModal, ReturnPanel, SalesCharts, ReceiptActions, ui/*
     ├── lib/                  # api client, format helpers, barcode.ts, masters.ts (reference data)
-    └── hooks/                # useBarcodeScanner, useProducts, useCustomers, useInvoices, useAuth, useShopSettings
+    └── hooks/                # useBarcodeScanner, useProducts, useCustomers, useInvoices, useReturns, useAuth, useShopSettings
 ```
 
 ## Local development (without Docker)
@@ -666,8 +754,10 @@ All endpoints are under `/api` and reached through the frontend proxy at
 | `GET/POST/PUT/DELETE /products` | Catalog CRUD, `+/barcode/:code`, `/low-stock` |
 | `GET/POST/PUT /customers`       | Customer directory, `+/phone/:phone` lookup, `+/top-loyalty` ranking |
 | `POST /customers/:id/settle-due`, `GET /customers/:id/due-payments` | Record / list payments against a customer's due balance |
-| `POST /invoices`                | Finalize a sale — server computes price, tax, discount, loyalty, due; decrements stock; all transactional |
+| `POST /invoices`                | Finalize a sale — server computes price, tax, discount, loyalty, due; decrements stock; all transactional. Can also carry `returns`/`creditApplied`, netting an exchange against the same bill |
 | `GET /invoices`, `/invoices/summary`, `/invoices/:id` | Sales history & dashboard totals |
+| `POST /returns`                 | Standalone return against a past invoice — restocks quantity, refunds cash/UPI/card or store credit |
+| `GET /returns/by-invoice/:invoiceId` | Returns already made against an invoice, for computing remaining returnable quantity |
 | `GET /invoices/analytics`       | Dashboard chart data — revenue trend, top products, payment mix |
 | `GET /invoices/export.csv`      | Downloads sales history as CSV (optional `?from=&to=` range) |
 | `GET /print/:invoiceId/receipt` | Self-printing HTML receipt (opens in a new tab, calls `window.print()`) |
