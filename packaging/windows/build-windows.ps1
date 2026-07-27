@@ -240,13 +240,20 @@ Ok "payload assembled (~$payloadMb MB)"
 if ($SkipInstaller) { Info "installer compilation skipped (-SkipInstaller)"; Write-Host "`nStaged payload: $Stage"; exit 0 }
 
 Step "Compiling the NSIS installer"
-$makensis = Get-Command makensis -ErrorAction SilentlyContinue
+$makensis = (Get-Command makensis -ErrorAction SilentlyContinue)?.Source
 if (-not $makensis) {
-  foreach ($p in @("$env:ProgramFiles\NSIS\makensis.exe", "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
-    if (Test-Path $p) { $makensis = $p; break }
-  }
-} else { $makensis = $makensis.Source }
-if (-not $makensis) { Die "makensis not found. Install NSIS (choco install nsis) or pass -SkipInstaller." }
+  # NSIS is not on PATH after a default install, and it is not part of the
+  # GitHub windows-latest image either — check the usual install locations.
+  $candidates = @(
+    "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
+    "$env:ProgramFiles\NSIS\makensis.exe",
+    "$env:ChocolateyInstall\bin\makensis.exe",
+    "C:\ProgramData\chocolatey\bin\makensis.exe"
+  ) | Where-Object { $_ -and (Test-Path $_) }
+  $makensis = $candidates | Select-Object -First 1
+}
+if (-not $makensis) { Die "makensis not found. Install NSIS (choco install nsis -y) or pass -SkipInstaller." }
+Info "using $makensis"
 
 $SetupName = "nodedr-pos-setup-$Version-x64.exe"
 $SetupPath = Join-Path $OutPath $SetupName

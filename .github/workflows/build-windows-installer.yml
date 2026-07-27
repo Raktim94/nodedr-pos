@@ -46,6 +46,17 @@ jobs:
         with:
           node-version: 24
 
+      # NSIS is not part of the windows-latest image; Chocolatey is.
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          $nsis = "$env:ProgramFiles(x86)\NSIS", "$env:ProgramFiles\NSIS" | Where-Object { Test-Path "$_\makensis.exe" } | Select-Object -First 1
+          if (-not $nsis) { throw "NSIS installed but makensis.exe not found" }
+          Write-Host "makensis at $nsis"
+          Add-Content -Path $env:GITHUB_PATH -Value $nsis
+          & "$nsis\makensis.exe" /VERSION
+
       - name: Resolve version
         id: ver
         shell: pwsh
