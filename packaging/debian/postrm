@@ -1,0 +1,85 @@
+#!/bin/sh
+# NodeDR POS — post-removal.
+#
+# The important distinction:
+#   apt remove   → binaries and units go, the shop's DATABASE STAYS.
+#   apt purge    → everything goes, including /var/lib/nodedr-pos.
+# Sales history, customers, stock and the GST configuration all live in that
+# directory, so it is never deleted on a plain remove or on an upgrade.
+set -e
+
+APP_USER=nodedr-pos
+APP_GROUP=nodedr-pos
+DATA_DIR=/var/lib/nodedr-pos
+CACHE_DIR=/var/cache/nodedr-pos
+CONF_DIR=/etc/nodedr-pos
+APP_DIR=/opt/nodedr-pos
+
+case "$1" in
+  remove)
+    if [ -d /run/systemd/system ]; then
+      systemctl --system daemon-reload >/dev/null 2>&1 || true
+    fi
+    # Regenerated build artefacts and the Next.js cache are ours to delete —
+    # they are derived data, not the user's.
+    rm -rf "$CACHE_DIR"
+    # Directories that only ever contain files dpkg does not track.
+    rm -rf "$APP_DIR/frontend/.next/cache"
+    rmdir --ignore-fail-on-non-empty "$APP_DIR/frontend" "$APP_DIR/backend" "$APP_DIR" 2>/dev/null || true
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database -q /usr/share/applications || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+    fi
+    ;;
+
+  purge)
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+      deb-systemd-helper purge nodedr-pos.service >/dev/null 2>&1 || true
+      deb-systemd-helper unmask nodedr-pos.service >/dev/null 2>&1 || true
+    fi
+
+    # This is the irreversible one. It is what `purge` means, and it is why
+    # `remove` above does not do it.
+    echo "Purging NodeDR POS: removing the database and all shop data in $DATA_DIR" >&2
+    rm -rf "$DATA_DIR" "$CACHE_DIR" "$CONF_DIR" "$APP_DIR"
+
+    # Remove the service account last, once nothing it owns is left.
+    if getent passwd "$APP_USER" >/dev/null; then
+      if command -v deluser >/dev/null 2>&1; then
+        deluser --system "$APP_USER" >/dev/null 2>&1 || true
+      else
+        userdel "$APP_USER" >/dev/null 2>&1 || true
+      fi
+    fi
+    if getent group "$APP_GROUP" >/dev/null; then
+      if command -v delgroup >/dev/null 2>&1; then
+        delgroup --system --only-if-empty "$APP_GROUP" >/dev/null 2>&1 || true
+      else
+        groupdel "$APP_GROUP" >/dev/null 2>&1 || true
+      fi
+    fi
+
+    if [ -d /run/systemd/system ]; then
+      systemctl --system daemon-reload >/dev/null 2>&1 || true
+    fi
+    if command -v udevadm >/dev/null 2>&1; then
+      udevadm control --reload-rules >/dev/null 2>&1 || true
+    fi
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database -q /usr/share/applications || true
+    fi
+    ;;
+
+  upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+    ;;
+
+  *)
+    echo "postrm called with unknown argument \`$1'" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

@@ -1,0 +1,38 @@
+#!/bin/sh
+# NodeDR POS — pre-removal.
+#
+# Stops the service before the files disappear underneath it. Deliberately
+# touches no data: /var/lib/nodedr-pos survives `apt remove` and is only
+# deleted on `apt purge` (see postrm).
+set -e
+
+case "$1" in
+  remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+      # Stopping the umbrella unit propagates to the backend and frontend
+      # units through their PartOf= dependency.
+      if command -v deb-systemd-invoke >/dev/null 2>&1; then
+        deb-systemd-invoke stop nodedr-pos.service >/dev/null 2>&1 || true
+      else
+        systemctl stop nodedr-pos.service >/dev/null 2>&1 || true
+      fi
+      # Belt and braces: if the umbrella unit file was already removed by a
+      # botched earlier attempt, PartOf= cannot propagate, so name the
+      # children too. Both are no-ops when they are already stopped.
+      systemctl stop nodedr-pos-frontend.service >/dev/null 2>&1 || true
+      systemctl stop nodedr-pos-backend.service  >/dev/null 2>&1 || true
+    fi
+    ;;
+
+  upgrade|failed-upgrade)
+    # Leave the service running; postinst restarts it once the new files are
+    # in place, which keeps the till down for seconds rather than minutes.
+    ;;
+
+  *)
+    echo "prerm called with unknown argument \`$1'" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

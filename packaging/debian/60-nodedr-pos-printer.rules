@@ -1,0 +1,22 @@
+# NodeDR POS — USB thermal (ESC/POS) receipt printer access.
+#
+# The POS service runs as the unprivileged `nodedr-pos` user, which the package
+# adds to the `lp` group. These rules make sure the printer nodes are actually
+# group-lp readable/writable so that direct USB printing works right after
+# install with no manual chmod.
+#
+# Reload without replugging:  sudo udevadm control --reload && sudo udevadm trigger
+
+# The kernel usblp character device (/dev/usb/lp0) — the PRIMARY transport, and
+# the same node a working `echo "test" > /dev/usb/lp0` writes to. Two SUBSYSTEM
+# spellings because the usblp node moved from "usb" to "usbmisc" across kernel
+# versions; the non-matching one is simply ignored.
+SUBSYSTEM=="usbmisc", KERNEL=="lp[0-9]*", GROUP="lp", MODE="0660"
+SUBSYSTEM=="usb", KERNEL=="lp[0-9]*", GROUP="lp", MODE="0660"
+
+# Raw usbfs node for the libusb fallback transport, for printers that declare
+# the USB Printer class (07) in their device descriptor. Note that many generic
+# 80mm printers declare a vendor-specific class (FF) instead and are only
+# reachable through the usblp node above — that is exactly why the char device
+# is the primary transport rather than a libusb scan.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{bDeviceClass}=="07", GROUP="lp", MODE="0660"

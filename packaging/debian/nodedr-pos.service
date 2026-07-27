@@ -1,0 +1,28 @@
+[Unit]
+Description=NodeDR POS (offline point-of-sale system)
+Documentation=https://github.com/Raktim94/nodedr-pos
+Documentation=file:///usr/share/doc/nodedr-pos/README.Debian
+# This is the single unit an operator ever needs to touch:
+#   systemctl start|stop|restart|status nodedr-pos
+# It owns no process itself; it starts the two real units below and, because
+# each of them declares PartOf=nodedr-pos.service, stopping or restarting this
+# one propagates to both.
+#
+# Why two processes and not one: the API and the web server have genuinely
+# different privilege needs (only the API touches the USB printer) and
+# different failure modes. Supervising them separately means a crashed web
+# server restarts on its own without dropping the API mid-transaction, and
+# `systemctl status` points at the process that actually failed. One unit
+# running both via a wrapper script would give up per-process restart,
+# per-process sandboxing, and accurate exit codes.
+Wants=nodedr-pos-backend.service nodedr-pos-frontend.service
+After=nodedr-pos-backend.service nodedr-pos-frontend.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/bin/true
+
+[Install]
+WantedBy=multi-user.target

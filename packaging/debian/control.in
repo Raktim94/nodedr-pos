@@ -1,0 +1,31 @@
+Package: nodedr-pos
+Version: @VERSION@
+Section: misc
+Priority: optional
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Recommends: sqlite3
+Suggests: xdg-utils, cups, printer-driver-escpr
+Homepage: https://github.com/Raktim94/nodedr-pos
+Description: Offline point-of-sale and inventory management system
+ NodeDR POS is a self-contained point-of-sale and inventory system for small
+ retail shops. It runs entirely on the local machine with no cloud service,
+ no subscription and no internet connection after installation.
+ .
+ Features include barcode-scanner checkout, per-product GST with HSN codes and
+ CGST/SGST split, percentage and flat discounts, a points loyalty programme,
+ customer accounts with dues and store credit, multi-currency support, admin
+ and cashier roles, sales history, an analytics dashboard, EAN-13/QR label
+ generation, and CSV import for HSN/SAC, PIN code and IFSC reference data.
+ .
+ Receipts can be printed through the browser, downloaded as PDF, or sent
+ directly to a USB ESC/POS thermal printer (58mm/80mm).
+ .
+ This package installs the application as a systemd service that starts at
+ boot. The shop interface is served on http://localhost:1994 and is reachable
+ from any tablet or phone on the same network. The API is bound to loopback
+ only. All data is stored in a local SQLite database under
+ /var/lib/nodedr-pos, which is preserved across upgrades and on removal, and
+ deleted only on purge.

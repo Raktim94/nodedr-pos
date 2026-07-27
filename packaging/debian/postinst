@@ -1,0 +1,175 @@
+#!/bin/sh
+# NodeDR POS — post-installation configuration.
+#
+# Runs as root after the files are unpacked. Responsible for: the service
+# account, the data/cache directories, the database schema, device permissions,
+# desktop-menu integration, and enabling + starting the service.
+set -e
+
+APP_USER=nodedr-pos
+APP_GROUP=nodedr-pos
+APP_DIR=/opt/nodedr-pos
+DATA_DIR=/var/lib/nodedr-pos
+CACHE_DIR=/var/cache/nodedr-pos
+CONF_DIR=/etc/nodedr-pos
+DB_PATH="$DATA_DIR/pos.db"
+
+case "$1" in
+  configure)
+
+    # --- 1. Service account -------------------------------------------------
+    # A dedicated system account (no login shell, no password, no home of its
+    # own beyond the data directory) so a compromise of the POS process is not
+    # a compromise of a real user.
+    if ! getent group "$APP_GROUP" >/dev/null; then
+      addgroup --system "$APP_GROUP"
+    fi
+    if ! getent passwd "$APP_USER" >/dev/null; then
+      adduser --system --ingroup "$APP_GROUP" \
+              --home "$DATA_DIR" --no-create-home \
+              --gecos "NodeDR POS service account" \
+              --disabled-password --shell /usr/sbin/nologin \
+              "$APP_USER"
+    fi
+
+    # USB thermal printers appear as root:lp 0660 device nodes. Group
+    # membership is what lets the service print without running as root.
+    if getent group lp >/dev/null; then
+      adduser "$APP_USER" lp >/dev/null 2>&1 || true
+    fi
+
+    # --- 2. State directories ----------------------------------------------
+    # 0750: the database holds customer names, phone numbers and every sale,
+    # so it is not world-readable.
+    mkdir -p "$DATA_DIR" "$DATA_DIR/backups" "$CACHE_DIR/next"
+    chown -R "$APP_USER:$APP_GROUP" "$DATA_DIR" "$CACHE_DIR"
+    chmod 0750 "$DATA_DIR" "$DATA_DIR/backups" "$CACHE_DIR"
+
+    # --- 3. Database schema -------------------------------------------------
+    # Idempotent: `prisma migrate deploy` applies only migrations not already
+    # recorded in the database, so this is both the first-install create and
+    # the upgrade path.
+    if [ -x "$APP_DIR/bin/nodedr-pos-migrate" ]; then
+      echo "Setting up the NodeDR POS database..."
+      if ! "$APP_DIR/bin/nodedr-pos-migrate"; then
+        echo "" >&2
+        echo "ERROR: database migration failed." >&2
+        echo "The package is installed but the POS will not start." >&2
+        echo "Re-run it manually to see the full error:" >&2
+        echo "    sudo /opt/nodedr-pos/bin/nodedr-pos-migrate" >&2
+        exit 1
+      fi
+      # Migrations ran as root; hand the files back to the service account.
+      chown -R "$APP_USER:$APP_GROUP" "$DATA_DIR"
+      [ -f "$DB_PATH" ] && chmod 0640 "$DB_PATH"
+      # The API generates and persists its JWT signing secret here on first
+      # boot; make sure the directory it lands in is writable by the service.
+      [ -f "$DATA_DIR/.jwt-secret" ] && chmod 0600 "$DATA_DIR/.jwt-secret"
+    fi
+
+    chmod 0755 "$CONF_DIR"
+
+    # --- 4. Device permissions ----------------------------------------------
+    # Apply the shipped printer rules to devices that are already plugged in,
+    # so printing works without a reboot or a replug.
+    if command -v udevadm >/dev/null 2>&1; then
+      udevadm control --reload-rules >/dev/null 2>&1 || true
+      udevadm trigger --subsystem-match=usb --subsystem-match=usbmisc >/dev/null 2>&1 || true
+    fi
+
+    # --- 5. Desktop integration ---------------------------------------------
+    if command -v update-desktop-database >/dev/null 2>&1; then
+      update-desktop-database -q /usr/share/applications || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+      gtk-update-icon-cache -q -f /usr/share/icons/hicolor 2>/dev/null || true
+    fi
+    ;;
+
+  abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+
+  *)
+    echo "postinst called with unknown argument \`$1'" >&2
+    exit 1
+    ;;
+esac
+
+# --- 6. Service registration ------------------------------------------------
+# The dh_installsystemd-generated idiom, written out by hand because this
+# package is assembled with dpkg-deb rather than dpkg-buildpackage. Each block
+# falls back to plain systemctl so the package also installs cleanly on systemd
+# distributions that do not ship Debian's init-system-helpers.
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || \
+   [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
+
+  # Only the umbrella unit is enabled: it pulls in the backend and frontend
+  # units via Wants=, so there is exactly one thing to enable, start and stop.
+  if [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null 2>&1 || true
+  fi
+
+  if command -v deb-systemd-helper >/dev/null 2>&1; then
+    # deb-systemd-helper remembers an operator's earlier `systemctl disable`
+    # across upgrades; plain `systemctl enable` would silently re-enable it.
+    deb-systemd-helper unmask nodedr-pos.service >/dev/null 2>&1 || true
+    if deb-systemd-helper --quiet was-enabled nodedr-pos.service; then
+      deb-systemd-helper enable nodedr-pos.service >/dev/null 2>&1 || true
+    else
+      deb-systemd-helper update-state nodedr-pos.service >/dev/null 2>&1 || true
+    fi
+  else
+    systemctl enable nodedr-pos.service >/dev/null 2>&1 || true
+  fi
+
+  if [ -d /run/systemd/system ]; then
+    if command -v deb-systemd-invoke >/dev/null 2>&1; then
+      deb-systemd-invoke restart nodedr-pos.service >/dev/null 2>&1 || true
+    else
+      systemctl restart nodedr-pos.service >/dev/null 2>&1 || true
+    fi
+
+    # Give the operator a definite answer instead of a silent prompt. 60s
+    # covers a cold start on slow spinning-disk till hardware.
+    port="$(sed -n 's/^PORT=\([0-9]\+\).*/\1/p' "$CONF_DIR/nodedr-pos.conf" 2>/dev/null | head -n1)"
+    : "${port:=1994}"
+    i=0
+    up=no
+    while [ "$i" -lt 60 ]; do
+      # /dev/tcp is a bash feature and this is /bin/sh, so probe with the
+      # bundled node instead — no curl/netcat dependency either way.
+      if "$APP_DIR/runtime/bin/node" -e '
+            const net = require("net");
+            const s = net.connect(Number(process.argv[1]), "127.0.0.1");
+            s.on("connect", () => { s.destroy(); process.exit(0); });
+            s.on("error", () => process.exit(1));
+            setTimeout(() => process.exit(1), 1000);
+          ' "$port" 2>/dev/null; then
+        up=yes
+        break
+      fi
+      sleep 1
+      i=$((i + 1))
+    done
+
+    echo ""
+    if [ "$up" = yes ]; then
+      echo "  NodeDR POS is installed and running."
+      echo "  Open http://localhost:$port in your browser to create the admin"
+      echo "  account and finish shop setup, or launch \"NodeDR POS\" from the"
+      echo "  applications menu."
+    else
+      echo "  NodeDR POS is installed, but did not come up within 60 seconds."
+      echo "  Check what happened with:  sudo nodedr-pos doctor"
+      echo "                             sudo nodedr-pos logs"
+    fi
+    echo ""
+  else
+    echo ""
+    echo "  NodeDR POS is installed. systemd is not running in this environment"
+    echo "  (container/chroot), so the service was not started."
+    echo ""
+  fi
+fi
+
+exit 0

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=NodeDR POS
+GenericName=Point of Sale
+Comment=Offline point-of-sale and inventory management
+# Not a bare xdg-open: the wrapper makes sure the service is actually up (and
+# starts it if the machine has it stopped) before handing the URL to the
+# browser, so clicking the icon right after boot doesn't land on a
+# connection-refused page.
+Exec=/usr/bin/nodedr-pos open
+Icon=nodedr-pos
+Terminal=false
+Categories=Office;Finance;
+Keywords=POS;Billing;Invoice;Retail;Inventory;GST;Shop;
+StartupNotify=true

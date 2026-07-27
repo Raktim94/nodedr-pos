@@ -1,0 +1,95 @@
+[Unit]
+Description=NodeDR POS backend API
+Documentation=https://github.com/Raktim94/nodedr-pos
+# Fully offline app: it needs the loopback stack up, nothing else.
+After=network.target
+# Tie the lifecycle to the umbrella unit so `systemctl stop|restart
+# nodedr-pos` propagates here without the operator naming this unit.
+PartOf=nodedr-pos.service
+# A till that fails to start must keep retrying rather than latching off after
+# 5 attempts (the systemd default) — a shop opening in the morning gets no
+# console to run `systemctl reset-failed`. (Lives in [Unit], not [Service].)
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=nodedr-pos
+Group=nodedr-pos
+# The kernel usblp node (/dev/usb/lp0) is root:lp 0660 — this is what makes
+# direct ESC/POS thermal printing work without running the API as root.
+SupplementaryGroups=lp
+WorkingDirectory=/opt/nodedr-pos/backend
+Environment=NODE_ENV=production
+# Prisma phones home for version checks by default; this app is offline-first,
+# and on an air-gapped till the check just adds startup latency.
+Environment=CHECKPOINT_DISABLE=1
+Environment=PRISMA_HIDE_UPDATE_MESSAGE=1
+EnvironmentFile=/etc/nodedr-pos/nodedr-pos.conf
+
+# Idempotent: `migrate deploy` applies only pending migrations, so this is a
+# no-op on every boot after the first. It also covers the upgrade case where
+# a new package version ships new migrations.
+ExecStartPre=/opt/nodedr-pos/bin/nodedr-pos-migrate
+ExecStart=/opt/nodedr-pos/bin/nodedr-pos-backend
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=mixed
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nodedr-pos-backend
+
+# --- Hardening -------------------------------------------------------------
+# The API holds every rupee of sales data and runs unattended on shop-floor
+# hardware, so it gets the full sandbox minus the two things Node and the
+# printer genuinely need (see MemoryDenyWriteExecute and DevicePolicy below).
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateMounts=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/nodedr-pos
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+# MUST stay off: V8 JIT-compiles into writable-then-executable pages, so
+# denying W^X transitions makes node abort at startup.
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# The backend is never exposed on the LAN — the browser only ever talks to the
+# frontend on :1994, which proxies /api/* over loopback. This is a kernel-level
+# (eBPF) equivalent of the `expose:`-not-`ports:` decision in docker-compose.yml,
+# and it also means a compromised dependency cannot dial out.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# PrivateDevices=yes would hide /dev/usb/lp0 and break thermal printing, so
+# instead: deny everything, then grant exactly the two majors the printer
+# transports use — 180 (usblp char device, primary) and 189 (usbfs, the libusb
+# fallback). Same least-privilege split as the device_cgroup_rules in
+# docker-compose.yml.
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=char-usb rw
+DeviceAllow=char-usb_device rw
+
+[Install]
+WantedBy=multi-user.target

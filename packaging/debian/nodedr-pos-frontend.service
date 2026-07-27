@@ -1,0 +1,66 @@
+[Unit]
+Description=NodeDR POS web interface (Next.js)
+Documentation=https://github.com/Raktim94/nodedr-pos
+After=network.target nodedr-pos-backend.service
+Wants=nodedr-pos-backend.service
+PartOf=nodedr-pos.service
+# See the backend unit: never latch off after repeated start failures.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=nodedr-pos
+Group=nodedr-pos
+WorkingDirectory=/opt/nodedr-pos/frontend
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+EnvironmentFile=/etc/nodedr-pos/nodedr-pos.conf
+
+ExecStart=/opt/nodedr-pos/runtime/bin/node /opt/nodedr-pos/frontend/server.js
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillMode=mixed
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nodedr-pos-frontend
+
+# --- Hardening -------------------------------------------------------------
+# Stricter than the backend: this process touches no devices and owns no data,
+# it only renders pages and proxies /api/* to loopback.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateMounts=yes
+ProtectSystem=strict
+ProtectHome=yes
+# Next.js writes its incremental/fetch cache under .next/cache, which is a
+# symlink into here (see postinst) because /opt is read-only under
+# ProtectSystem=strict.
+ReadWritePaths=/var/cache/nodedr-pos
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+# See the backend unit: V8's JIT requires this to stay off.
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

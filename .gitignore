@@ -1,2 +1,7 @@
 .DS_Store
 .env
+
+# Built .deb packages — published as GitHub Release assets, not committed
+# (an 80MB+ binary in git history bloats every future clone forever).
+/dist/
+/packaging/dist/

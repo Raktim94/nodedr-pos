@@ -1,0 +1,96 @@
+NodeDR POS for Debian/Ubuntu
+============================
+
+This package installs NodeDR POS as a native system service. Docker is not
+used and is not required; the Docker Compose deployment described in the
+project README remains available and is unaffected by this package.
+
+Quick start
+-----------
+After installation the service is already running. Open
+
+    http://localhost:1994
+
+or launch "NodeDR POS" from the applications menu, and create the admin
+account. From other devices on the same network use the till's IP address,
+for example http://192.168.1.20:1994.
+
+Layout
+------
+  /opt/nodedr-pos/            application, bundled Node.js runtime
+  /etc/nodedr-pos/            configuration (preserved across upgrades)
+  /var/lib/nodedr-pos/        SQLite database, session secret, backups
+  /var/cache/nodedr-pos/      Next.js runtime cache (safe to delete)
+  /usr/bin/nodedr-pos         operator command-line tool
+
+Service management
+------------------
+There is one unit to operate:
+
+    sudo systemctl status nodedr-pos
+    sudo systemctl restart nodedr-pos
+    sudo systemctl stop nodedr-pos
+
+It supervises two processes — nodedr-pos-backend.service (the API, which owns
+the database and the printer) and nodedr-pos-frontend.service (the web
+interface). They are separate units so that each is restarted, sandboxed and
+diagnosed independently; stopping or restarting nodedr-pos propagates to both.
+
+Convenience wrapper:
+
+    nodedr-pos doctor       check ports, database and printer wiring
+    nodedr-pos logs         follow the logs
+    sudo nodedr-pos backup  online, crash-safe copy of the database
+    nodedr-pos --help
+
+Configuration
+-------------
+Edit /etc/nodedr-pos/nodedr-pos.conf, then restart the service. The file is a
+dpkg conffile, so your changes survive upgrades and dpkg will ask before
+overwriting it. The most common change is HOSTNAME=127.0.0.1 to restrict the
+POS to the till itself.
+
+Note that BACKEND_PORT cannot be changed after the fact: the web interface
+resolves its /api proxy destination at build time. Rebuilding the package with
+a different BACKEND_PORT is the supported way to move it.
+
+Thermal printers
+----------------
+The service account is added to the "lp" group and udev rules ship in
+/usr/lib/udev/rules.d/60-nodedr-pos-printer.rules, so a USB ESC/POS printer
+works without further setup. Verify with:
+
+    nodedr-pos doctor
+    ls -l /dev/usb/lp0
+
+then use Settings > Receipt > "USB printer check" in the app. If the printer
+is bound by CUPS at the same time, stop the CUPS queue for it — the kernel
+lets only one writer hold the device.
+
+Browser printing and PDF download work with no printer configuration at all
+and are the default.
+
+Backups
+-------
+    sudo nodedr-pos backup                       # -> /var/lib/nodedr-pos/backups/
+    sudo nodedr-pos restore /path/to/backup.db
+
+`backup` uses SQLite's VACUUM INTO, so it is safe to run while the shop is
+trading. Copying pos.db with cp while the service is running is not.
+
+Removal
+-------
+    sudo apt remove nodedr-pos     keeps the database in /var/lib/nodedr-pos
+    sudo apt purge  nodedr-pos     deletes the database and all shop data
+
+Take a backup before purging. There is no undo.
+
+Node.js
+-------
+The package bundles its own Node.js runtime in /opt/nodedr-pos/runtime and
+does not depend on, install, or interfere with any system nodejs package.
+This is deliberate: the application uses native modules (better-sqlite3, usb)
+compiled against a specific Node ABI, and Debian and Ubuntu ship Node versions
+older than the one this application requires.
+
+ -- Raktim <ranjitraktim5@gmail.com>
