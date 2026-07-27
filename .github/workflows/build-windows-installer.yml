@@ -252,5 +252,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.event.inputs.release_tag }}" (Get-ChildItem dist\nodedr-pos-setup-*-x64.exe).FullName --clobber
+          $exe = Get-ChildItem dist\nodedr-pos-setup-*-x64.exe | Where-Object { $_.Name -notmatch 'latest' } | Select-Object -First 1
+          gh release upload "${{ github.event.inputs.release_tag }}" $exe.FullName --clobber
+
+          # Also publish a stable-named copy. nodedrpos.nodedrdev.com links to
+          # /releases/latest/download/nodedr-pos-setup-latest-x64.exe, which only
+          # resolves if an asset with exactly that name exists in the newest
+          # release — omit this and the website's download button 404s.
+          $alias = Join-Path $exe.DirectoryName "nodedr-pos-setup-latest-x64.exe"
+          Copy-Item $exe.FullName $alias -Force
+          gh release upload "${{ github.event.inputs.release_tag }}" $alias --clobber
+
           gh release upload "${{ github.event.inputs.release_tag }}" dist\SHA256SUMS-windows.txt --clobber
