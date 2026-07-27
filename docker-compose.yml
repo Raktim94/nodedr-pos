@@ -15,8 +15,13 @@ services:
       # — so every container recreation wiped the database with no error.
       DATABASE_URL: "file:/app/data/pos.db"
       PORT: "4000"
-      FRONTEND_ORIGIN: "http://localhost:1994"
-      COOKIE_SECURE: "false"
+      # Both default to the local/offline setup and need no host changes.
+      # For a VPS behind real HTTPS, set FRONTEND_ORIGIN to your public
+      # https:// URL and COOKIE_SECURE=true in a root .env file (copy from
+      # .env.example) — never edit this file itself. Compose reads .env
+      # from this directory automatically.
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:1994}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
     # The backend is intentionally NOT published to the host. It's reachable
     # only over the internal Docker network via the frontend's /api proxy,
     # which keeps the API off the LAN and shrinks the attack surface. To hit
@@ -67,7 +72,7 @@ services:
     container_name: nodedr-pos-frontend
     restart: unless-stopped
     ports:
-      - "1994:3000"
+      - "${HOST_PORT:-1994}:3000"
     depends_on:
       - backend
 

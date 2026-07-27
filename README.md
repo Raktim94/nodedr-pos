@@ -246,10 +246,10 @@ survives `docker compose down`, container recreation, and image rebuilds.
 It's only removed if you explicitly delete it (see
 [Resetting](#resetting--clearing-data) below).
 
-Want the web UI on a different port? Change the left-hand side of
-`"1994:3000"` under the `frontend` service's `ports:` in `docker-compose.yml`,
-and update `FRONTEND_ORIGIN` under the `backend` service to match (it's used
-for CORS, so the two must agree).
+Want the web UI on a different port, or to deploy somewhere other than
+`localhost`? Copy `.env.example` to `.env` and set values there —
+`docker compose` reads it automatically. **`docker-compose.yml` itself never
+needs editing**, on a shop LAN box or a VPS alike.
 
 ## Where to run it
 
@@ -262,19 +262,23 @@ anywhere Docker runs — there's nothing hardcoded to a local machine.
   physically control — no provider has your sales data, and there's
   nothing to keep paying for. This is what the rest of this README
   (and the [Security](#security) section) assumes: HTTP is fine because
-  only the shop's trusted network can reach it.
+  only the shop's trusted network can reach it. No `.env` file is required
+  for this — the built-in defaults already point at `localhost`.
 - **On a VPS/cloud host, if you want it.** The identical
   `docker compose up` also runs on any VPS (DigitalOcean, Hetzner, a
   Raspberry Pi you colo, etc.) if you'd rather manage one instance
   remotely, run it from a machine you don't keep on-site, or reach it
   from more than one location. Nothing about the app is tied to a
-  specific host. The trade-off: a VPS is reachable from the internet, not
-  just your shop's LAN, so treat it like any other publicly reachable
-  service — put a reverse proxy with real HTTPS in front (Caddy/Nginx +
-  Let's Encrypt), set `COOKIE_SECURE=true` on the backend so the session
-  cookie is never sent over plain HTTP, and firewall the port to only the
-  IPs that should reach it. See [Security](#security) for the full list —
-  none of it is optional once this stops being a purely local box.
+  specific host, and nothing in the compose file needs to change: copy
+  `.env.example` to `.env`, set `FRONTEND_ORIGIN` to your public
+  `https://` URL and `COOKIE_SECURE=true`, then `docker compose up -d`.
+  The trade-off: a VPS is reachable from the internet, not just your
+  shop's LAN, so treat it like any other publicly reachable service — put
+  a reverse proxy with real HTTPS in front (Caddy/Nginx + Let's Encrypt)
+  so the session cookie is never sent over plain HTTP, and firewall the
+  port to only the IPs that should reach it. See [Security](#security) for
+  the full list — none of it is optional once this stops being a purely
+  local box.
 
 If data residency or "nothing leaves the building" is the priority, the
 local-machine option is the more secure default and needs none of the
@@ -801,7 +805,8 @@ Security posture (verified end-to-end):
 
 Designed for a **trusted local network** (a shop's LAN or a single machine).
 It's HTTP by default; if you expose it beyond the counter, terminate HTTPS in
-front of it and set `COOKIE_SECURE=true`.
+front of it and set `COOKIE_SECURE=true` in `.env` (see
+[Where to run it](#where-to-run-it)) — no other file needs to change.
 
 ## Contributing
 

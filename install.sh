@@ -33,11 +33,16 @@ docker compose up -d --build
 
 # --- 3. Wait for the app to report healthy -----------------------------------
 # The backend isn't published to the host; we probe it through the frontend's
-# /api proxy on port 1994 (the same path the browser uses).
+# /api proxy on the same port the browser uses. Reads HOST_PORT from .env if
+# present (see .env.example), so this works whether or not the default port
+# was customized — nothing about this script assumes localhost-only.
+HOST_PORT="$(grep -m1 '^HOST_PORT=' .env 2>/dev/null | cut -d= -f2-)"
+HOST_PORT="${HOST_PORT:-1994}"
+
 echo "Waiting for the app to come online..."
 ready=false
 for _ in $(seq 1 90); do
-  if curl -sf http://localhost:1994/api/health >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${HOST_PORT}/api/health" >/dev/null 2>&1; then
     ready=true
     break
   fi
@@ -53,4 +58,4 @@ fi
 # --- 4. Done ------------------------------------------------------------------
 echo ""
 echo "nodedr-pos is up and running."
-echo "Open http://localhost:1994 in your browser to create your admin account and finish shop setup."
+echo "Open http://localhost:${HOST_PORT} in your browser to create your admin account and finish shop setup."
