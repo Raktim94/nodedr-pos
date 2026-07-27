@@ -51,8 +51,16 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis --no-progress -y
-          $nsis = "$env:ProgramFiles(x86)\NSIS", "$env:ProgramFiles\NSIS" | Where-Object { Test-Path "$_\makensis.exe" } | Select-Object -First 1
-          if (-not $nsis) { throw "NSIS installed but makensis.exe not found" }
+          # NOTE the braces: "$env:ProgramFiles(x86)\..." expands $env:ProgramFiles
+          # and then a literal "(x86)", which silently loses the space and never
+          # matches. ${env:ProgramFiles(x86)} is the correct form.
+          $nsis = @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS") |
+                    Where-Object { Test-Path (Join-Path $_ "makensis.exe") } |
+                    Select-Object -First 1
+          if (-not $nsis) {
+            Write-Host "Searched:"; @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS") | ForEach-Object { Write-Host "  $_" }
+            throw "NSIS installed but makensis.exe not found"
+          }
           Write-Host "makensis at $nsis"
           Add-Content -Path $env:GITHUB_PATH -Value $nsis
           & "$nsis\makensis.exe" /VERSION
