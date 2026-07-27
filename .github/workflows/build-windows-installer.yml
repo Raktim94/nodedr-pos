@@ -88,7 +88,14 @@ jobs:
         run: |
           $setup = Get-ChildItem dist\nodedr-pos-setup-*-x64.exe | Select-Object -First 1
           Write-Host "Installing $($setup.Name)"
-          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait -PassThru
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -PassThru
+          # Bounded wait: an NSIS dialog that slips through without /SD would
+          # block a silent install forever, and -Wait has no timeout. Fail in
+          # 10 minutes with a diagnosis instead of burning the job timeout.
+          if (-not $p.WaitForExit(600000)) {
+            $p.Kill()
+            throw "the installer did not finish within 10 minutes — it is probably showing a dialog (a MessageBox missing /SD)"
+          }
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
 
       - name: Wait for the service to come up

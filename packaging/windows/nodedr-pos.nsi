@@ -126,7 +126,7 @@ Section "NodeDR POS" SecMain
   SectionIn RO
 
   ${IfNot} ${RunningX64}
-    MessageBox MB_ICONSTOP "${APP_NAME} requires 64-bit Windows."
+    MessageBox MB_ICONSTOP "${APP_NAME} requires 64-bit Windows." /SD IDOK
     Abort
   ${EndIf}
 
@@ -175,7 +175,7 @@ Section "NodeDR POS" SecMain
   Pop $0
   ${If} $0 != 0
     DetailPrint "WARNING: database migration returned $0."
-    MessageBox MB_ICONEXCLAMATION|MB_OK "The database could not be prepared (code $0).$\r$\n$\r$\nThe POS is installed but may not start. Run this to see the error:$\r$\n  ""$INSTDIR\bin\nodedr-pos.cmd"" doctor"
+    MessageBox MB_ICONEXCLAMATION|MB_OK "The database could not be prepared (code $0).$\r$\n$\r$\nThe POS is installed but may not start. Run this to see the error:$\r$\n  $\"$INSTDIR\bin\nodedr-pos.cmd$\" doctor" /SD IDOK
   ${EndIf}
 
   ; --- Services -----------------------------------------------------------
@@ -183,13 +183,13 @@ Section "NodeDR POS" SecMain
   nsExec::ExecToLog '"$INSTDIR\service\nodedr-pos-backend.exe" install'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "Could not register the ${APP_NAME} API service (code $0)."
+    MessageBox MB_ICONSTOP "Could not register the ${APP_NAME} API service (code $0)." /SD IDOK
     Abort
   ${EndIf}
   nsExec::ExecToLog '"$INSTDIR\service\nodedr-pos-frontend.exe" install'
   Pop $0
   ${If} $0 != 0
-    MessageBox MB_ICONSTOP "Could not register the ${APP_NAME} web service (code $0)."
+    MessageBox MB_ICONSTOP "Could not register the ${APP_NAME} web service (code $0)." /SD IDOK
     Abort
   ${EndIf}
 
@@ -272,7 +272,7 @@ Section "Uninstall"
   IfSilent keep_shop_data
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 \
     "Also delete all shop data?$\r$\n$\r$\nThis permanently removes the database, sales history, customers and settings in:$\r$\n${DATA_DIR}$\r$\n$\r$\nChoose No to keep your data for a future reinstall." \
-    IDNO keep_shop_data
+    /SD IDNO IDNO keep_shop_data
   RMDir /r "${DATA_DIR}"
   DetailPrint "Shop data removed."
   keep_shop_data:
