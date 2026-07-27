@@ -1,0 +1,42 @@
+<service>
+  <id>NodeDRPOSBackend</id>
+  <name>NodeDR POS Backend</name>
+  <description>NodeDR POS API — owns the SQLite database and the receipt printer. Part of NodeDR POS @VERSION@.</description>
+
+  <executable>%BASE%\..\runtime\node.exe</executable>
+  <arguments>"%BASE%\..\backend\src\server.js"</arguments>
+  <workingdirectory>%BASE%\..\backend</workingdirectory>
+
+  <!-- The API listens on loopback only in practice: Windows Firewall denies
+       inbound by default and the installer adds an allow rule for the web port
+       ONLY, plus an explicit block rule for this one. The browser never talks
+       to this port directly — the web server proxies /api/* to it. -->
+  <env name="PORT" value="@BACKEND_PORT@" />
+  <env name="NODE_ENV" value="production" />
+  <env name="FRONTEND_ORIGIN" value="http://localhost:@FRONTEND_PORT@" />
+  <env name="COOKIE_SECURE" value="false" />
+  <!-- Forward slashes and a space-free directory on purpose: this string is
+       parsed as a URL by the better-sqlite3 driver adapter, where backslashes
+       and spaces are a reliable source of "database mysteriously empty" bugs. -->
+  <env name="DATABASE_URL" value="file:C:/ProgramData/NodeDRPOS/pos.db" />
+  <!-- Offline-first app on a shop till: never block startup on a version ping. -->
+  <env name="CHECKPOINT_DISABLE" value="1" />
+  <env name="PRISMA_HIDE_UPDATE_MESSAGE" value="1" />
+
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="20 sec" />
+  <resetfailure>1 hour</resetfailure>
+
+  <startmode>Automatic</startmode>
+  <!-- Give the network stack time after a cold boot before the first bind. -->
+  <delayedAutoStart>false</delayedAutoStart>
+
+  <logpath>C:\ProgramData\NodeDRPOS\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+
+  <stoptimeout>20 sec</stoptimeout>
+</service>

@@ -1,0 +1,230 @@
+name: Build Windows installer
+
+# The Windows installer is built on a real Windows runner, not cross-built from
+# Linux: better-sqlite3 and usb are native addons whose binaries are platform-
+# and ABI-specific, and Prisma's engines are platform-specific too. Building
+# here also means the result can be smoke-tested on the OS it targets before
+# anyone downloads it.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packaging/windows/**"
+      - ".github/workflows/build-windows-installer.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp on the installer"
+        required: false
+        default: "1.0.0"
+      release_tag:
+        description: "Attach the installer to this existing release tag (blank = artifact only)"
+        required: false
+        default: ""
+
+concurrency:
+  group: build-windows-installer
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only used to bootstrap npm; the payload bundles its own node.exe, which
+      # the build script downloads and verifies separately.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.0" }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building version $v"
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          pwsh -File packaging\windows\build-windows.ps1 -Version "${{ steps.ver.outputs.version }}"
+
+      # ---------------------------------------------------------------------
+      # Smoke test: install it, use it, uninstall it — on real Windows.
+      # This is the whole reason the build runs here instead of on Linux.
+      # ---------------------------------------------------------------------
+      - name: Install silently
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist\nodedr-pos-setup-*-x64.exe | Select-Object -First 1
+          Write-Host "Installing $($setup.Name)"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+
+      - name: Wait for the service to come up
+        shell: pwsh
+        run: |
+          $ok = $false
+          foreach ($i in 1..60) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:1994/api/health" -UseBasicParsing -TimeoutSec 3
+              if ($r.StatusCode -eq 200 -and $r.Content -match '"status"\s*:\s*"ok"') { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $ok) {
+            Write-Host "=== service state ==="
+            sc.exe query NodeDRPOSBackend
+            sc.exe query NodeDRPOSFrontend
+            Write-Host "=== logs ==="
+            Get-ChildItem "C:\ProgramData\NodeDRPOS\logs" -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "--- $($_.Name) ---"; Get-Content $_.FullName -Tail 60
+            }
+            throw "the POS did not answer on http://127.0.0.1:1994 within 120s"
+          }
+          Write-Host "API healthy"
+
+      - name: Verify services, ports and permissions
+        shell: pwsh
+        run: |
+          $fail = 0
+          function Check($name, [bool]$cond) {
+            if ($cond) { Write-Host "  [PASS] $name" } else { Write-Host "  [FAIL] $name"; $script:fail++ }
+          }
+
+          Check "backend service running"  ((Get-Service NodeDRPOSBackend).Status  -eq 'Running')
+          Check "frontend service running" ((Get-Service NodeDRPOSFrontend).Status -eq 'Running')
+          Check "backend starts at boot"   ((Get-Service NodeDRPOSBackend).StartType  -eq 'Automatic')
+          Check "frontend starts at boot"  ((Get-Service NodeDRPOSFrontend).StartType -eq 'Automatic')
+
+          $shell = Invoke-WebRequest -Uri "http://127.0.0.1:1994/" -UseBasicParsing -TimeoutSec 15
+          Check "app shell renders" ($shell.StatusCode -eq 200 -and $shell.Content -match '(?i)<!DOCTYPE html>')
+
+          Check "database created" (Test-Path "C:\ProgramData\NodeDRPOS\pos.db")
+          Check "data dir is outside Program Files" (Test-Path "C:\ProgramData\NodeDRPOS")
+          Check "firewall allow rule for the web port" ((netsh advfirewall firewall show rule name="NodeDR POS Web" | Out-String) -match "1994")
+          Check "firewall block rule for the API port" ((netsh advfirewall firewall show rule name="NodeDR POS API (internal only)" | Out-String) -match "Block")
+
+          # backend\data must be a junction into ProgramData, not a real folder,
+          # or the JWT secret lands in Program Files and is lost on upgrade.
+          $link = Get-Item "$env:ProgramFiles\NodeDRPOS\backend\data" -Force -ErrorAction SilentlyContinue
+          Check "backend\data is a junction" ($null -ne $link -and $link.LinkType -eq 'Junction')
+
+          $bs3 = ($env:ProgramFiles -replace '\\','/') + '/NodeDRPOS/backend/node_modules/better-sqlite3'
+          $js = "const D=require('$bs3');const db=new D('C:/ProgramData/NodeDRPOS/pos.db',{readonly:true});process.stdout.write(String(db.prepare('SELECT COUNT(*) n FROM _prisma_migrations WHERE finished_at IS NOT NULL').get().n));"
+          $migrations = & "$env:ProgramFiles\NodeDRPOS\runtime\node.exe" -e $js
+          Write-Host "  applied migrations: $migrations"
+          Check "all 11 migrations applied" ("$migrations" -eq "11")
+
+          if ($fail -gt 0) { throw "$fail check(s) failed" }
+
+      - name: End-to-end business flow through the /api proxy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $base = "http://127.0.0.1:1994/api"
+          $s = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+
+          Invoke-RestMethod -Uri "$base/auth/register" -Method Post -WebSession $s -ContentType "application/json" `
+            -Body '{"name":"CI Admin","email":"ci@test.local","password":"Str0ngPass!23"}' | Out-Null
+          Write-Host "  registered admin"
+
+          Invoke-RestMethod -Uri "$base/settings" -Method Post -WebSession $s -ContentType "application/json" `
+            -Body '{"shopName":"CI Test Shop","address1":"1 Test Street","gstEnabled":true,"defaultTaxRate":18}' | Out-Null
+          Write-Host "  saved shop settings"
+
+          $prod = Invoke-RestMethod -Uri "$base/products" -Method Post -WebSession $s -ContentType "application/json" `
+            -Body '{"name":"Test Widget","barcode":"2000000000015","sellingPrice":118,"purchasePrice":80,"stock":10,"taxRate":18}'
+          Write-Host "  created product id=$($prod.id)"
+
+          $sale = Invoke-RestMethod -Uri "$base/invoices" -Method Post -WebSession $s -ContentType "application/json" `
+            -Body ("{`"items`":[{`"productId`":$($prod.id),`"quantity`":2}],`"paymentMethod`":`"CASH`",`"amountPaid`":236}")
+          Write-Host "  sale total: $($sale.totalAmount)"
+
+          # MRP is GST-inclusive: 2 x 118 must total 236, never 278.48.
+          if ([math]::Round($sale.totalAmount) -ne 236) {
+            throw "GST is being added on top of MRP: expected 236, got $($sale.totalAmount)"
+          }
+          Write-Host "  [PASS] GST inclusive (236, not 278.48)"
+
+          $receipt = Invoke-WebRequest -Uri "$base/print/$($sale.id)/receipt" -WebSession $s -UseBasicParsing
+          if ($receipt.Content -notmatch "window.print") { throw "receipt HTML did not render" }
+          Write-Host "  [PASS] receipt HTML renders"
+
+          Invoke-WebRequest -Uri "$base/print/$($sale.id)/pdf" -WebSession $s -UseBasicParsing -OutFile "$env:TEMP\r.pdf"
+          $magic = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes("$env:TEMP\r.pdf")[0..3])
+          if ($magic -ne "%PDF") { throw "receipt PDF is not a PDF" }
+          Write-Host "  [PASS] receipt PDF generates"
+
+      - name: Data survives a service restart
+        shell: pwsh
+        run: |
+          Restart-Service NodeDRPOSBackend -Force
+          Restart-Service NodeDRPOSFrontend -Force
+          $ok = $false
+          foreach ($i in 1..45) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:1994/api/health" -UseBasicParsing -TimeoutSec 3
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $ok) { throw "services did not come back after restart" }
+
+          # This is the regression that a fresh-install test cannot catch: it
+          # only proves anything if data written before the restart is readable
+          # across a process boundary afterwards.
+          $bs3 = ($env:ProgramFiles -replace '\\','/') + '/NodeDRPOS/backend/node_modules/better-sqlite3'
+          $js = "const D=require('$bs3');const db=new D('C:/ProgramData/NodeDRPOS/pos.db',{readonly:true});process.stdout.write(String(db.prepare('SELECT COUNT(*) n FROM Invoice').get().n));"
+          $count = & "$env:ProgramFiles\NodeDRPOS\runtime\node.exe" -e $js
+          Write-Host "  invoices after restart: $count"
+          if ([int]$count -lt 1) { throw "the sale did not survive a service restart" }
+          Write-Host "  [PASS] data survived the restart"
+
+      - name: Uninstall cleanly, keeping shop data
+        shell: pwsh
+        run: |
+          $u = "$env:ProgramFiles\NodeDRPOS\uninstall.exe"
+          $p = Start-Process -FilePath $u -ArgumentList "/S" -Wait -PassThru
+          Start-Sleep -Seconds 5
+          if ((Get-Service NodeDRPOSBackend  -ErrorAction SilentlyContinue)) { throw "backend service still registered after uninstall" }
+          if ((Get-Service NodeDRPOSFrontend -ErrorAction SilentlyContinue)) { throw "frontend service still registered after uninstall" }
+          Write-Host "  [PASS] services removed"
+          # Silent uninstall must never delete the shop's database.
+          if (-not (Test-Path "C:\ProgramData\NodeDRPOS\pos.db")) { throw "uninstall deleted the database — it must be preserved" }
+          Write-Host "  [PASS] database preserved through uninstall"
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\nodedr-pos-setup-*-x64.exe | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)" | Out-File -FilePath dist\SHA256SUMS-windows.txt -Append -Encoding ascii
+            Write-Host "$h  $($_.Name)"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nodedr-pos-windows-installer
+          path: |
+            dist/nodedr-pos-setup-*-x64.exe
+            dist/SHA256SUMS-windows.txt
+          retention-days: 30
+
+      - name: Attach to release
+        if: github.event.inputs.release_tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.inputs.release_tag }}" (Get-ChildItem dist\nodedr-pos-setup-*-x64.exe).FullName --clobber
+          gh release upload "${{ github.event.inputs.release_tag }}" dist\SHA256SUMS-windows.txt --clobber

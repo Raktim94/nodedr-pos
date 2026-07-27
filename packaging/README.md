@@ -1,4 +1,18 @@
-# Native Debian package (`.deb`) for NodeDR POS
+# Native packaging for NodeDR POS
+
+Two installers live here, both additive to the Docker deployment:
+
+| Target | Directory | Output |
+| --- | --- | --- |
+| Debian / Ubuntu | `packaging/debian/` + `build-deb.sh` | `nodedr-pos_<version>_amd64.deb` |
+| Windows 10/11 x64 | `packaging/windows/` | `nodedr-pos-setup-<version>-x64.exe` |
+
+The Windows installer is built and smoke-tested on a Windows CI runner — see
+[`windows/README.md`](windows/README.md) for why and how.
+
+---
+
+# Debian package (`.deb`)
 
 This directory builds NodeDR POS into a standalone `.deb` for Debian and
 Ubuntu. The installed package runs as a **systemd service**, needs **no

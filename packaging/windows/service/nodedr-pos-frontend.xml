@@ -1,0 +1,37 @@
+<service>
+  <id>NodeDRPOSFrontend</id>
+  <name>NodeDR POS Web Interface</name>
+  <description>NodeDR POS shop interface on http://localhost:@FRONTEND_PORT@. Part of NodeDR POS @VERSION@.</description>
+
+  <executable>%BASE%\..\runtime\node.exe</executable>
+  <arguments>"%BASE%\..\frontend\server.js"</arguments>
+  <workingdirectory>%BASE%\..\frontend</workingdirectory>
+
+  <!-- Started after the API so the first page load never races a cold backend.
+       Windows only enforces start ORDER here, not health — the web server
+       tolerates a not-yet-ready API anyway (requests simply retry). -->
+  <depend>NodeDRPOSBackend</depend>
+
+  <env name="PORT" value="@FRONTEND_PORT@" />
+  <env name="NODE_ENV" value="production" />
+  <!-- Bound to every interface so a counter tablet or phone on the shop LAN can
+       open the register. Windows Firewall is what gates access; the installer
+       adds an allow rule for this port only. -->
+  <env name="HOSTNAME" value="0.0.0.0" />
+  <env name="NEXT_TELEMETRY_DISABLED" value="1" />
+
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="20 sec" />
+  <resetfailure>1 hour</resetfailure>
+
+  <startmode>Automatic</startmode>
+
+  <logpath>C:\ProgramData\NodeDRPOS\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+
+  <stoptimeout>20 sec</stoptimeout>
+</service>
