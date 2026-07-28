@@ -24,6 +24,28 @@ and uninstalled on real Windows** before anyone downloads it.
 
 See `.github/workflows/build-windows-installer.yml`.
 
+## Windows 11 support
+
+Targets **Windows 11 and Windows 10 (64-bit only)** — there is no OS-version
+branching anywhere in the installer or services, by design:
+
+- The installer (`nodedr-pos.nsi`) hard-checks for 64-bit Windows and aborts
+  with a clear message on 32-bit, but does not gate on a Windows *version* —
+  NSIS, WinSW-wrapped services, `netsh advfirewall`, and junctions all behave
+  identically across 10 and 11.
+- Both services register as standard Win32 services (`Automatic` start,
+  restart-on-failure), which Windows 11's stricter background-app policies
+  don't affect — those policies target UWP/Store app suspension, not services.
+- Windows 11's default **Domain/Private** network firewall profiles are what
+  the installer's allow/block rules target; a machine on the **Public**
+  profile (e.g. tethered hotspot) will not expose port 1994 to the LAN by
+  design — switch the network to Private for shop/LAN use.
+- CI builds on GitHub's `windows-latest` runner (a Windows Server image, the
+  closest available automated proxy for modern 64-bit Windows) and every
+  build is installed, exercised, and uninstalled there — see the checklist
+  below. It has not additionally been hand-tested on consumer Windows 11
+  hardware; if you hit a Windows-11-specific issue, please open one.
+
 ## What the CI build verifies on real Windows
 
 Every build runs the installer end to end and fails if any of this breaks:

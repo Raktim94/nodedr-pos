@@ -270,6 +270,17 @@ curl -fsS http://localhost:1994/api/health
 
 USB printing cannot be tested this way — the container has no printer.
 
+**Gotcha: official `debian:*` images ship `/usr/sbin/policy-rc.d` that exits
+`101`** to stop services auto-starting during `docker build`. `postinst` uses
+`deb-systemd-invoke`, which honors that file — so inside an unmodified
+`debian:trixie` container the package installs correctly but reports "did not
+come up within 60 seconds" even though nothing is actually wrong (a direct
+`systemctl start nodedr-pos` works instantly). Real target systems don't ship
+this file, so it's a testing-container-only artifact — `rm -f
+/usr/sbin/policy-rc.d` before installing if you want the container test to
+exercise the real auto-start path end to end (this is what CI-equivalent
+verification of this package did before v1.0.1 shipped).
+
 ---
 
 ## 4. Configuration

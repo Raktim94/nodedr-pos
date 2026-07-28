@@ -4,6 +4,8 @@
 [![Docker Compose](https://img.shields.io/badge/deploy-docker%20compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![Node](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
+[![Windows 10/11](https://img.shields.io/badge/Windows%2010%2F11-installer%20ready-0078D6?logo=windows11&logoColor=white)](packaging/windows/README.md)
+[![Debian/Ubuntu](https://img.shields.io/badge/Debian%2FUbuntu-.deb%20ready-A81D33?logo=debian&logoColor=white)](packaging/README.md)
 
 A free, open-source, **offline-first** Point of Sale and inventory
 management system for small retail shops. It runs entirely via Docker
@@ -19,6 +21,26 @@ barcode? Generate one and print a label, right from the app.
 
 Access it at **`http://<machine>:1994`** — from the shop's own machine or any
 tablet/phone on the same network.
+
+## Get NodeDR POS
+
+Three ways to install, all built from the same code and pointed at the same
+`http://<machine>:1994` register — pick whichever fits your till.
+
+| Platform | Status | Install | What it needs |
+| --- | --- | --- | --- |
+| 🪟 **Windows 10/11** (64-bit) | ✅ Done — built & smoke-tested on CI | [Download the installer](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe), run it, done | Nothing — no Docker, no Node.js. Installs as two Windows services (auto-start, no login required) |
+| 🐧 **Debian / Ubuntu** | ✅ Done — built & tested on Debian 13 / Ubuntu 24.04 | `sudo apt install ./`[`nodedr-pos-latest-amd64.deb`](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-latest-amd64.deb) | Nothing — no Docker. Installs as a `systemd` service (`nodedr-pos doctor\|backup\|restore\|logs` CLI included) |
+| 🐳 **Docker Compose** (any OS) | ✅ Done — the original, most-used path | `git clone` + `./install.sh` (see [Quick start](#quick-start)) | Docker |
+
+All three set up USB thermal-printer support out of the box on Linux (kernel
+`usblp` transport, no driver install) and honor the same GST-inclusive
+pricing, dues, loyalty, and returns logic — see [Features](#features) for the
+full list. Full installer docs live in
+[`packaging/README.md`](packaging/README.md) (`.deb`) and
+[`packaging/windows/README.md`](packaging/windows/README.md) (`.exe`),
+including build-from-source steps, what gets installed where, and
+troubleshooting.
 
 ## Screenshots
 
@@ -36,10 +58,13 @@ tablet/phone on the same network.
 
 ## Contents
 
+- [Get NodeDR POS](#get-nodedr-pos)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
-- [Quick start](#quick-start)
+- [Quick start (Docker Compose)](#quick-start)
+- [Native install — Windows 10/11](#native-install--windows-1011)
+- [Native install — Debian/Ubuntu](#native-install--debianubuntu)
 - [Where to run it](#where-to-run-it)
 - [Hardware setup](#hardware-setup)
 - [Reference data & validation](#reference-data--validation)
@@ -176,6 +201,12 @@ The backend and frontend are two separate containers, neither of which needs
 elevated privileges or host device access — everything still comes up with a
 single `docker compose up`.
 
+**The same two-process split runs natively, without Docker, on the `.deb` and
+`.exe` installers** — `systemd` units on Linux, Windows services on Windows —
+each process supervised, restarted, and firewalled the same way the two
+containers are here. See [Get NodeDR POS](#get-nodedr-pos) for which install
+method fits your till.
+
 ## Tech stack
 
 | Layer      | Choice                                                  |
@@ -250,6 +281,57 @@ Want the web UI on a different port, or to deploy somewhere other than
 `localhost`? Copy `.env.example` to `.env` and set values there —
 `docker compose` reads it automatically. **`docker-compose.yml` itself never
 needs editing**, on a shop LAN box or a VPS alike.
+
+## Native install — Windows 10/11
+
+For a shop till that shouldn't need Docker or a terminal at all:
+
+1. Download [`nodedr-pos-setup-latest-x64.exe`](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe)
+   and run it (needs admin — it's not code-signed yet, so Windows SmartScreen
+   shows "Windows protected your PC"; click **More info → Run anyway**).
+2. It installs two Windows services — **NodeDR POS Backend** and
+   **NodeDR POS Web Interface** — set to start automatically at boot, with no
+   one logged in. A desktop shortcut and Start Menu entry launch the register.
+3. Open `http://localhost:1994` (or `http://<till-ip>:1994` from another
+   device on the shop LAN — the installer opens the Windows Firewall for
+   port 1994 only, the internal API port stays blocked).
+
+The database lives outside `Program Files`, in `C:\ProgramData\NodeDRPOS`, so
+upgrading (installing a newer version over an older one) and uninstalling
+both leave your shop's data intact — a silent uninstall never deletes it.
+USB printing on Windows goes through the printer's own driver and the
+**Print** button (browser print dialog) rather than a raw-USB path — see
+[printing & receipts](#printing--receipts) for why direct-USB is Linux-only
+and how the two modes compare.
+
+Full details — service layout, firewall rules, upgrade/removal behavior, code
+signing status, and exactly what CI verifies before every release — are in
+[`packaging/windows/README.md`](packaging/windows/README.md).
+
+## Native install — Debian/Ubuntu
+
+For a shop till running Debian or Ubuntu, without Docker:
+
+```bash
+sudo apt install ./nodedr-pos_1.0.0_amd64.deb
+# or double-click the file in GNOME Software / Discover / GDebi
+```
+
+`postinst` creates a dedicated unprivileged service account, initializes the
+database, runs migrations, enables and starts `nodedr-pos.service`, waits for
+the port, and prints the URL — no manual step needed. Then:
+
+```bash
+nodedr-pos doctor                              # checks units, port, database, printer wiring
+curl -fsS http://localhost:1994/api/health     # {"status":"ok"}
+```
+
+USB thermal printing works out of the box via a bundled udev rule — plug in
+any ESC/POS printer and it's usable immediately, no driver install. `apt
+remove` keeps your data (`/var/lib/nodedr-pos`); `apt purge` deletes it (back
+up first with `nodedr-pos backup`). Full details — package layout, hardening,
+fleet/unattended deployment, RPM conversion — are in
+[`packaging/README.md`](packaging/README.md).
 
 ## Where to run it
 
