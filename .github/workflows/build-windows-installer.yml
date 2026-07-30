@@ -255,7 +255,7 @@ jobs:
           $exe = Get-ChildItem dist\nodedr-pos-setup-*-x64.exe | Where-Object { $_.Name -notmatch 'latest' } | Select-Object -First 1
           gh release upload "${{ github.event.inputs.release_tag }}" $exe.FullName --clobber
 
-          # Also publish a stable-named copy. nodedrpos.nodedrdev.com links to
+          # Also publish a stable-named copy. pos.nodedr.com links to
           # /releases/latest/download/nodedr-pos-setup-latest-x64.exe, which only
           # resolves if an asset with exactly that name exists in the newest
           # release — omit this and the website's download button 404s.
