@@ -171,11 +171,36 @@ The Node runtime is downloaded from nodejs.org and verified against upstream's
 
 ## Code signing
 
-The installer is **not** code-signed, so Windows SmartScreen will show
+The installer is **not yet** code-signed, so Windows SmartScreen shows
 "Windows protected your PC" on first run until the download builds reputation.
 Users click *More info → Run anyway*.
 
-Signing needs an OV/EV code-signing certificate (a paid, identity-verified
-purchase that cannot be automated here). Once you have one, add the PFX and
-password as repository secrets and sign both the payload and the installer with
-`signtool` before the upload step in the workflow.
+Note: as of 2024, EV certificates no longer bypass SmartScreen on first run —
+they build reputation the same way OV certificates do, so there is no reason
+to pay the EV premium here.
+
+Plan: this project is MIT-licensed and public, so it qualifies for
+[SignPath Foundation](https://signpath.io/solutions/open-source-community)'s
+free code-signing program for open source projects (an OV-level cert, private
+key held on SignPath's HSM — you never handle it). The tradeoff is that the
+Authenticode publisher shown to users is "SignPath Foundation", not
+"NODEDR INFOTECH PRIVATE LIMITED". If that's ever unacceptable, the
+alternative is a paid OV certificate ($150–300/yr, requires an HSM/USB token)
+issued directly to the company.
+
+To apply: https://signpath.org/apply. Once approved, SignPath issues an
+organization ID, project slug and signing policy slug; add those plus a
+`SIGNPATH_API_TOKEN` repository secret, and wire in
+[`signpath/github-action-submit-signing-request`](https://github.com/SignPath/github-action-submit-signing-request)
+as a step in `build-windows-installer.yml` that signs the NSIS output (and the
+bundled WinSW service executables in `packaging/windows/service/`) before the
+checksum/upload steps. See the `sign` job scaffold in that workflow — it's
+disabled (no-op) until the SignPath IDs are filled in.
+
+Microsoft Store submission (MSI/EXE app type) requires this: the installer
+"must be digitally signed with a code signing certificate that chains up to a
+[Microsoft Trusted Root Program](https://learn.microsoft.com/en-us/security/trusted-root/participants-list)
+CA" — SignPath's cert satisfies that. Elevation (UAC) during install is
+explicitly allowed by the Store for this app type; only the installer *UI*
+must be silent, which this installer already is (see the "Install silently"
+CI step).

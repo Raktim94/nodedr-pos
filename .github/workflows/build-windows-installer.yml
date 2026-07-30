@@ -80,6 +80,39 @@ jobs:
           pwsh -File packaging\windows\build-windows.ps1 -Version "${{ steps.ver.outputs.version }}"
 
       # ---------------------------------------------------------------------
+      # Code signing (SignPath Foundation — free for MIT-licensed, public
+      # projects). No-ops until SIGNPATH_API_TOKEN is set, i.e. until the
+      # https://signpath.org/apply application is approved and the org/
+      # project/policy slugs below are filled in.
+      #
+      # This only signs the outer installer exe, which is the Microsoft Store
+      # MSI/EXE submission's explicit requirement. It does NOT sign the WinSW
+      # service executables bundled inside packaging/windows/service/ — if
+      # Store review or SmartScreen flags those, they'd need to be signed
+      # before build-windows.ps1 stages them into the NSIS payload, which is
+      # a separate step to add later.
+      # ---------------------------------------------------------------------
+      - name: Upload unsigned installer
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/nodedr-pos-setup-*-x64.exe
+          retention-days: 1
+      - name: Submit signing request
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: "${{ secrets.SIGNPATH_API_TOKEN }}"
+          organization-id: "TODO-fill-in-after-signpath-approval"
+          project-slug: "nodedr-pos"
+          signing-policy-slug: "release-signing"
+          github-artifact-id: "${{ steps.upload-unsigned.outputs.artifact-id }}"
+          wait-for-completion: true
+          output-artifact-directory: "dist"
+
+      # ---------------------------------------------------------------------
       # Smoke test: install it, use it, uninstall it — on real Windows.
       # This is the whole reason the build runs here instead of on Linux.
       # ---------------------------------------------------------------------
