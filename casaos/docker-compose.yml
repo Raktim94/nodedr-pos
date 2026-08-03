@@ -82,8 +82,22 @@ x-casaos:
       Access it from any device on your home network at
       `http://<your-server>:1994` — the counter machine itself, or any
       tablet/phone you use as a second till.
-  tips: {}
+  tips:
+    before_install:
+      en_US: |
+        Your data (the SQLite database) persists at
+        `/DATA/AppData/nodedr-pos/data`, following CasaOS/ZimaOS's standard
+        backup/restore convention.
+
+        On first launch you'll create an admin account and set up your shop
+        — no manual configuration needed.
+
+        Optional: for direct-USB thermal receipt printing, plug the printer
+        into the box before or after install — it's detected automatically
+        via the bundled `/dev/bus/usb` passthrough. No printer? Receipts
+        still print fine via the browser dialog or download as PDF.
   index: /
+  scheme: http
   port_map: "1994"
   version: "1.0.0"
   update_at: "2026-08-03"
