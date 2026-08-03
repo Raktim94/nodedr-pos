@@ -76,5 +76,27 @@ services:
     depends_on:
       - backend
 
+  # Optional HTTPS front door, off by default — `docker compose up` alone
+  # never starts this. Only needed for camera barcode/QR scanning from a
+  # phone/tablet over the LAN: browsers block getUserMedia entirely on a
+  # plain http:// address that isn't localhost, with no permission prompt at
+  # all. Start it with `docker compose --profile https up -d`, then open
+  # https://<this-machine's-LAN-IP> on the phone/tablet instead of the usual
+  # http://<ip>:1994 — see README > Camera scanning over HTTPS.
+  caddy:
+    image: caddy:2-alpine
+    container_name: nodedr-pos-caddy
+    restart: unless-stopped
+    profiles:
+      - https
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - frontend
+
 volumes:
   data:
+  caddy_data:

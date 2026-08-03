@@ -48,6 +48,24 @@ export function CameraScannerModal({ onClose, onScan }: CameraScannerModalProps)
 
     setStatus("starting");
 
+    // Browsers only expose getUserMedia on a secure context (https:// or
+    // localhost) — on an insecure origin (e.g. this app's LAN IP over plain
+    // http://, which is how it's normally reached from a phone/tablet via
+    // Docker) `navigator.mediaDevices` is simply undefined and no permission
+    // prompt is ever shown. Catch that up front with an accurate message
+    // instead of letting it fall through to the generic "could not start"
+    // error below, since "try again" can never fix this — it's not transient.
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setErrorMessage(
+          "Camera access needs a secure connection (https://) or 'localhost' — browsers block it on a plain http:// network address like this one. Use the hardware barcode scanner instead, or see the README's Camera scanning section for how to enable this over your LAN."
+        );
+        setStatus("error");
+      });
+      return;
+    }
+
     reader
       .decodeFromConstraints(
         { video: { facingMode: { ideal: facingMode } } },

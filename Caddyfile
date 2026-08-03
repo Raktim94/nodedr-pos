@@ -1,0 +1,15 @@
+# Optional HTTPS front door — see README > Camera scanning over HTTPS.
+#
+# `:443` (no hostname) tells Caddy there's no real domain to request a
+# Let's Encrypt cert for, so `tls internal` is what actually applies:
+# a certificate from Caddy's own internal CA, generated automatically for
+# whatever host/IP you connect through. Browsers show a one-time "this
+# certificate isn't trusted" warning to click past — after that, the origin
+# is HTTPS, which is all that's needed to unlock camera access on a phone
+# or tablet reaching this box over a plain LAN IP.
+:443 {
+	tls internal {
+		on_demand
+	}
+	reverse_proxy frontend:3000
+}

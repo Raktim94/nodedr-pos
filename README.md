@@ -398,6 +398,47 @@ laptops/desktops with no back/front distinction). This works alongside the
 USB scanner above, not instead of it — either input path feeds the exact
 same lookup/add-to-cart logic.
 
+#### Camera scanning over HTTPS
+
+Browsers only allow camera access (`getUserMedia`) on a **secure context**:
+an `https://` origin, or `localhost` on the machine itself. The default
+Docker setup serves the app over plain `http://<lan-ip>:1994`, so opening it
+from a phone/tablet works fine for everything *except* the camera — the
+browser blocks it silently, with no permission prompt at all, before the app
+ever gets a chance to ask. On the till machine itself this is a non-issue
+(`http://localhost:1994` is always secure), the gap only shows up on a
+second device over the LAN.
+
+Two ways to fix it, depending on your devices:
+
+- **Android / desktop Chrome or Edge — no server change needed.** Visit
+  `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add
+  `http://<this-machine's-LAN-IP>:1994`, enable the flag, and restart the
+  browser. Camera access then works exactly like on `localhost`. This is a
+  per-browser setting — only do it for a network you trust, and you'll need
+  to repeat it on each device.
+- **iPhone/iPad, or any browser without that flag (Safari has none) — turn
+  on the bundled HTTPS front door.** A `caddy` service ships in
+  `docker-compose.yml` behind the `https` [Compose
+  profile](https://docs.docker.com/compose/how-tos/profiles/), off by
+  default — a plain `docker compose up` never starts it. Turn it on with:
+
+  ```bash
+  docker compose --profile https up -d
+  ```
+
+  Then open `https://<this-machine's-LAN-IP>` (no `:1994` — Caddy listens on
+  the standard HTTPS port, 443 by default, overridable via `HTTPS_PORT` in
+  `.env`) on the phone/tablet instead. Caddy generates a self-signed
+  certificate automatically (via its built-in CA — see
+  [`Caddyfile`](Caddyfile)); every browser, including Safari on iOS, shows a
+  one-time "this certificate isn't trusted" warning to tap/click past, and
+  the connection is then genuinely HTTPS, so the camera works from then on.
+  Nothing else changes — it's the same app, same login, same data, just
+  reached through an extra reverse-proxy hop. `install.sh` and the plain
+  `http://<ip>:1994` path keep working unmodified whether or not you ever
+  turn this on.
+
 ### Barcode & QR label generator
 
 Not every product arrives with a scannable barcode — loose produce, house
