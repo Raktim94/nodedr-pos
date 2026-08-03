@@ -1,13 +1,18 @@
 @import "tailwindcss";
 
 /*
- * Premium dark theme. Dark is the only mode — there is no light-mode
- * toggle anywhere in the app, so this is a fixed palette, not a
- * prefers-color-scheme fallback. Deltas: success = gains, danger = a
- * muted (not alarming) red for losses, matching the spec's ask for
- * "-2.1% ↓ in muted red" rather than a harsh error red.
+ * Premium theme, light + dark. Neutrals (background/surface/border/
+ * foreground) swap per [data-theme] on <html>, set by the inline script in
+ * app/layout.tsx (localStorage → prefers-color-scheme → "dark" default,
+ * see lib/theme.ts) before first paint, and toggled at runtime by
+ * ThemeToggle/ThemeProvider. Brand/danger/success/warning stay constant
+ * across both themes — deltas: success = gains, danger = a muted (not
+ * alarming) red for losses, matching the spec's ask for "-2.1% ↓ in muted
+ * red" rather than a harsh error red.
  */
-:root {
+[data-theme="dark"] {
+  color-scheme: dark;
+
   --background: #10141c;
   --surface: #151a24;
   --surface-elevated: #1a2029;
@@ -20,17 +25,47 @@
   --foreground: #e7e9ee;
   --foreground-muted: rgba(231, 233, 238, 0.6);
 
-  --brand: #5a3ae8;
-  --brand-foreground: #ffffff;
-  --brand-soft: rgba(90, 58, 232, 0.14);
-  --brand-glow: rgba(90, 58, 232, 0.45);
-
+  /* Soft/light on a near-black background — a muted, non-alarming read. */
   --danger: #f37171;
   --danger-soft: rgba(243, 113, 113, 0.14);
   --success: #34d399;
   --success-soft: rgba(52, 211, 153, 0.14);
   --warning: #fbbf24;
   --warning-soft: rgba(251, 191, 36, 0.14);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-muted: #eef0f3;
+  --surface-glass: rgba(255, 255, 255, 0.6);
+
+  --border: #00000014;
+  --border-subtle: #0000000a;
+
+  --foreground: #14171f;
+  --foreground-muted: rgba(20, 23, 31, 0.6);
+
+  /* Darkened from the dark-theme hues — the soft/light shades above drop
+     under 3:1 against a white surface used as text (verified: original
+     --danger #f37171 is ~2.9:1 on white). Same hue family, darkened until
+     they clear 4.5:1 as text AND as a white-text button fill. */
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.12);
+  --success: #047857;
+  --success-soft: rgba(4, 120, 87, 0.12);
+  --warning: #b45309;
+  --warning-soft: rgba(180, 83, 9, 0.12);
+}
+
+:root {
+  --brand: #5a3ae8;
+  --brand-foreground: #ffffff;
+  --brand-soft: rgba(90, 58, 232, 0.14);
+  --brand-glow: rgba(90, 58, 232, 0.45);
 }
 
 @theme inline {
@@ -62,10 +97,6 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html {
-  color-scheme: dark;
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -92,6 +123,16 @@ svg.lucide {
    "premium" rather than a stock flat glyph. */
 .icon-glow {
   filter: drop-shadow(0 0 6px var(--brand-glow));
+}
+
+/* ThemeToggle renders both icons; CSS (not React state) decides which one
+   shows, keyed off the same [data-theme] attribute the flash-prevention
+   script sets — so there's nothing for the icon to get wrong on hydration. */
+[data-theme="dark"] .theme-toggle-moon {
+  display: none;
+}
+[data-theme="light"] .theme-toggle-sun {
+  display: none;
 }
 
 /* Frosted glass surface for headers, dropdowns, and elevated panels. */

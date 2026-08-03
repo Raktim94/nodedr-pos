@@ -29,6 +29,7 @@ import { useLowStock } from "@/hooks/useProducts";
 import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { BrandFooter } from "@/components/BrandFooter";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -96,6 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Search className="h-5 w-5" aria-hidden="true" />
           </button>
+          <ThemeToggle />
           <button
             type="button"
             aria-label={navOpen ? "Close menu" : "Open menu"}
@@ -216,6 +218,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_6px_var(--brand-glow)]" />
               )}
             </Link>
+
+            <ThemeToggle />
 
             <div className="relative" ref={userMenuRef}>
               <button
