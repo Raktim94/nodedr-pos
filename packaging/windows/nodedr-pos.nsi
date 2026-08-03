@@ -53,7 +53,7 @@ VIAddVersionKey "CompanyName"     "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "${APP_NAME} installer"
 VIAddVersionKey "FileVersion"     "${VERSION}"
 VIAddVersionKey "ProductVersion"  "${VERSION}"
-VIAddVersionKey "LegalCopyright"  "MIT licensed"
+VIAddVersionKey "LegalCopyright"  "AGPL-3.0 licensed"
 
 !define MUI_ABORTWARNING
 !if /FileExists "${STAGE_DIR}\nodedr-pos.ico"

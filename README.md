@@ -1,6 +1,6 @@
 # nodedr-pos
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Docker Compose](https://img.shields.io/badge/deploy-docker%20compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![Node](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
@@ -892,10 +892,20 @@ front of it and set `COOKIE_SECURE=true` in `.env` (see
 
 ## Contributing
 
-Issues and PRs are welcome. This is a small, focused tool — please keep
+Issues and PRs are welcome — see **[`CONTRIBUTING.md`](CONTRIBUTING.md)**
+for dev setup, the conventions this codebase leans on (server-authoritative
+money, ESC/POS printer quirks, barcode-scanner HID handling), and the
+PR/issue process. This is a small, focused tool — please keep
 contributions aligned with "offline-first single-shop POS" rather than
-expanding scope into multi-tenant/cloud territory.
+expanding scope into multi-tenant/cloud territory. This project follows
+the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## License
 
-[MIT](LICENSE)
+Licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(AGPL-3.0). In short: you're free to self-host, use, and modify this
+software for your shop. If you modify it and run that modified version as
+a network service for others, you must make your modified source
+available to those users under the same license — this keeps
+improvements to a self-hosted business tool in the open rather than
+disappearing into a closed commercial fork.

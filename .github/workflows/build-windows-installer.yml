@@ -80,8 +80,9 @@ jobs:
           pwsh -File packaging\windows\build-windows.ps1 -Version "${{ steps.ver.outputs.version }}"
 
       # ---------------------------------------------------------------------
-      # Code signing (SignPath Foundation — free for MIT-licensed, public
-      # projects). No-ops until SIGNPATH_API_TOKEN is set, i.e. until the
+      # Code signing (SignPath Foundation — free for OSI-approved-licensed,
+      # public projects, incl. AGPL-3.0). No-ops until SIGNPATH_API_TOKEN is
+      # set, i.e. until the
       # https://signpath.org/apply application is approved and the org/
       # project/policy slugs below are filled in.
       #

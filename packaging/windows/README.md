@@ -179,7 +179,8 @@ Note: as of 2024, EV certificates no longer bypass SmartScreen on first run —
 they build reputation the same way OV certificates do, so there is no reason
 to pay the EV premium here.
 
-Plan: this project is MIT-licensed and public, so it qualifies for
+Plan: this project is AGPL-3.0-licensed and public (an OSI-approved
+license), so it qualifies for
 [SignPath Foundation](https://signpath.io/solutions/open-source-community)'s
 free code-signing program for open source projects (an OV-level cert, private
 key held on SignPath's HSM — you never handle it). The tradeoff is that the

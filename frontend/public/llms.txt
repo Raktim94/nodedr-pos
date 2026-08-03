@@ -9,7 +9,7 @@ Built and maintained by Nodedr Infotech Private Limited (https://www.nodedr.com)
 - Generate and print barcode labels for items that don't have one.
 - Inventory management with GST-inclusive pricing, dues, loyalty, and returns handling.
 - Runs entirely offline on a shop's own machine, or optionally on any VPS/cloud provider for remote management.
-- No per-transaction fees, no subscription — self-hosted and MIT-licensed.
+- No per-transaction fees, no subscription — self-hosted and AGPL-3.0-licensed.
 
 ## Install
 - Windows 10/11 installer, Debian/Ubuntu `.deb` package, or Docker Compose — see https://github.com/Raktim94/nodedr-pos

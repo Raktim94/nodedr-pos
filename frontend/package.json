@@ -2,6 +2,11 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Raktim94/nodedr-pos.git"
+  },
   "scripts": {
     "dev": "next dev -p 1994",
     "build": "next build",

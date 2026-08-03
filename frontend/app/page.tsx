@@ -55,7 +55,7 @@ const FEATURES = [
   },
   {
     icon: GitFork,
-    title: "Open source, MIT-licensed",
+    title: "Open source, AGPL-3.0-licensed",
     body: "The full source is public on GitHub. Audit exactly how pricing, auth, and receipts work — no closed-source vendor lock-in.",
   },
 ];
@@ -64,14 +64,14 @@ const COMPARISON_ROWS: [string, string, string][] = [
   ["Monthly subscription", "None — free forever", "Common, per terminal/location"],
   ["Works without internet", "Yes, fully offline", "Usually requires a live connection"],
   ["Where your data lives", "On your own machine", "Vendor's cloud servers"],
-  ["Source code", "Open source (MIT), auditable", "Closed source"],
+  ["Source code", "Open source (AGPL-3.0), auditable", "Closed source"],
   ["GST-inclusive Indian pricing", "Built in by default", "Varies, often an add-on"],
 ];
 
 const FAQS = [
   {
     q: "Is nodedr-pos really free, with no subscription or hidden fees?",
-    a: "Yes. It's MIT-licensed and open source — no subscription, no per-transaction fee, and no paid tier. You self-host it on hardware you already own or a low-cost VPS, so there's no ongoing software cost.",
+    a: "Yes. It's AGPL-3.0-licensed and open source — no subscription, no per-transaction fee, and no paid tier. You self-host it on hardware you already own or a low-cost VPS, so there's no ongoing software cost.",
   },
   {
     q: "Does this free POS software work without internet?",
