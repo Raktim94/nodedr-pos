@@ -97,6 +97,56 @@ services:
     depends_on:
       - frontend
 
+  # Alternative to the caddy service above: a Cloudflare Tunnel gets you a
+  # REAL, publicly-trusted HTTPS certificate (no "this certificate isn't
+  # trusted" click-through on any device, unlike caddy's self-signed one) and
+  # works from anywhere, not just your LAN — at the cost of routing traffic
+  # through Cloudflare's network instead of staying fully local. Two
+  # separate profiles, both off by default — pick ONE:
+  #
+  #   docker compose --profile cloudflare-quick up -d
+  # A free, anonymous "quick tunnel". No Cloudflare account needed, but the
+  # public *.trycloudflare.com URL changes every time this container
+  # restarts — check `docker compose logs cloudflared-quick` for the
+  # current URL. Good for trying this out right now.
+  #
+  #   docker compose --profile cloudflare up -d
+  # A named tunnel bound to your own domain, with a stable URL that
+  # survives restarts. Requires a Cloudflare account with your domain
+  # added, a tunnel created under Zero Trust > Networks > Tunnels with a
+  # Public Hostname routed to `http://frontend:3000`, and that tunnel's
+  # token set as CLOUDFLARE_TUNNEL_TOKEN in .env. Recommended for a
+  # permanent shop deployment. See README > Camera scanning over HTTPS >
+  # Cloudflare Tunnel.
+  #
+  # (cloudflared's official image is distroless — no shell inside it — so
+  # this is two plain services with hardcoded commands rather than one
+  # conditional shell script.)
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    container_name: nodedr-pos-cloudflared-quick
+    restart: unless-stopped
+    profiles:
+      - cloudflare-quick
+    command: ["tunnel", "--url", "http://frontend:3000"]
+    depends_on:
+      - frontend
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: nodedr-pos-cloudflared
+    restart: unless-stopped
+    profiles:
+      - cloudflare
+    # Compose parses every service in this file regardless of which
+    # profile is active, so a hard-required (`:?`) interpolation here would
+    # break `--profile cloudflare-quick` too — default to empty and let
+    # cloudflared itself report the missing token if this profile is
+    # started without one set.
+    command: ["tunnel", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN:-}"]
+    depends_on:
+      - frontend
+
 volumes:
   data:
   caddy_data:

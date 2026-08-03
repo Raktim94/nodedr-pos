@@ -396,7 +396,12 @@ tablet it requests the back camera by default, with a **Flip camera**
 button to switch to the front camera (or the device's only camera on
 laptops/desktops with no back/front distinction). This works alongside the
 USB scanner above, not instead of it — either input path feeds the exact
-same lookup/add-to-cart logic.
+same lookup/add-to-cart logic. The camera requests a 1080p frame (not
+whatever low default the browser picks), asks for continuous autofocus
+where the device supports it, and only scans for the barcode/QR formats
+this app actually uses — all aimed at the same problem: a small code held
+close to the lens needs enough resolution and focus to resolve, not just
+camera access.
 
 #### Camera scanning over HTTPS
 
@@ -409,7 +414,8 @@ ever gets a chance to ask. On the till machine itself this is a non-issue
 (`http://localhost:1994` is always secure), the gap only shows up on a
 second device over the LAN.
 
-Two ways to fix it, depending on your devices:
+Three ways to fix it, depending on your devices and how you want to reach
+the app:
 
 - **Android / desktop Chrome or Edge — no server change needed.** Visit
   `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add
@@ -438,6 +444,31 @@ Two ways to fix it, depending on your devices:
   reached through an extra reverse-proxy hop. `install.sh` and the plain
   `http://<ip>:1994` path keep working unmodified whether or not you ever
   turn this on.
+- **Any device, no cert warning at all, works from outside your LAN too —
+  Cloudflare Tunnel.** Unlike Caddy's self-signed certificate above, this
+  gets you a real, publicly-trusted one (Cloudflare's), so there's nothing
+  to click through on any device — at the cost of your traffic routing
+  through Cloudflare's network instead of staying fully local. Two modes,
+  both off by default:
+
+  ```bash
+  # Free, no Cloudflare account needed — URL changes every restart. Check
+  # `docker compose logs cloudflared-quick` for the current one.
+  docker compose --profile cloudflare-quick up -d
+
+  # A stable URL on your own domain, survives restarts. Requires a
+  # Cloudflare account with your domain added, a tunnel created under
+  # Zero Trust > Networks > Tunnels with a Public Hostname routed to
+  # http://frontend:3000, and that tunnel's token set as
+  # CLOUDFLARE_TUNNEL_TOKEN in .env.
+  docker compose --profile cloudflare up -d
+  ```
+
+  Whichever URL you get (`*.trycloudflare.com` or your own domain), open it
+  on the phone/tablet the same way you would `http://<ip>:1994` — same app,
+  same login, same data. Recommended if you want a permanent, stable way
+  to reach the till from staff phones/tablets without touching per-device
+  browser settings.
 
 ### Barcode & QR label generator
 
