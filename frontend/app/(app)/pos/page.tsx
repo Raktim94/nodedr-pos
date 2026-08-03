@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X } from "lucide-react";
+import { Camera, Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { ReceiptActions } from "@/components/ReceiptActions";
 import { ReturnPanel, type ReturnDraftLine } from "@/components/ReturnPanel";
+import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -40,6 +41,7 @@ export default function PosPage() {
   const [completedSale, setCompletedSale] = useState<{ id: number; invoiceNumber: string; totalAmount: number } | null>(
     null
   );
+  const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
 
   // Manual add — the fallback for when the barcode scanner isn't working: type
   // a product name or barcode and pick from the matches. Debounced so we don't
@@ -286,13 +288,29 @@ export default function PosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">POS Checkout</h1>
-        <p className="flex items-center gap-1.5 text-sm text-foreground/60">
-          <ScanBarcode className="h-4 w-4" aria-hidden="true" />
-          Scan a barcode to add items. Press Enter to finalize.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">POS Checkout</h1>
+          <p className="flex items-center gap-1.5 text-sm text-foreground/60">
+            <ScanBarcode className="h-4 w-4" aria-hidden="true" />
+            Scan a barcode to add items. Press Enter to finalize.
+          </p>
+        </div>
+        <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)} className="shrink-0">
+          <Camera className="h-4 w-4" aria-hidden="true" />
+          Scan with camera
+        </Button>
       </div>
+
+      {cameraScannerOpen && (
+        <CameraScannerModal
+          onClose={() => setCameraScannerOpen(false)}
+          onScan={(code) => {
+            setCameraScannerOpen(false);
+            handleScan(code);
+          }}
+        />
+      )}
 
       {completedSale && (
         <Card className="flex flex-wrap items-center justify-between gap-4 border-brand/30 bg-brand/5 p-5">

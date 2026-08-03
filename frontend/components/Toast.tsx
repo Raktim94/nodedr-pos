@@ -35,12 +35,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={toast.id}
             role="status"
-            className={`rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ${
+            className={`rounded-xl border px-4 py-3 text-sm font-medium text-white shadow-2xl backdrop-blur-md ${
               toast.variant === "error"
-                ? "bg-red-600"
+                ? "border-danger/30 bg-danger/90"
                 : toast.variant === "success"
-                  ? "bg-emerald-600"
-                  : "bg-slate-800"
+                  ? "border-success/30 bg-success/90"
+                  : "border-border-subtle bg-surface-elevated/90"
             }`}
           >
             {toast.message}

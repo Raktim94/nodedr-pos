@@ -17,7 +17,9 @@ it remotely, the identical setup runs on any VPS/cloud provider too — see
 
 Built for a barcode-scanner counter setup: scan an item to sell it, press
 Enter to check out, then print or download the receipt with one click. No
-barcode? Generate one and print a label, right from the app.
+USB scanner handy? Scan barcodes and QR codes straight from a phone or
+tablet's camera instead. No barcode at all? Generate one and print a
+label, right from the app.
 
 Access it at **`http://<machine>:1994`** — from the shop's own machine or any
 tablet/phone on the same network.
@@ -44,17 +46,17 @@ troubleshooting.
 
 ## Screenshots
 
-| Dashboard | Inventory |
+| Dashboard | POS Checkout |
 | --- | --- |
-| ![Dashboard with sales charts](docs/screenshots/dashboard.png) | ![Inventory list with barcode/edit/stock actions](docs/screenshots/inventory.png) |
+| ![Dashboard with revenue trend, payment mix, and top-selling products](docs/screenshots/dashboard.png) | ![POS checkout with camera barcode/QR scanning](docs/screenshots/pos.png) |
 
-| Generate a barcode for a new product | Print or download a barcode label |
+| Inventory | Print or download a barcode label |
 | --- | --- |
-| ![Generating an EAN-13 barcode in the Add Product form](docs/screenshots/generate-barcode.png) | ![Barcode label modal with print and download options](docs/screenshots/barcode-label.png) |
+| ![Inventory list with barcode/edit/stock actions](docs/screenshots/inventory.png) | ![Barcode label modal with print and download options](docs/screenshots/barcode-label.png) |
 
-| GSTIN / PAN validation |
-| --- |
-| ![Live GSTIN and PAN format validation in Settings](docs/screenshots/settings-tax.png) |
+| Generate or scan a barcode for a new product | GSTIN / PAN validation |
+| --- | --- |
+| ![Generating or camera-scanning an EAN-13 barcode in the Add Product form](docs/screenshots/generate-barcode.png) | ![Live GSTIN and PAN format validation in Settings](docs/screenshots/settings-tax.png) |
 
 ## Contents
 
@@ -87,7 +89,9 @@ troubleshooting.
   loyalty) before you ever see the dashboard.
 - **Barcode-driven POS checkout** — scan to add to the cart, scan again to
   bump quantity, press **Enter** to finalize. Unknown barcodes surface a
-  toast instead of blocking the register.
+  toast instead of blocking the register. No USB scanner? Scan barcodes
+  and QR codes from a phone/tablet camera instead — see
+  [Camera barcode & QR scanning](#camera-barcode--qr-scanning).
 - **GST / tax** — per-product GST rates with HSN/SAC codes. The price you
   enter is treated as MRP (GST-inclusive, as required by law) — GST is
   never added on top of it, only broken out as CGST/SGST on the receipt for
@@ -376,6 +380,20 @@ the vast majority of consumer scanners) works out of the box. The frontend's
 [`useBarcodeScanner`](frontend/hooks/useBarcodeScanner.ts) hook listens for
 keystrokes and, based on inter-keystroke timing, tells scanner input apart
 from a human typing so it never interferes with normal form fields.
+
+### Camera barcode & QR scanning
+
+No USB scanner? Every place a barcode can be typed or scanned — POS
+checkout and the Add/Edit Product form — also has a **Scan with camera** /
+**Scan** button that opens a live camera preview and decodes barcodes and
+QR codes directly in the browser
+([`CameraScannerModal`](frontend/components/CameraScannerModal.tsx), via
+[`@zxing/browser`](https://github.com/zxing-js/browser)). On a phone or
+tablet it requests the back camera by default, with a **Flip camera**
+button to switch to the front camera (or the device's only camera on
+laptops/desktops with no back/front distinction). This works alongside the
+USB scanner above, not instead of it — either input path feeds the exact
+same lookup/add-to-cart logic.
 
 ### Barcode & QR label generator
 

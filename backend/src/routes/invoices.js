@@ -349,6 +349,18 @@ router.get('/summary', async (req, res) => {
   });
 });
 
+// Calendar-day key in the server's local timezone. Using toISOString().slice(0, 10)
+// here would convert to UTC first — in any timezone ahead of UTC (e.g. IST,
+// UTC+5:30) that silently shifts "today" back a day, so a bucket built from
+// local midnight and a bucket looked up from an invoice's own timestamp would
+// key to DIFFERENT dates and every invoice would land outside the whole
+// window (see git history for the bug this replaced: every invoice missed
+// every bucket, so the trend chart always showed "not enough sales").
+function localDateKey(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
 // GET /api/invoices/analytics — feeds the dashboard charts: revenue trend
 // over the last 14 days, top-selling products, and payment method mix.
 router.get('/analytics', async (req, res) => {
@@ -378,10 +390,11 @@ router.get('/analytics', async (req, res) => {
   for (let i = 0; i < 14; i++) {
     const d = new Date(since);
     d.setDate(d.getDate() + i);
-    trendMap.set(d.toISOString().slice(0, 10), { date: d.toISOString().slice(0, 10), revenue: 0, count: 0 });
+    const key = localDateKey(d);
+    trendMap.set(key, { date: key, revenue: 0, count: 0 });
   }
   for (const inv of recent) {
-    const key = new Date(inv.createdAt).toISOString().slice(0, 10);
+    const key = localDateKey(inv.createdAt);
     const bucket = trendMap.get(key);
     if (bucket) {
       bucket.revenue = round2(bucket.revenue + inv.totalAmount);

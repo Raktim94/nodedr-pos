@@ -1,50 +1,121 @@
 @import "tailwindcss";
 
+/*
+ * Premium dark theme. Dark is the only mode — there is no light-mode
+ * toggle anywhere in the app, so this is a fixed palette, not a
+ * prefers-color-scheme fallback. Deltas: success = gains, danger = a
+ * muted (not alarming) red for losses, matching the spec's ask for
+ * "-2.1% ↓ in muted red" rather than a harsh error red.
+ */
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --surface: #ffffff;
-  --surface-muted: #f1f5f9;
-  --border: #e2e8f0;
-  --brand: #4f46e5;
+  --background: #10141c;
+  --surface: #151a24;
+  --surface-elevated: #1a2029;
+  --surface-muted: #1b212c;
+  --surface-glass: rgba(255, 255, 255, 0.04);
+
+  --border: #ffffff14;
+  --border-subtle: #ffffff08;
+
+  --foreground: #e7e9ee;
+  --foreground-muted: rgba(231, 233, 238, 0.6);
+
+  --brand: #5a3ae8;
   --brand-foreground: #ffffff;
-  --danger: #dc2626;
-  --success: #059669;
-  --warning: #d97706;
+  --brand-soft: rgba(90, 58, 232, 0.14);
+  --brand-glow: rgba(90, 58, 232, 0.45);
+
+  --danger: #f37171;
+  --danger-soft: rgba(243, 113, 113, 0.14);
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
   --color-surface-muted: var(--surface-muted);
+  --color-surface-glass: var(--surface-glass);
+
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-glow: var(--brand-glow);
+
   --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
   --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b1120;
-    --foreground: #e2e8f0;
-    --surface: #111827;
-    --surface-muted: #1e293b;
-    --border: #1f2937;
-    --brand: #6366f1;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.6;
 }
 
 * {
   border-color: var(--border);
+}
+
+/* Fine-line icon treatment app-wide. Every lucide-react icon renders with a
+   "lucide" class on its root <svg>, and stroke-width is an inherited SVG
+   property, so this one rule thins every icon in the app from lucide's
+   default (2) down to the spec's fine-line weight without editing every
+   call site. */
+svg.lucide {
+  stroke-width: 1.5;
+}
+
+/* Soft accent glow — opt-in per icon, layered on top of the fine-line
+   treatment above, for nav items and card headers that should read as
+   "premium" rather than a stock flat glyph. */
+.icon-glow {
+  filter: drop-shadow(0 0 6px var(--brand-glow));
+}
+
+/* Frosted glass surface for headers, dropdowns, and elevated panels. */
+.glass-panel {
+  background: var(--surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-soft);
 }

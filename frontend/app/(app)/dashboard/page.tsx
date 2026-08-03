@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, Award, Download, Package, Receipt, Star, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Award, Download, Package, Receipt, Star, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Sparkline } from "@/components/ui/Sparkline";
 import { SalesCharts } from "@/components/SalesCharts";
 import { useLowStock, useProducts } from "@/hooks/useProducts";
 import { useInvoices, useSalesAnalytics, useSalesSummary } from "@/hooks/useInvoices";
@@ -24,6 +25,19 @@ export default function DashboardPage() {
   const money = (n: number) => formatMoney(n, sym);
   const bestSeller = analytics?.topProducts[0];
 
+  // trend is ordered oldest → newest over the last 14 days, so the final
+  // two entries are today and yesterday — enough to show a "vs yesterday"
+  // delta without a dedicated backend endpoint.
+  const trend = analytics?.trend ?? [];
+  const today = trend.at(-1);
+  const yesterday = trend.at(-2);
+  const pctDelta = (curr?: number, prev?: number) => {
+    if (curr == null || prev == null || prev === 0) return null;
+    return ((curr - prev) / prev) * 100;
+  };
+  const revenueDelta = pctDelta(today?.revenue, yesterday?.revenue);
+  const salesDelta = pctDelta(today?.count, yesterday?.count);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -40,8 +54,20 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Receipt} label="Today's Sales" value={`${summary?.todaysCount ?? 0}`} />
-        <StatCard icon={TrendingUp} label="Today's Revenue" value={money(summary?.todaysRevenue ?? 0)} />
+        <StatCard
+          icon={Receipt}
+          label="Today's Sales"
+          value={`${summary?.todaysCount ?? 0}`}
+          delta={salesDelta}
+          sparkline={trend.map((t) => t.count)}
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Today's Revenue"
+          value={money(summary?.todaysRevenue ?? 0)}
+          delta={revenueDelta}
+          sparkline={trend.map((t) => t.revenue)}
+        />
         <StatCard icon={Package} label="Total Products" value={`${products?.length ?? 0}`} />
         <StatCard
           icon={AlertTriangle}
@@ -174,24 +200,55 @@ function StatCard({
   label,
   value,
   accent,
+  delta,
+  sparkline,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   accent?: "warning";
+  /** Percentage change vs. yesterday. Omit when there's no meaningful "yesterday" to compare (e.g. a point-in-time count). */
+  delta?: number | null;
+  sparkline?: number[];
 }) {
+  const hasTrend = delta != null && !Number.isNaN(delta);
+  const positive = hasTrend && delta! >= 0;
+
   return (
-    <Card className="flex items-center gap-4 p-5">
-      <span
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${
-          accent === "warning" ? "bg-warning/10 text-warning" : "bg-brand/10 text-brand"
-        }`}
-      >
-        <Icon className="h-5 w-5" aria-hidden="true" />
-      </span>
-      <div>
-        <p className="text-xs font-medium text-foreground/50">{label}</p>
-        <p className="text-xl font-semibold text-foreground">{value}</p>
+    <Card className="group relative overflow-hidden p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-lg">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.03] to-transparent" />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-3 flex items-center gap-3">
+            <span
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                accent === "warning" ? "bg-warning-soft text-warning" : "bg-brand-soft text-brand icon-glow"
+              }`}
+            >
+              <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <p className="text-xs font-medium text-foreground-muted">{label}</p>
+          </div>
+          <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
+          {hasTrend && (
+            <p
+              className={`mt-1.5 flex items-center gap-1 text-xs font-medium ${
+                positive ? "text-success" : "text-danger"
+              }`}
+            >
+              {positive ? (
+                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <ArrowDownRight className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {Math.abs(delta!).toFixed(1)}%
+              <span className="font-normal text-foreground-muted">vs yesterday</span>
+            </p>
+          )}
+        </div>
+        {sparkline && sparkline.length > 1 && (
+          <Sparkline data={sparkline} color={positive || !hasTrend ? "var(--brand)" : "var(--danger)"} />
+        )}
       </div>
     </Card>
   );

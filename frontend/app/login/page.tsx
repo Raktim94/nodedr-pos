@@ -39,7 +39,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-background px-4 py-10">
+    <main className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-background px-4 py-10">
       <Card className="w-full max-w-sm p-8">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <Image src="/logo.png" alt="nodedr-pos" width={64} height={64} className="h-16 w-16 rounded-full" priority />
@@ -71,6 +71,6 @@ export default function LoginPage() {
         </form>
       </Card>
       <BrandFooter />
-    </div>
+    </main>
   );
 }

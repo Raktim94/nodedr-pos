@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Barcode as BarcodeIcon, X } from "lucide-react";
+import { Barcode as BarcodeIcon, Camera, X } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { BarcodeDownloadPanel } from "@/components/BarcodeDownloadPanel";
+import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { useCreateProduct, useProducts, useUpdateProduct } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
@@ -129,6 +130,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   }, [products]);
 
   const [showBarcodeImage, setShowBarcodeImage] = useState(false);
+  const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
   const [hsnSuggestions, setHsnSuggestions] = useState<TaxCodeSuggestion[]>([]);
   useEffect(() => {
     const query = hsnValue?.trim() ?? "";
@@ -168,11 +170,24 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
             <div className="flex-1">
               <Field label="Barcode" autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
             </div>
+            <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)} title="Scan an existing barcode with your camera">
+              <Camera className="h-4 w-4" aria-hidden="true" />
+              Scan
+            </Button>
             <Button type="button" variant="secondary" onClick={generateBarcode} title="Generate a barcode for a product that doesn't have one">
               <BarcodeIcon className="h-4 w-4" aria-hidden="true" />
               Generate
             </Button>
           </div>
+          {cameraScannerOpen && (
+            <CameraScannerModal
+              onClose={() => setCameraScannerOpen(false)}
+              onScan={(code) => {
+                setCameraScannerOpen(false);
+                setValue("barcode", code, { shouldValidate: true, shouldDirty: true });
+              }}
+            />
+          )}
           {barcodeValue?.trim() && (
             <div>
               <button
