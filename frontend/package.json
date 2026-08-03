@@ -2,6 +2,7 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "author": "Raktim Ranjit <ranjitraktim5@gmail.com> (https://github.com/Raktim94)",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",

@@ -4,7 +4,7 @@ Upstream-Contact: Raktim <ranjitraktim5@gmail.com>
 Source: https://github.com/Raktim94/nodedr-pos
 
 Files: *
-Copyright: 2026 Raktim
+Copyright: 2026 Nodedr Infotech Private Limited and Raktim Ranjit
 License: AGPL-3.0-only
 
 Files: opt/nodedr-pos/runtime/*

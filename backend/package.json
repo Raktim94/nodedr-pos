@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Offline POS backend: API, SQLite via Prisma, receipt PDF/print generation",
+  "author": "Raktim Ranjit <ranjitraktim5@gmail.com> (https://github.com/Raktim94)",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",

@@ -29,6 +29,15 @@ This project follows the [Contributor Covenant](./CODE_OF_CONDUCT.md). By
 participating, you agree to uphold it. Report unacceptable behavior to
 **ranjitraktim5@gmail.com**.
 
+## Maintainers & copyright
+
+See [`MAINTAINERS.md`](./MAINTAINERS.md) — Raktim Ranjit is the lead
+maintainer; project copyright is held jointly by
+[Nodedr Infotech Private Limited](https://www.nodedr.com/) and Raktim
+Ranjit. By submitting a PR, you agree your contribution is licensed under
+the same [AGPL-3.0](./LICENSE) as the rest of the project; you retain
+copyright on your own contribution.
+
 ## Before you start
 
 Read the [`README.md`](./README.md) first, specifically:
