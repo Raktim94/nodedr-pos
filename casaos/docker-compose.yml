@@ -1,0 +1,99 @@
+name: nodedr-pos
+
+services:
+  backend:
+    image: ghcr.io/raktim94/nodedr-pos-backend:1.0.0
+    container_name: nodedr-pos-backend
+    hostname: nodedr-pos-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "file:/app/data/pos.db"
+      PORT: "4000"
+      FRONTEND_ORIGIN: "http://localhost:1994"
+      COOKIE_SECURE: "false"
+    volumes:
+      - type: bind
+        source: /DATA/AppData/$AppID/data
+        target: /app/data
+      # Optional direct-USB thermal printing (see backend/src/lib/escposUsb.js).
+      # Bind-mounting the whole /dev/bus/usb tree (rather than a fixed device
+      # path, which only covers device nodes already present at container
+      # start) keeps this working across printer unplug/replug without a
+      # restart. No printer attached is completely fine too — this mount and
+      # the cgroup rules below just make one usable if/when you plug one in.
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      - "c 189:* rmw"
+      - "c 180:* rmw"
+    networks:
+      - nodedr-pos
+
+  frontend:
+    image: ghcr.io/raktim94/nodedr-pos-frontend:1.0.0
+    container_name: nodedr-pos-frontend
+    hostname: nodedr-pos-frontend
+    restart: unless-stopped
+    ports:
+      - target: 3000
+        published: "1994"
+        protocol: tcp
+    depends_on:
+      - backend
+    networks:
+      - nodedr-pos
+
+networks:
+  nodedr-pos:
+    driver: bridge
+
+x-casaos:
+  id: com.nodedr.pos
+  architectures:
+    - amd64
+    - arm64
+  main: frontend
+  author: NodeDR Infotech Private Limited
+  developer: Raktim94
+  category: Finance
+  icon: https://cdn.jsdelivr.net/gh/Raktim94/nodedr-pos@master/casaos/icon.png
+  thumbnail: https://cdn.jsdelivr.net/gh/Raktim94/nodedr-pos@master/casaos/thumbnail.png
+  screenshot_link:
+    - https://cdn.jsdelivr.net/gh/Raktim94/nodedr-pos@master/casaos/screenshot-1.png
+    - https://cdn.jsdelivr.net/gh/Raktim94/nodedr-pos@master/casaos/screenshot-2.png
+    - https://cdn.jsdelivr.net/gh/Raktim94/nodedr-pos@master/casaos/screenshot-3.png
+  title:
+    en_US: NodeDR POS
+  tagline:
+    en_US: Offline-first point of sale and inventory for small retail shops
+  description:
+    en_US: |
+      NodeDR POS is a free, open-source, offline-first Point of Sale and
+      inventory management system for small retail shops. No subscription,
+      no internet connection required, no data ever leaving your home
+      server — it's built to run on your own hardware and stay there.
+
+      Scan a barcode (with a USB scanner or straight from a phone/tablet
+      camera) to sell it, press Enter to check out, and print or download
+      the receipt with one click. GST-inclusive pricing with CGST/SGST
+      breakdown, per-product standing discounts, a loyalty points program,
+      customer dues ("udhaar"), and full returns/exchanges with store
+      credit are all built in.
+
+      Access it from any device on your home network at
+      `http://<your-server>:1994` — the counter machine itself, or any
+      tablet/phone you use as a second till.
+  tips: {}
+  index: /
+  port_map: "1994"
+  version: "1.0.0"
+  update_at: "2026-08-03"
+  release_notes:
+    en_US: |-
+      Initial CasaOS/ZimaOS release: offline-first POS and inventory
+      management, barcode/QR scanning (USB scanner or phone/tablet camera),
+      GST-inclusive billing, loyalty points, customer dues, and returns with
+      store credit.
+  website: "https://www.nodedr.com"
+  repo: "https://github.com/Raktim94/nodedr-pos"
+  support: "https://github.com/Raktim94/nodedr-pos/issues"
+  docs: "https://github.com/Raktim94/nodedr-pos#readme"

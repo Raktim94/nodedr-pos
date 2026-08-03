@@ -6,6 +6,7 @@
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
 [![Windows 10/11](https://img.shields.io/badge/Windows%2010%2F11-installer%20ready-0078D6?logo=windows11&logoColor=white)](packaging/windows/README.md)
 [![Debian/Ubuntu](https://img.shields.io/badge/Debian%2FUbuntu-.deb%20ready-A81D33?logo=debian&logoColor=white)](packaging/README.md)
+[![CasaOS / ZimaOS](https://img.shields.io/badge/CasaOS%20%2F%20ZimaOS-one--click%20app-1F6FEB)](casaos/README.md)
 
 A free, open-source, **offline-first** Point of Sale and inventory
 management system for small retail shops. It runs entirely via Docker
@@ -26,7 +27,7 @@ tablet/phone on the same network.
 
 ## Get NodeDR POS
 
-Three ways to install, all built from the same code and pointed at the same
+Four ways to install, all built from the same code and pointed at the same
 `http://<machine>:1994` register — pick whichever fits your till.
 
 | Platform | Status | Install | What it needs |
@@ -34,13 +35,15 @@ Three ways to install, all built from the same code and pointed at the same
 | 🪟 **Windows 10/11** (64-bit) | ✅ Done — built & smoke-tested on CI | [Download the installer](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe), run it, done | Nothing — no Docker, no Node.js. Installs as two Windows services (auto-start, no login required) |
 | 🐧 **Debian / Ubuntu** | ✅ Done — built & tested on Debian 13 / Ubuntu 24.04 | `sudo apt install ./`[`nodedr-pos-latest-amd64.deb`](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-latest-amd64.deb) | Nothing — no Docker. Installs as a `systemd` service (`nodedr-pos doctor\|backup\|restore\|logs` CLI included) |
 | 🐳 **Docker Compose** (any OS) | ✅ Done — the original, most-used path | `git clone` + `./install.sh` (see [Quick start](#quick-start)) | Docker |
+| 🏠 **CasaOS / ZimaOS** | ✅ Ready to install now, official app store submission pending | Install from a compose URL — see [`casaos/README.md`](casaos/README.md) | Nothing — CasaOS/ZimaOS pulls pre-built images, no build step |
 
-All three set up USB thermal-printer support out of the box on Linux (kernel
+All four set up USB thermal-printer support out of the box on Linux (kernel
 `usblp` transport, no driver install) and honor the same GST-inclusive
 pricing, dues, loyalty, and returns logic — see [Features](#features) for the
 full list. Full installer docs live in
-[`packaging/README.md`](packaging/README.md) (`.deb`) and
-[`packaging/windows/README.md`](packaging/windows/README.md) (`.exe`),
+[`packaging/README.md`](packaging/README.md) (`.deb`),
+[`packaging/windows/README.md`](packaging/windows/README.md) (`.exe`), and
+[`casaos/README.md`](casaos/README.md) (CasaOS/ZimaOS),
 including build-from-source steps, what gets installed where, and
 troubleshooting.
 
@@ -799,6 +802,8 @@ current admin-account-preserving "factory reset" endpoint.
 nodedr-pos/
 ├── docker-compose.yml         # declares the nodedr-pos_data named volume
 ├── docs/screenshots/          # README images
+├── casaos/                    # CasaOS/ZimaOS app store manifest + assets — see casaos/README.md
+├── packaging/                 # Windows (.exe) and Debian/Ubuntu (.deb) native installers
 ├── backend/
 │   ├── Dockerfile
 │   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem, Return
@@ -813,9 +818,9 @@ nodedr-pos/
     ├── app/
     │   ├── onboarding/, login/                         # unauthenticated flows
     │   └── (app)/dashboard, pos, inventory, customers, sales, settings
-    ├── components/           # AppShell, ProductModal, BarcodeLabelModal, ReturnPanel, SalesCharts, ReceiptActions, ui/*
+    ├── components/           # AppShell, GlobalSearch, CameraScannerModal, ProductModal, BarcodeLabelModal, ReturnPanel, SalesCharts, ReceiptActions, ui/* (incl. Sparkline)
     ├── lib/                  # api client, format helpers, barcode.ts, masters.ts (reference data)
-    └── hooks/                # useBarcodeScanner, useProducts, useCustomers, useInvoices, useReturns, useAuth, useShopSettings
+    └── hooks/                # useBarcodeScanner, useProducts, useCustomers, useInvoices, useReturns, useAuth, useShopSettings, useSyncStatus
 ```
 
 ## Local development (without Docker)
