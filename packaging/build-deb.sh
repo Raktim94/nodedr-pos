@@ -505,7 +505,7 @@ sed -i -e "s/^PORT=.*/PORT=${FRONTEND_PORT}/" \
        "$ROOT/etc/$PKG_NAME/nodedr-pos.conf"
 
 # --- 5f. Icon ---
-LOGO="$SRC/Nodedr pos logo.png"
+LOGO="$SRC/docs/logo.png"
 if [ -f "$LOGO" ]; then
   if command -v ffmpeg >/dev/null 2>&1; then
     for size in 512 256 128 64 48 32; do

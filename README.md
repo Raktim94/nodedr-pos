@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="NodeDR POS logo" width="160">
+</p>
+
 # nodedr-pos
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
