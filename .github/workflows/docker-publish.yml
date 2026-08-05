@@ -53,6 +53,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # actions/checkout defaults to a shallow, tag-less clone, so
+          # `git describe --tags` below silently sees no tags at all (not an
+          # error - just no output) and produces an empty VERSION with no
+          # fallback triggered, since the pipe's exit status is sed's, not
+          # git describe's. fetch-depth: 0 pulls full history + tags so
+          # describe can actually see them.
+          fetch-depth: 0
 
       - name: Resolve version and image owner
         id: version
@@ -61,8 +69,18 @@ jobs:
           if [ -z "$VERSION" ]; then
             # Fall back to the latest git tag (v1.0.0 -> 1.0.0) so a plain push
             # to master still produces a meaningfully-versioned image, not just
-            # a rolling `:latest` nobody can pin to.
-            VERSION="$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo '0.0.0-dev')"
+            # a rolling `:latest` nobody can pin to. Checked directly (not
+            # through a pipe) so a real failure here isn't silently swallowed.
+            GIT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            if [ -n "$GIT_TAG" ]; then
+              VERSION="${GIT_TAG#v}"
+            else
+              VERSION="0.0.0-dev"
+            fi
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "::error::Resolved VERSION is empty - refusing to publish an untagged image" >&2
+            exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           # GHCR image paths must be lowercase; the GitHub org/user name
