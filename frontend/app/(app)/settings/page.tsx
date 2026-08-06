@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Search } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
@@ -20,11 +21,37 @@ const TABS = ["Company", "Tax & Loyalty", "Receipt", "Reference Data", "Password
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
-  const { data: settings, isLoading } = useShopSettings();
+  const { data: settings, isLoading, isError, error, refetch } = useShopSettings();
   const [tab, setTab] = useState<Tab>("Company");
 
-  if (isLoading || !settings) {
+  if (isLoading) {
     return <p className="text-sm text-foreground/50">Loading settings…</p>;
+  }
+
+  // A successful response can legitimately be `null` (no ShopSettings row
+  // yet, e.g. onboarding's step 2 was never finished) — that is NOT the
+  // same as still loading, and must not fall into the spinner above forever.
+  if (isError || !settings) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-sm text-danger">
+          {isError
+            ? error instanceof ApiError
+              ? error.message
+              : "Could not load settings — check your connection and try again"
+            : "This shop hasn't finished setup yet — no company details have been saved."}
+        </p>
+        {isError ? (
+          <Button variant="secondary" onClick={() => refetch()}>
+            Retry
+          </Button>
+        ) : (
+          <Link href="/onboarding">
+            <Button variant="secondary">Finish setup</Button>
+          </Link>
+        )}
+      </div>
+    );
   }
 
   return (
