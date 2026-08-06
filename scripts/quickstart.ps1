@@ -1,8 +1,8 @@
 # nodedr-pos quickstart — Windows (PowerShell).
 #
 # Checks whether Docker Desktop is installed and running; installs it via
-# winget if not; then clones (or updates) nodedr-pos into .\nodedr-pos and
-# starts it with docker compose.
+# winget if not. Does the same for git if it's missing too. Then clones (or
+# updates) nodedr-pos into .\nodedr-pos and starts it with docker compose.
 #
 # Usage (run in PowerShell):
 #   irm https://raw.githubusercontent.com/Raktim94/nodedr-pos/master/scripts/quickstart.ps1 | iex
@@ -24,6 +24,18 @@ function Test-DockerReady {
     try { docker info *> $null; return $LASTEXITCODE -eq 0 } catch { return $false }
 }
 
+# winget writes new PATH entries (e.g. Docker's or Git's install dir) to the
+# Machine/User registry values, but this already-running PowerShell process
+# keeps its own stale copy of $env:Path — a command installed a moment ago
+# via winget can still resolve to "not recognized" without this. Re-reading
+# both scopes from the registry and rebuilding $env:Path is the same fix
+# Windows itself applies the next time you open a new terminal.
+function Update-SessionPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+}
+
 Write-Host "==> Checking for Docker..."
 if (Test-DockerReady) {
     Write-Host "Docker is already installed and running."
@@ -35,6 +47,7 @@ if (Test-DockerReady) {
         }
         Write-Host "==> Installing Docker Desktop via winget (this can take a few minutes)..."
         winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
+        Update-SessionPath
     }
 
     $dockerDesktop = "$Env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
@@ -56,8 +69,17 @@ if (Test-DockerReady) {
 }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Error "git isn't installed. Install it from https://git-scm.com/downloads and re-run this command."
-    exit 1
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Error "git isn't installed and winget isn't available. Install it from https://git-scm.com/downloads and re-run this command."
+        exit 1
+    }
+    Write-Host "==> Installing Git via winget..."
+    winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements
+    Update-SessionPath
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Error "Git was just installed but this PowerShell window hasn't picked it up. Close this window, open a new PowerShell, and re-run the same command."
+        exit 1
+    }
 }
 
 Write-Host "==> Getting nodedr-pos..."

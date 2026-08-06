@@ -3,8 +3,9 @@
 #
 # Checks whether Docker is installed and running; installs it if not
 # (Docker Desktop via Homebrew on macOS, Docker Engine via the official
-# get.docker.com script on Linux); then clones (or updates) nodedr-pos into
-# ./nodedr-pos and runs its installer.
+# get.docker.com script on Linux). Does the same for git (Homebrew on macOS,
+# the system package manager on Linux) if it's missing too. Then clones (or
+# updates) nodedr-pos into ./nodedr-pos and runs its installer.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Raktim94/nodedr-pos/master/scripts/quickstart.sh | bash
@@ -70,6 +71,53 @@ if ! docker info >/dev/null 2>&1; then
     echo "On Mac: open Docker Desktop, wait for it to say \"running\", then re-run this command." >&2
     exit 1
   fi
+fi
+
+install_git_linux() {
+  echo "==> Installing git..."
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -y && sudo apt-get install -y git
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y git
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y git
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy --noconfirm git
+  elif command -v zypper >/dev/null 2>&1; then
+    sudo zypper install -y git
+  elif command -v apk >/dev/null 2>&1; then
+    sudo apk add git
+  else
+    echo "Could not detect a supported package manager to install git automatically." >&2
+    echo "Install git manually (https://git-scm.com/downloads) and re-run this command." >&2
+    exit 1
+  fi
+}
+
+install_git_mac() {
+  # Deliberately NOT running bare `git` to check for it — on a stock Mac
+  # with no Xcode Command Line Tools, that alone pops a blocking GUI
+  # installer dialog. `command -v` never invokes the binary, so it can't
+  # trigger that.
+  if command -v brew >/dev/null 2>&1; then
+    echo "==> Installing git via Homebrew..."
+    brew install git
+  else
+    echo "git isn't installed and Homebrew isn't either." >&2
+    echo "Install Homebrew (https://brew.sh) and re-run this command, or run: xcode-select --install" >&2
+    exit 1
+  fi
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  case "$(uname -s)" in
+    Darwin) install_git_mac ;;
+    Linux) install_git_linux ;;
+    *)
+      echo "Unsupported OS: $(uname -s). Install git manually: https://git-scm.com/downloads" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 echo "==> Getting nodedr-pos..."
