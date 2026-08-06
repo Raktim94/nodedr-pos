@@ -12,6 +12,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import { BrandFooter } from "@/components/BrandFooter";
 import { HomeAuthRedirect } from "@/components/HomeAuthRedirect";
+import { QuickstartCommand } from "@/components/QuickstartCommand";
 
 const title = "Free POS Software – Offline, Open Source, No Subscription";
 const description =
@@ -197,12 +198,32 @@ export default function HomePage() {
         <section className="flex flex-col items-center gap-4 pb-4 text-center">
           <h2 className="text-2xl font-semibold text-foreground">Get started for free</h2>
           <p className="max-w-xl text-sm text-foreground/70">
-            Clone the repo and run the installer, or use the Windows/Debian package —
-            no signup, no credit card, no trial period.
+            Pick your OS and run one command — it checks for Docker, installs it if it&apos;s
+            missing, then installs and starts nodedr-pos. No signup, no credit card, no trial
+            period.
           </p>
-          <code className="rounded-lg border border-border bg-surface-muted px-4 py-2 text-xs text-foreground/80 sm:text-sm">
-            git clone {GITHUB_URL}.git &amp;&amp; cd nodedr-pos &amp;&amp; ./install.sh
-          </code>
+          <QuickstartCommand />
+          <p className="max-w-xl text-xs text-foreground/60">
+            Prefer no Docker at all? Grab the{" "}
+            <a
+              href={`${GITHUB_URL}/releases/latest`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              native Windows or Debian/Ubuntu installer
+            </a>{" "}
+            instead, or see the{" "}
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              full source on GitHub
+            </a>
+            .
+          </p>
         </section>
 
         <BrandFooter />
