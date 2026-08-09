@@ -2,7 +2,8 @@
 #
 # Checks whether Docker Desktop is installed and running; installs it via
 # winget if not. Does the same for git if it's missing too. Then clones (or
-# updates) nodedr-pos into .\nodedr-pos and starts it with docker compose.
+# updates) nodedr-pos into %USERPROFILE%\nodedr-pos and starts it with
+# docker compose.
 #
 # Usage (run in PowerShell):
 #   irm https://raw.githubusercontent.com/Raktim94/nodedr-pos/master/scripts/quickstart.ps1 | iex
@@ -16,6 +17,13 @@
 # run this command again to pick up where it left off.
 
 $ErrorActionPreference = "Stop"
+
+# If this is launched from an elevated ("Run as Administrator") PowerShell,
+# Windows defaults its working directory to C:\Windows\System32 — not
+# writable by a normal process, so a relative git clone into .\nodedr-pos
+# fails with "Permission denied" right here. Always install under the
+# invoking user's home directory instead of trusting the shell's cwd.
+Set-Location $HOME
 
 $repoUrl = "https://github.com/Raktim94/nodedr-pos.git"
 $repoDir = "nodedr-pos"
