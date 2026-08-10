@@ -92,9 +92,29 @@ jobs:
       # Store review or SmartScreen flags those, they'd need to be signed
       # before build-windows.ps1 stages them into the NSIS payload, which is
       # a separate step to add later.
+      #
+      # `secrets` is deliberately never referenced directly inside an `if:`
+      # below — GitHub's workflow validator rejects that outright ("Unrecognized
+      # named-value: 'secrets'"), which silently broke EVERY run of this
+      # workflow (push and workflow_dispatch alike) from the moment this
+      # signing scaffold was added: the whole file failed to parse, so no job
+      # was ever created (confirmed empirically — 5 straight `push`-triggered
+      # runs with zero jobs recorded, and a live `gh workflow run` dispatch
+      # attempt rejected with that exact error at these two lines). `secrets`
+      # IS allowed in `env:`, so the check is relayed through a step output
+      # instead.
       # ---------------------------------------------------------------------
+      - name: Check for signing secret
+        id: signing
+        shell: pwsh
+        env:
+          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          $has = -not [string]::IsNullOrEmpty($env:SIGNPATH_TOKEN)
+          "has-token=$($has.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Upload unsigned installer
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: steps.signing.outputs.has-token == 'true'
         id: upload-unsigned
         uses: actions/upload-artifact@v4
         with:
@@ -102,7 +122,7 @@ jobs:
           path: dist/nodedr-pos-setup-*-x64.exe
           retention-days: 1
       - name: Submit signing request
-        if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+        if: steps.signing.outputs.has-token == 'true'
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: "${{ secrets.SIGNPATH_API_TOKEN }}"
