@@ -205,3 +205,35 @@ CA" — SignPath's cert satisfies that. Elevation (UAC) during install is
 explicitly allowed by the Store for this app type; only the installer *UI*
 must be silent, which this installer already is (see the "Install silently"
 CI step).
+
+**As of this writing, the installer is still unsigned** — do not complete a
+Store submission until a signed build exists (SignPath approval + the
+`organization-id`/`SIGNPATH_API_TOKEN` above are filled in and a signed
+artifact has been produced and verified).
+
+## Microsoft Store "Package details" — exact values to enter
+
+Values for the Store's own Package Details step (Partner Center), derived
+from what this installer actually does — not filled in speculatively:
+
+| Field | Value | Why |
+| --- | --- | --- |
+| **Package URL** | A **versioned** release asset URL, e.g. `https://github.com/Raktim94/nodedr-pos/releases/download/v1.0.0/nodedr-pos-setup-1.0.0-x64.exe` | **Do NOT** use a `/releases/latest/download/...` URL here. That's a moving target — the Store may re-fetch it at review time or on a later re-validation pass and silently pick up whatever the newest release happens to be, including one that hasn't been through the same review/testing as what you intended to submit. Pin the exact version; bump the URL (and re-submit) for each new Store-listed release. |
+| **Architecture** | `x64` only | The installer (`nodedr-pos.nsi`) hard-checks for 64-bit Windows and aborts on 32-bit. There is no x86, ARM, ARM64, or neutral build — do not select those. |
+| **App type** | `EXE` | NSIS-built `.exe`, not an `.msi`. |
+| **Installer parameters** | `/S` | NSIS's standard silent-install switch — this is what `build-windows-installer.yml`'s CI actually exercises on every build ("Install silently" step). Do **not** pick "runs in silent mode without switches" — `/S` is required. |
+| **Languages** | English only | The app has no i18n/locale-switching UI (checked: no `next-intl`/`react-i18next`/equivalent anywhere in `frontend/`). Don't claim additional languages. |
+| **Installer handling / return codes** | Leave scenario-specific fields blank except **Installation successful → 0** | `nodedr-pos.nsi` has no `SetErrorLevel` calls anywhere and doesn't distinguish "disk full" / "reboot required" / "network failure" / "already installed" / "installation in progress" / "rejected by policy" as separate cases — it only has NSIS's generic success (`0`) vs. `Abort` paths (64-bit check, DB migration failure, service registration failure). Entering specific codes for scenarios this installer doesn't actually detect would misrepresent real failures to the Store/end users. If per-scenario codes are ever needed, they'd have to be added to the `.nsi` script first via explicit `SetErrorLevel` calls before each `Abort`. |
+
+## Notes for certification (suggested text for Store reviewers)
+
+> NodeDR POS installs two Windows Services (NodeDRPOSBackend, NodeDRPOSFrontend)
+> and opens local firewall port 1994 for LAN access from a counter tablet/phone
+> (private/domain network profiles only). No pre-seeded test account exists —
+> the first launch shows a registration screen; create an admin account there
+> (Settings → Company, then add a product, then run a sale through the POS
+> screen to exercise the full checkout flow). USB thermal printer support is
+> optional and not required to test core functionality — printing also works
+> via the browser print dialog with no physical printer attached. Elevation
+> (UAC) during install is expected and by design (installing Windows Services
+> requires it); the installer UI itself runs silently per Store requirements.
