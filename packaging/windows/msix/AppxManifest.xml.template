@@ -58,14 +58,22 @@
 
   <!--
     runFullTrust: required for any Desktop Bridge (Win32-in-MSIX) app.
-    localSystemServices: required because both packaged services run as
-    LocalSystem (matching WinSW's default today) rather than localService /
-    networkService. Both are RESTRICTED capabilities — Microsoft's
-    certification team reviews these case by case; declaring them correctly
-    does not guarantee approval.
+    packagedServices: required for ANY windows.service extension use,
+    regardless of start account (localService/networkService/localSystem).
+    localSystemServices: an ADDITIONAL requirement layered on top of
+    packagedServices specifically because both services here start as
+    LocalSystem (matching WinSW's default today). Confirmed by makeappx
+    pack itself on the windows-latest CI runner (2026-08-14): the first
+    build attempt, declaring only localSystemServices, failed with
+    "error 80080204: ... requires 'packagedServices' capability" at the
+    windows.service Extension element — this is real Windows-verified
+    fact, not a guess. All three are RESTRICTED capabilities — Microsoft's
+    certification team reviews these case by case; declaring them
+    correctly does not guarantee approval.
   -->
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="packagedServices" />
     <rescap:Capability Name="localSystemServices" />
   </Capabilities>
 
