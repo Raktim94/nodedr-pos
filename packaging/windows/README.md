@@ -300,6 +300,16 @@ they're set, the workflow still builds and smoke-tests under an obvious
 exercised — that output is explicitly **not** what gets uploaded to Partner
 Center.
 
+**Status: both secrets are set** (from Partner Center → Nodedr POS → Product
+management → App identity, 2026-08-14). `gh secret list --repo
+Raktim94/nodedr-pos` shows both present; the values themselves aren't
+repeated here since the point of this section is "get them from Partner
+Center," not "trust a copy pasted into a README." A `workflow_dispatch` run
+(`31820010280`) confirmed `Resolve package identity` picks up
+`has-real-identity=true` and the resulting package installs, launches, and
+passes every CI check under the real identity — see "Partner Center
+submission" below for what's left before an actual upload.
+
 `PublisherDisplayName` in the manifest is `NODEDR INFOTECH PRIVATE LIMITED`,
 matching the legal name used everywhere else in this repo (NSIS installer,
 LICENSE, README, MAINTAINERS.md) — this must also match the legal business
@@ -352,13 +362,30 @@ real-Windows-verification discipline as the EXE workflow.
 ### Partner Center submission
 
 1. Create/select the "Nodedr POS" product in Partner Center (this is also
-   where the real package identity above comes from).
-2. Packages step → upload `Nodedr-POS-<version>.0-x64.msix` (built **without**
-   `-SelfSignForTesting`).
-3. Store listing / properties: display name **Nodedr POS**, publisher
+   where the real package identity above comes from — already configured as
+   repo secrets, see above).
+2. Build the actual upload **without** `-SelfSignForTesting` — either:
+   ```powershell
+   pwsh -File packaging\windows\build-msix.ps1 -Version 1.0.0 `
+     -PackageIdentityName "<from Partner Center>" -PublisherCn "<from Partner Center>"
+   ```
+   or `gh workflow run build-windows-msix.yml -f version=1.0.0 -f
+   release_tag=<an existing release tag>` (this both builds under the real
+   identity from the repo secrets **and**, since a `release_tag` is given,
+   attaches the resulting `.msix` to that GitHub release — still not the
+   Partner Center upload itself, just where to grab the built file from).
+   Every CI-triggered build still uses `-SelfSignForTesting` for its own
+   local install/smoke-test — that flag only needs to be absent from the
+   file actually uploaded to Partner Center.
+3. Packages step → upload `Nodedr-POS-<version>.0-x64.msix`.
+4. Privacy policy URL: `https://pos.nodedr.com/privacy` — already covers the
+   app's own data handling (local-only storage, camera/printer/local-network
+   use, no telemetry), not just the marketing site.
+5. Store listing / properties: display name **Nodedr POS**, publisher
    **NODEDR INFOTECH PRIVATE LIMITED**, x64 only.
-4. Submit for certification. No code-signing certificate step exists in this
-   flow — Microsoft signs after certification passes.
+6. Submit for certification, with the certification-notes text below. No
+   code-signing certificate step exists in this flow — Microsoft signs after
+   certification passes.
 
 ### Certification risks — not guaranteed
 
@@ -368,14 +395,19 @@ real-Windows-verification discipline as the EXE workflow.
   restricted capability in the Store (every classic Win32 app packaged as
   MSIX needs it), so friction here is expected to be materially lower than
   the previous `packagedServices`/`localSystemServices` declarations were.
-- **WebView2 Runtime dependency, not yet confirmed on a physical machine
-  from this build environment.** The Evergreen WebView2 Runtime ships with
-  Windows 11 and current Windows 10 by default (bundled with Microsoft
-  Edge), so this is expected to be a non-issue on real hardware — but
-  `Program.cs` has an explicit fallback message if `CoreWebView2Environment.
-  CreateAsync` throws `WebView2RuntimeNotFoundException`, and this hasn't
-  been exercised on a machine that's actually missing it. Confirm on real
-  Windows CI / hardware before submitting.
+- **WebView2 Runtime — happy path confirmed, missing-runtime fallback is
+  not.** Real Windows CI (`windows-latest`, multiple green runs as of
+  2026-08-14, including one under the real Partner Center identity) confirms
+  the actual launch sequence works end-to-end: `open-pos.exe` starts,
+  spawns both child processes, `CoreWebView2Environment.CreateAsync`
+  succeeds, the app answers its health check, and closing it cleanly kills
+  both children (verified via the CI job's explicit process-tree checks).
+  What's still unconfirmed is the *other* branch — `Program.cs`'s fallback
+  message for `WebView2RuntimeNotFoundException` — since every CI runner
+  image already has the Evergreen runtime (bundled with Edge). That's
+  expected to be rare on real end-user hardware too (Windows 11 and current
+  Windows 10 ship it by default) but hasn't been exercised on a machine
+  that's actually missing it.
 - **This is a foreground-only, single-machine app now — a real functional
   change from the earlier always-on-services draft**, not just a packaging
   detail. If Partner Center's functional review expects the "install once,
@@ -383,12 +415,17 @@ real-Windows-verification discipline as the EXE workflow.
   EXE/Docker installs, this MSIX build's foreground-only scope should be
   called out explicitly in the certification notes (see below) rather than
   assumed obvious.
-- Every manifest and launcher detail above is written from Microsoft's
-  public documentation and the WebView2 SDK's own docs, not verified
-  end-to-end on a physical Windows machine from this build environment —
-  `makeappx pack`, `dotnet publish`, and the CI install/uninstall cycle are
-  the real validation gates; a clean CI run is meaningfully more evidence
-  than the manifest merely looking right.
+- What real Windows CI has actually exercised, end-to-end, under both the
+  CI-test identity and the real Partner Center identity: `dotnet publish`
+  of the launcher, `makeappx pack`, install, launch, backend+frontend child
+  processes starting, database creation (via the `prisma migrate deploy`
+  fix — see git history for the EPERM bug this caught and fixed), the
+  health check, loopback-only port binding, clean shutdown killing both
+  children, and uninstall preserving the database. Not yet exercised
+  anywhere in this pipeline: the real Windows App Certification Kit pass
+  (the CI step is best-effort — only runs if `appcert.exe` happens to be
+  present on the runner image) and an actual Partner Center certification
+  pass, which is the real remaining validation gate.
 
 ## Notes for certification (suggested text for Store reviewers)
 
