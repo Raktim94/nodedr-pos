@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+const { execFile } = require('child_process');
 
 const authRoutes = require('./routes/auth');
 const settingsRoutes = require('./routes/settings');
@@ -55,6 +56,40 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// MSIX packages have no manifest-level equivalent of the NSIS/EXE installer's
+// `netsh advfirewall` calls (which run once, at install time, under the
+// installer's own elevation). Under MSIX, opt in via MANAGE_FIREWALL=1 (set
+// only in the MSIX packaged-service env, never in Docker/Debian/dev/the EXE
+// install, which already gets its rules from nodedr-pos.nsi) and this
+// service — which already runs as LocalSystem, so no new elevation is
+// needed — registers the same two rules the installer would have, on every
+// startup. Delete-then-add makes it idempotent; failures are logged, never
+// fatal, since the POS must still work with the firewall left at its
+// previous state.
+function ensureFirewallRules() {
+  if (process.platform !== 'win32' || process.env.MANAGE_FIREWALL !== '1') return;
+
+  const frontendPort = process.env.FRONTEND_PORT || '1994';
+  const rules = [
+    { name: 'NodeDR POS Web', action: 'allow', port: frontendPort, extra: ['profile=private,domain'] },
+    { name: 'NodeDR POS API (internal only)', action: 'block', port: String(PORT), extra: [] },
+  ];
+
+  for (const rule of rules) {
+    execFile('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${rule.name}`], () => {
+      const addArgs = [
+        'advfirewall', 'firewall', 'add', 'rule',
+        `name=${rule.name}`, 'dir=in', `action=${rule.action}`, 'protocol=TCP', `localport=${rule.port}`,
+        ...rule.extra,
+      ];
+      execFile('netsh', addArgs, (err) => {
+        if (err) console.error(`firewall rule "${rule.name}" could not be added: ${err.message}`);
+      });
+    });
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`nodedr-pos backend listening on port ${PORT}`);
+  ensureFirewallRules();
 });

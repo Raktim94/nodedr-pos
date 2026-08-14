@@ -1,0 +1,55 @@
+// NodeDR POS — MSIX Start Menu / tile launch target.
+//
+// The packaged Windows Services (NodeDRPOSBackend, NodeDRPOSFrontend) do all
+// the real work and start automatically at boot; this is only what runs when
+// someone clicks the "Nodedr POS" tile. It does exactly what the EXE
+// installer's Start Menu/Desktop shortcuts already do via nodedr-pos.cmd's
+// "open" command: wait for the web port to accept a connection, then hand the
+// URL to the shell so it opens in the user's default browser. There is no
+// embedded browser window and no other UI here on purpose — same "browser
+// tab is the UI" model as the EXE install.
+//
+// Compiled by build-msix.ps1 via csc.exe (part of the .NET Framework that
+// ships with every windows-latest runner and every Windows 10/11 machine —
+// no extra SDK needed) after substituting @FRONTEND_PORT@, mirroring how
+// build-windows.ps1 already token-substitutes the WinSW service XML files.
+using System;
+using System.Diagnostics;
+using System.Net.Sockets;
+using System.Threading;
+
+class OpenPos
+{
+    static void Main()
+    {
+        const int port = @FRONTEND_PORT@;
+        const int maxAttempts = 45;
+
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            try
+            {
+                using (var client = new TcpClient())
+                {
+                    var result = client.BeginConnect("127.0.0.1", port, null, null);
+                    if (result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1)) && client.Connected)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Not up yet — the packaged services may still be starting
+                // after a cold boot. Keep polling until maxAttempts.
+            }
+            Thread.Sleep(1000);
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "http://localhost:" + port,
+            UseShellExecute = true,
+        });
+    }
+}

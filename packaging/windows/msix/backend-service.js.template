@@ -1,0 +1,61 @@
+// NodeDR POS — MSIX backend service entry point.
+//
+// The windows.service manifest extension (unlike WinSW's XML config) has no
+// attribute for environment variables or a working directory, so this
+// wrapper supplies the same configuration the WinSW service XML gives the
+// EXE install today, then requires the real, unmodified backend entry point.
+// This is packaging glue, not application logic — backend/src/server.js
+// itself is untouched.
+//
+// It also runs `prisma migrate deploy` on every start: the NSIS/EXE
+// installer runs this once at install time (a hook MSIX has no equivalent
+// of), so running it here instead — on every service start — covers both
+// first-run schema creation and applying a future version's migrations on
+// upgrade. `migrate deploy` only applies migrations not already recorded,
+// so this is a no-op on every boot after the first.
+//
+// Compiled/token-substituted by build-msix.ps1 (@BACKEND_PORT@,
+// @FRONTEND_PORT@), mirroring how build-windows.ps1 already substitutes the
+// WinSW service XML files.
+process.env.PORT = process.env.PORT || "@BACKEND_PORT@";
+process.env.NODE_ENV = "production";
+process.env.FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:@FRONTEND_PORT@";
+process.env.COOKIE_SECURE = process.env.COOKIE_SECURE || "false";
+// Forward slashes and a space-free directory on purpose — this string is
+// parsed as a URL by the better-sqlite3 driver adapter (same reasoning as
+// the WinSW service XML and nodedr-pos.nsi).
+process.env.DATABASE_URL = process.env.DATABASE_URL || "file:C:/ProgramData/NodeDRPOS/pos.db";
+process.env.CHECKPOINT_DISABLE = "1";
+process.env.PRISMA_HIDE_UPDATE_MESSAGE = "1";
+process.env.FRONTEND_PORT = process.env.FRONTEND_PORT || "@FRONTEND_PORT@";
+// Opts the backend into registering its own firewall rules at startup — see
+// the MANAGE_FIREWALL check in backend/src/server.js. Only set here (the
+// MSIX path); the EXE install gets its firewall rules from nodedr-pos.nsi
+// at install time instead, so this must stay off there.
+process.env.MANAGE_FIREWALL = "1";
+
+const path = require("path");
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+
+const dataDir = "C:\\ProgramData\\NodeDRPOS";
+for (const sub of ["", "logs", "backups"]) {
+  fs.mkdirSync(path.join(dataDir, sub), { recursive: true });
+}
+
+const backendDir = path.join(__dirname, "..", "backend");
+try {
+  execFileSync(
+    process.execPath,
+    [path.join(backendDir, "node_modules", "prisma", "build", "index.js"), "migrate", "deploy"],
+    { cwd: backendDir, env: process.env, stdio: "inherit" }
+  );
+} catch (err) {
+  // Fall through rather than exit: server.js's own DB calls will surface the
+  // real error if the schema truly isn't usable, matching what happens today
+  // when the NSIS installer's migration step fails (it warns, then still
+  // installs — see nodedr-pos.nsi's MB_ICONEXCLAMATION message).
+  console.error("prisma migrate deploy failed at service startup:", err.message);
+}
+
+require(path.join(backendDir, "src", "server.js"));

@@ -225,6 +225,139 @@ from what this installer actually does — not filled in speculatively:
 | **Languages** | English only | The app has no i18n/locale-switching UI (checked: no `next-intl`/`react-i18next`/equivalent anywhere in `frontend/`). Don't claim additional languages. |
 | **Installer handling / return codes** | Leave scenario-specific fields blank except **Installation successful → 0** | `nodedr-pos.nsi` has no `SetErrorLevel` calls anywhere and doesn't distinguish "disk full" / "reboot required" / "network failure" / "already installed" / "installation in progress" / "rejected by policy" as separate cases — it only has NSIS's generic success (`0`) vs. `Abort` paths (64-bit check, DB migration failure, service registration failure). Entering specific codes for scenarios this installer doesn't actually detect would misrepresent real failures to the Store/end users. If per-scenario codes are ever needed, they'd have to be added to the `.nsi` script first via explicit `SetErrorLevel` calls before each `Abort`. |
 
+## MSIX (Microsoft Store — no code-signing certificate needed)
+
+`build-msix.ps1` produces `Nodedr-POS-<version>.0-x64.msix`, a second and
+entirely independent Store distribution path from the EXE/SignPath route
+described above. **Pick one, not both, for an actual Partner Center
+submission** — they represent two different Store "app types" for the same
+product. MSIX exists because the Store re-signs MSIX packages with a
+Microsoft certificate automatically after certification passes, so unlike
+the EXE path it needs no CA-trusted cert (SignPath or otherwise) at all.
+Building it never touches or depends on `nodedr-pos.nsi` /
+`build-windows.ps1`'s EXE output — the EXE keeps shipping from
+`pos.nodedr.com/downloads/...` exactly as today.
+
+### What's different from the EXE install
+
+NodeDR POS is two always-on Windows Services with no foreground window (the
+"UI" is the shop's browser pointed at `http://localhost:1994`) — WinSW +
+NSIS handle that today with a proper installer. MSIX has a real, documented
+way to package per-machine Windows Services (the `windows.service` manifest
+extension, `LocalSystem` account, gated behind the **`localSystemServices`
+restricted capability**), but it's missing two things WinSW's XML config and
+the NSIS script provide, which `packaging/windows/msix/` works around at the
+packaging layer — **no changes to `backend/src` or `frontend` application
+logic**, other than one intentionally small addition (see below):
+
+| Gap | Fix |
+|---|---|
+| `windows.service` has no attribute for environment variables or a working directory | `msix-wrappers/backend-service.js` / `frontend-service.js` — tiny generated wrappers that set the same env vars WinSW's XML sets today, then `require()` the real, unmodified `backend/src/server.js` / `frontend/server.js` |
+| No installer-time hook to run `prisma migrate deploy` | The backend wrapper runs it on every service start instead (idempotent — applies only new migrations, so this covers first-run schema creation *and* future-version upgrades) |
+| The `backend\data` / `.next\cache` NTFS junction trick (MSIX's install root is read-only at runtime, unlike Program Files) | `JWT_SECRET` is set directly as an env var by the wrapper — `backend/src/lib/secret.js` already checks `process.env.JWT_SECRET` first, so the file-write path this junction exists for is never reached. `DATABASE_URL` already pointed outside the install tree (`C:\ProgramData\NodeDRPOS\pos.db`) even in the EXE install, so no change needed there. The `.next\cache` junction is simply dropped — it's Next's own build/ISR cache, not user data; most routes here are server-rendered on demand rather than ISR-cached, so this is expected to fail-soft, but it's a genuine open item to confirm via the Application event log in local/CI testing rather than an assumption. |
+| `netsh advfirewall` firewall rules (today: installer-time, elevated) | MSIX has no manifest primitive for this. `backend/src/server.js` gained a ~25-line `ensureFirewallRules()` function, opt-in via `MANAGE_FIREWALL=1` (set only by the MSIX wrapper, never in Docker/Debian/dev/the EXE install), which registers the same two rules the installer would have — safe because the service already runs as `LocalSystem`, so no new elevation is needed. **This is the one real application-code change in the whole MSIX conversion.** |
+| Missing MSIX visual asset set | Generated fresh every build from `frontend/public/logo.png` (same "generate at build time" approach `build-windows.ps1` already uses for the EXE's `.ico`) — 44/71/150/310×150/StoreLogo sizes |
+| No foreground app to launch from the Start Menu tile | `open-pos.cs.template` — a ~15-line C# stub, compiled at build time via `csc.exe` (ships with every Windows install, no extra SDK needed), that does exactly what the EXE's shortcuts do today: wait for the port, open the default browser |
+
+Everything else — login, POS flow, printing, barcode scanning, the database,
+the API — is unmodified application code. The direct-USB ESC/POS print path
+(`usb`/libusb) is unaffected by this packaging change but was already
+Linux-only/unsupported-on-Windows before MSIX entered the picture (see the
+main README's printing section); nothing new to do there for Store purposes.
+
+### Package identity — from Partner Center, not invented
+
+Neither `AppxManifest.xml.template` nor `build-msix.ps1` hardcodes a package
+identity. Get the real values from **Partner Center → your app → Product
+management → App identity**:
+
+- **Package/Identity Name** → `-PackageIdentityName` / `$env:NODEDR_MSIX_IDENTITY_NAME`
+- **Publisher ID** (a `CN=...` string) → `-PublisherCn` / `$env:NODEDR_MSIX_PUBLISHER_CN`
+
+`build-msix.ps1` refuses to run if either is missing or still a placeholder.
+For CI (`.github/workflows/build-windows-msix.yml`), set both as repository
+secrets `NODEDR_MSIX_IDENTITY_NAME` / `NODEDR_MSIX_PUBLISHER_CN`; until
+they're set, the workflow still builds and smoke-tests under an obvious
+`NodedrPOSCITestOnly` placeholder identity so the pipeline itself stays
+exercised — that output is explicitly **not** what gets uploaded to Partner
+Center.
+
+`PublisherDisplayName` in the manifest is currently `NODEDR INFOTECH LIMITED`
+— note this differs from `NODEDR INFOTECH PRIVATE LIMITED`, used everywhere
+else in this repo (NSIS installer, registry, LICENSE). Confirm which is
+correct for the Store listing before submitting.
+
+### Building
+
+```powershell
+# Requires Windows x64 with Node on PATH (bootstraps npm) — same as build-windows.ps1.
+pwsh -File packaging\windows\build-msix.ps1 `
+  -Version 1.0.0 `
+  -PackageIdentityName "<from Partner Center>" `
+  -PublisherCn "<from Partner Center>" `
+  -SelfSignForTesting
+# -> dist\Nodedr-POS-1.0.0.0-x64.msix
+```
+
+`-SelfSignForTesting` signs with a throwaway self-signed cert purely so
+`Add-AppxPackage` will install it locally. **Never used for the actual Store
+submission** — omit it when building the file you upload to Partner Center;
+Microsoft re-signs after certification, which is the entire point of the
+MSIX path.
+
+### Local testing
+
+```powershell
+# Trust the self-signed test cert once, then enable sideloading:
+Import-Certificate -FilePath <path printed by build-msix.ps1> -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" -Name AllowAllTrustedApps -Value 1
+
+Add-AppxPackage -Path dist\Nodedr-POS-1.0.0.0-x64.msix
+Get-Service NodeDRPOSBackend, NodeDRPOSFrontend        # both should be Running
+Start-Process http://localhost:1994                    # login, POS flow, print, barcode
+Get-WinEvent -LogName Application -MaxEvents 50 | Where-Object LevelDisplayName -eq Error
+
+$pkg = Get-AppxPackage -Name "*NodedrPOS*"
+Remove-AppxPackage -Package $pkg.PackageFullName        # uninstall check
+```
+
+`.github/workflows/build-windows-msix.yml` runs this exact sequence on
+`windows-latest` on every relevant push, plus a best-effort Windows App
+Certification Kit (`appcert.exe`) pass if present on the runner image — same
+real-Windows-verification discipline as the EXE workflow.
+
+### Partner Center submission
+
+1. Create/select the "Nodedr POS" product in Partner Center (this is also
+   where the real package identity above comes from).
+2. Packages step → upload `Nodedr-POS-<version>.0-x64.msix` (built **without**
+   `-SelfSignForTesting`).
+3. Store listing / properties: display name **Nodedr POS**, publisher
+   **NODEDR INFOTECH LIMITED** (see the naming-consistency note above),
+   x64 only.
+4. Submit for certification. No code-signing certificate step exists in this
+   flow — Microsoft signs after certification passes.
+
+### Certification risks — not guaranteed
+
+- **`localSystemServices` is a restricted capability.** Microsoft's
+  certification team reviews these case by case; declaring it correctly in
+  the manifest doesn't guarantee approval.
+- **No foreground app on launch is an unusual Store app shape.** This
+  product's prior Store submission was rejected on signing (10.2.9) before
+  reaching a full functional/content review — that review, and how it treats
+  an app whose Start Menu tile opens a browser tab rather than showing UI
+  itself, hasn't been tested yet.
+- The dropped `.next\cache` junction (see the gap table above) is reasoned
+  through, not yet confirmed error-free under MSIX — check the Application
+  event log during local/CI testing before submitting.
+- Every manifest detail above (the `desktop6` extension schema, `MinVersion
+  10.0.19041.0`, the wrapper approach) is written from Microsoft's public
+  documentation, not verified end-to-end on a physical Windows machine from
+  this build environment — `makeappx pack` and the CI install/uninstall
+  cycle are the real validation gates; a clean CI run is meaningfully more
+  evidence than the manifest merely looking right.
+
 ## Notes for certification (suggested text for Store reviewers)
 
 > NodeDR POS installs two Windows Services (NodeDRPOSBackend, NodeDRPOSFrontend)

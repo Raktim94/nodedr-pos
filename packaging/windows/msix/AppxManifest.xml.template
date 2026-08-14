@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NodeDR POS — MSIX package manifest template.
+
+  This is a TEMPLATE, not a file makeappx can pack directly: build-msix.ps1
+  substitutes every @TOKEN@ before packing. Two tokens are placeholders that
+  must come from YOUR Partner Center account, never invented:
+
+    @PACKAGE_IDENTITY_NAME@       Partner Center -> your app -> Product
+                                   management -> App identity -> "Package/
+                                   Identity Name"
+    @PARTNER_CENTER_PUBLISHER_CN@ Same page -> "Publisher ID" (the CN=... string)
+
+  Pass them to build-msix.ps1 via -PackageIdentityName / -PublisherCn, or set
+  $env:NODEDR_MSIX_IDENTITY_NAME / $env:NODEDR_MSIX_PUBLISHER_CN. The build
+  fails loudly if either is still a placeholder — see build-msix.ps1.
+
+  Declares NodeDR POS as a full-trust Win32 app (Desktop Bridge) with two
+  packaged Windows Services (backend, frontend), matching what the NSIS/WinSW
+  installer already registers today — same service IDs, same ports, same
+  LocalSystem start account. See packaging/windows/README.md's "MSIX
+  (Microsoft Store)" section for what changed vs. the EXE installer and why.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap rescap desktop6">
+
+  <Identity
+    Name="@PACKAGE_IDENTITY_NAME@"
+    Publisher="@PARTNER_CENTER_PUBLISHER_CN@"
+    Version="@VERSION@.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Nodedr POS</DisplayName>
+    <PublisherDisplayName>NODEDR INFOTECH LIMITED</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Offline-first Point of Sale for retail shops — billing, inventory, barcode scanning, GST-inclusive pricing, and receipt printing, all on your own machine.</Description>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <!--
+    windows.service (desktop6) requires build 19041 (Windows 10, version 2004)
+    or later. This has NOT been confirmed against a real Windows install by
+    this build — makeappx pack / the Windows App Certification Kit on the
+    windows-latest CI runner is the actual validation gate. Do not treat this
+    MinVersion as verified fact.
+  -->
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.19041.0" />
+  </Dependencies>
+
+  <!--
+    runFullTrust: required for any Desktop Bridge (Win32-in-MSIX) app.
+    localSystemServices: required because both packaged services run as
+    LocalSystem (matching WinSW's default today) rather than localService /
+    networkService. Both are RESTRICTED capabilities — Microsoft's
+    certification team reviews these case by case; declaring them correctly
+    does not guarantee approval.
+  -->
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="localSystemServices" />
+  </Capabilities>
+
+  <Applications>
+    <!--
+      There is no real foreground app — the POS UI is the shop's browser
+      pointed at http://localhost:@FRONTEND_PORT@, exactly as with the EXE
+      install today. This Application entry exists because MSIX requires at
+      least one Application with visual elements for Start Menu / Store
+      listing purposes.
+
+      Executable is open-pos.exe, NOT runtime\node.exe directly: the
+      <Application> element has no standard way to pass a script path as an
+      argument to node.exe, so build-msix.ps1 compiles a ~15-line C# stub
+      (open-pos.cs.template -> open-pos.exe, via csc.exe on the
+      windows-latest runner, same "generate at build time" pattern
+      build-windows.ps1 already uses for the .ico) that does exactly what
+      the EXE installer's Start Menu/Desktop shortcuts already do: wait for
+      http://localhost:@FRONTEND_PORT@ to accept a connection, then open it
+      in the default browser. See open-pos.cs.template.
+    -->
+    <Application Id="NodeDRPOS" Executable="open-pos.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Nodedr POS"
+        Description="Offline-first retail Point of Sale"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        BackgroundColor="transparent">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!--
+          Arguments point at msix-wrappers\*-service.js, NOT directly at
+          backend\src\server.js / frontend\server.js: the windows.service
+          extension has no attribute for environment variables or a working
+          directory (unlike WinSW's XML config), so a small packaging-layer
+          wrapper supplies the same config WinSW gives the EXE install today
+          before requiring the real, unmodified entry point. See
+          backend-service.js.template / frontend-service.js.template.
+        -->
+        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="runtime\node.exe">
+          <desktop6:Service Name="NodeDRPOSBackend" StartAccount="localSystem" StartupType="auto" Arguments="msix-wrappers\backend-service.js" />
+        </desktop6:Extension>
+        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="runtime\node.exe">
+          <desktop6:Service Name="NodeDRPOSFrontend" StartAccount="localSystem" StartupType="auto" Arguments="msix-wrappers\frontend-service.js" />
+        </desktop6:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

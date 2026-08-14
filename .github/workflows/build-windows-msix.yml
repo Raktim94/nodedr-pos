@@ -1,0 +1,234 @@
+name: Build Windows MSIX (Microsoft Store)
+
+# Separate from build-windows-installer.yml on purpose: this produces the
+# Store-distributed MSIX; that workflow produces the direct-download EXE.
+# Neither depends on or touches the other. See packaging/windows/README.md's
+# "MSIX (Microsoft Store)" section.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packaging/windows/**"
+      - ".github/workflows/build-windows-msix.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp on the MSIX (four-part x.y.z.0)"
+        required: false
+        default: "1.0.0"
+      release_tag:
+        description: "Attach the MSIX to this existing release tag (blank = artifact only, not published)"
+        required: false
+        default: ""
+
+concurrency:
+  group: build-windows-msix
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.0" }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building version $v"
+
+      # Package identity comes from Partner Center (App identity page) and is
+      # never hardcoded — see packaging/windows/README.md. Without the real
+      # secrets set, this still runs a full build/install/uninstall smoke
+      # test under a throwaway test identity, so the pipeline itself is
+      # exercised even before Partner Center approval exists; the resulting
+      # .msix from that path is explicitly NOT what gets uploaded to Partner
+      # Center.
+      - name: Resolve package identity
+        id: identity
+        shell: pwsh
+        env:
+          REAL_NAME: ${{ secrets.NODEDR_MSIX_IDENTITY_NAME }}
+          REAL_PUBLISHER: ${{ secrets.NODEDR_MSIX_PUBLISHER_CN }}
+        run: |
+          $hasReal = -not [string]::IsNullOrEmpty($env:REAL_NAME) -and -not [string]::IsNullOrEmpty($env:REAL_PUBLISHER)
+          "has-real-identity=$($hasReal.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if ($hasReal) {
+            Write-Host "Using the real Partner Center identity from repo secrets."
+          } else {
+            Write-Host "::warning::NODEDR_MSIX_IDENTITY_NAME / NODEDR_MSIX_PUBLISHER_CN are not set — building under a throwaway test identity. This build is for CI smoke-testing only and must NOT be uploaded to Partner Center."
+          }
+
+      - name: Build MSIX
+        id: build
+        shell: pwsh
+        env:
+          REAL_NAME: ${{ secrets.NODEDR_MSIX_IDENTITY_NAME }}
+          REAL_PUBLISHER: ${{ secrets.NODEDR_MSIX_PUBLISHER_CN }}
+        run: |
+          $identityName = if ($env:REAL_NAME) { $env:REAL_NAME } else { "NodedrPOSCITestOnly" }
+          $publisherCn  = if ($env:REAL_PUBLISHER) { $env:REAL_PUBLISHER } else { "CN=NodeDR-POS-CI-Test-Only" }
+          pwsh -File packaging\windows\build-msix.ps1 `
+            -Version "${{ steps.ver.outputs.version }}" `
+            -PackageIdentityName $identityName `
+            -PublisherCn $publisherCn `
+            -SelfSignForTesting
+
+      # ---------------------------------------------------------------------
+      # Smoke test: install it, use it, uninstall it — on real Windows, same
+      # discipline as build-windows-installer.yml's EXE test.
+      # ---------------------------------------------------------------------
+      - name: Enable sideloading (CI only — Store installs don't need this)
+        shell: pwsh
+        run: |
+          $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          New-Item -Path $key -Force | Out-Null
+          Set-ItemProperty -Path $key -Name "AllowAllTrustedApps" -Value 1 -Type DWord
+
+      - name: Trust the CI test certificate
+        shell: pwsh
+        run: |
+          # build-msix.ps1 exports the test cert into dist\ (not %TEMP%,
+          # which it deletes before returning) — see nodedr-pos-test.cer.
+          $cer = Get-ChildItem dist\nodedr-pos-test.cer -ErrorAction SilentlyContinue
+          if (-not $cer) { throw "test certificate not found at dist\nodedr-pos-test.cer — build-msix.ps1 -SelfSignForTesting should have exported one" }
+          Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          Import-Certificate -FilePath $cer.FullName -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+
+      - name: Install the MSIX
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem dist\Nodedr-POS-*-x64.msix | Select-Object -First 1
+          Write-Host "Installing $($msix.Name)"
+          Add-AppxPackage -Path $msix.FullName
+
+      - name: Wait for the services to come up
+        shell: pwsh
+        run: |
+          $ok = $false
+          foreach ($i in 1..60) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:1994/api/health" -UseBasicParsing -TimeoutSec 3
+              if ($r.StatusCode -eq 200 -and $r.Content -match '"status"\s*:\s*"ok"') { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 2 }
+          }
+          if (-not $ok) {
+            Write-Host "=== service state ==="
+            Get-Service NodeDRPOSBackend, NodeDRPOSFrontend -ErrorAction SilentlyContinue | Format-Table
+            Write-Host "=== event log (Application) ==="
+            Get-WinEvent -LogName Application -MaxEvents 50 -ErrorAction SilentlyContinue |
+              Where-Object { $_.LevelDisplayName -eq "Error" } | Format-Table -AutoSize
+            throw "the POS did not answer on http://127.0.0.1:1994 within 120s"
+          }
+          Write-Host "API healthy"
+
+      - name: Verify services and firewall rules
+        shell: pwsh
+        run: |
+          $fail = 0
+          function Check($name, [bool]$cond) {
+            if ($cond) { Write-Host "  [PASS] $name" } else { Write-Host "  [FAIL] $name"; $script:fail++ }
+          }
+          Check "backend service running"  ((Get-Service NodeDRPOSBackend).Status  -eq 'Running')
+          Check "frontend service running" ((Get-Service NodeDRPOSFrontend).Status -eq 'Running')
+          Check "database created" (Test-Path "C:\ProgramData\NodeDRPOS\pos.db")
+          # Registered by the backend service itself at startup (MANAGE_FIREWALL) —
+          # see backend/src/server.js — since MSIX has no installer-time hook.
+          Check "firewall allow rule for the web port" ((netsh advfirewall firewall show rule name="NodeDR POS Web" | Out-String) -match "1994")
+          Check "firewall block rule for the API port" ((netsh advfirewall firewall show rule name="NodeDR POS API (internal only)" | Out-String) -match "Block")
+          if ($fail -gt 0) { throw "$fail check(s) failed" }
+
+      - name: Check Application event log for errors
+        shell: pwsh
+        run: |
+          $errors = Get-WinEvent -LogName Application -MaxEvents 200 -ErrorAction SilentlyContinue |
+            Where-Object { $_.LevelDisplayName -eq "Error" -and $_.TimeCreated -gt (Get-Date).AddMinutes(-10) -and ($_.ProviderName -match "NodeDR|node|AppX") }
+          if ($errors) {
+            $errors | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "::warning::Errors found in the Application event log during this run — review before submitting to Partner Center."
+          } else {
+            Write-Host "no matching errors in the Application event log"
+          }
+
+      - name: Windows App Certification Kit (best-effort)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $appcert = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe" -ErrorAction SilentlyContinue
+          if (-not $appcert) {
+            Write-Host "::warning::appcert.exe not found on this runner image — run the Windows App Certification Kit manually before submitting. See packaging/windows/README.md."
+            exit 0
+          }
+          $pkg = (Get-AppxPackage -Name "*NodedrPOS*" -ErrorAction SilentlyContinue | Select-Object -First 1)
+          if (-not $pkg) { Write-Host "::warning::could not find the installed package for WACK targeting"; exit 0 }
+          & $appcert.FullName reset
+          & $appcert.FullName test -packagefullname $pkg.PackageFullName -reportoutputpath dist\wack-report.xml
+
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $pkg = Get-AppxPackage -Name "*NodedrPOS*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($pkg) { Remove-AppxPackage -Package $pkg.PackageFullName }
+          Start-Sleep -Seconds 5
+          if ((Get-Service NodeDRPOSBackend  -ErrorAction SilentlyContinue)) { throw "backend service still registered after uninstall" }
+          if ((Get-Service NodeDRPOSFrontend -ErrorAction SilentlyContinue)) { throw "frontend service still registered after uninstall" }
+          Write-Host "  [PASS] services removed"
+          if (-not (Test-Path "C:\ProgramData\NodeDRPOS\pos.db")) { throw "uninstall deleted the database — it must be preserved" }
+          Write-Host "  [PASS] database preserved through uninstall (ProgramData is outside the MSIX package)"
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\Nodedr-POS-*-x64.msix | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)" | Out-File -FilePath dist\SHA256SUMS-msix.txt -Append -Encoding ascii
+            Write-Host "$h  $($_.Name)"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nodedr-pos-msix
+          path: |
+            dist/Nodedr-POS-*-x64.msix
+            dist/SHA256SUMS-msix.txt
+            dist/wack-report.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+      # Only runs when explicitly given a release tag (workflow_dispatch),
+      # same opt-in pattern as build-windows-installer.yml's equivalent step
+      # — a plain push never publishes anything, only builds+tests it.
+      # Skipped entirely if the build used the CI-test-only throwaway
+      # identity (no real Partner Center secrets set): that .msix must never
+      # be published anywhere, since its package identity doesn't match what
+      # Partner Center expects.
+      - name: Attach to release
+        if: github.event.inputs.release_tag != '' && steps.identity.outputs.has-real-identity == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $msix = Get-ChildItem dist\Nodedr-POS-*-x64.msix | Select-Object -First 1
+          gh release upload "${{ github.event.inputs.release_tag }}" $msix.FullName --clobber
+          gh release upload "${{ github.event.inputs.release_tag }}" dist\SHA256SUMS-msix.txt --clobber
+
+      - name: Skipped publishing (test-identity build)
+        if: github.event.inputs.release_tag != '' && steps.identity.outputs.has-real-identity != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "::warning::release_tag was set but this build used the CI-test-only identity (NODEDR_MSIX_IDENTITY_NAME/NODEDR_MSIX_PUBLISHER_CN secrets not set) — refusing to publish a package with the wrong identity. Set the real secrets, then re-run with the same release_tag."
