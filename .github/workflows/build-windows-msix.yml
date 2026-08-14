@@ -37,9 +37,9 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
 
@@ -175,6 +175,21 @@ jobs:
           $conn = Get-NetTCPConnection -LocalPort 1994 -State Listen -ErrorAction SilentlyContinue
           Check "port 1994 bound to loopback only (not 0.0.0.0/::)" (($conn | Measure-Object).Count -gt 0 -and ($conn | ForEach-Object { $_.LocalAddress } | Where-Object { $_ -notin @("127.0.0.1", "::1") } | Measure-Object).Count -eq 0)
           if ($fail -gt 0) { throw "$fail check(s) failed" }
+
+      # Only runs if the step above threw — dumps the same log tail the
+      # "Wait for the POS to come up" step would have shown, since a check
+      # failing here (e.g. no database file) doesn't necessarily mean the
+      # health check itself failed, so that step's own diagnostics never ran.
+      - name: Dump logs (only runs if the previous step failed)
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "=== C:\ProgramData\NodeDRPOS\logs ==="
+          Get-ChildItem "C:\ProgramData\NodeDRPOS\logs" -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "--- $($_.Name) ---"; Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 80 }
+          Write-Host "=== event log (Application) ==="
+          Get-WinEvent -LogName Application -MaxEvents 50 -ErrorAction SilentlyContinue |
+            Where-Object { $_.LevelDisplayName -eq "Error" } | Format-Table -AutoSize
 
       # Regression check for launcher\Program.cs's Job Object: killing
       # open-pos.exe should force-terminate both node.exe children

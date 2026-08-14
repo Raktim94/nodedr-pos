@@ -52,7 +52,7 @@ jobs:
             context: ./frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # actions/checkout defaults to a shallow, tag-less clone, so
           # `git describe --tags` below silently sees no tags at all (not an

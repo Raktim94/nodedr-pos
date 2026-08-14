@@ -55,17 +55,35 @@ if (!process.env.JWT_SECRET) {
 
 const backendDir = path.join(__dirname, "..", "backend");
 try {
-  execFileSync(
+  // stdio: "pipe" (execFileSync's default), NOT "inherit" — this process's
+  // own stdout/stderr are themselves redirected pipes (Program.cs launches
+  // it with RedirectStandardOutput/Error=true so it can capture them into
+  // backend.log). "inherit" would ask Node to hand THIS process's own piped
+  // handles down to a grandchild process, which is a real, confirmed-on-CI
+  // (2026-08-14) failure mode on Windows: the grandchild's inherited
+  // handles didn't behave as a working stdio stream, `prisma migrate
+  // deploy` produced no visible output and never actually applied the
+  // schema, and — because this was silently swallowed by the catch below,
+  // which only logged err.message — the resulting missing-database bug had
+  // no error text to diagnose it from. Capturing output explicitly and
+  // forwarding it ourselves avoids depending on nested stdio inheritance
+  // working at all.
+  const output = execFileSync(
     process.execPath,
     [path.join(backendDir, "node_modules", "prisma", "build", "index.js"), "migrate", "deploy"],
-    { cwd: backendDir, env: process.env, stdio: "inherit" }
+    { cwd: backendDir, env: process.env }
   );
+  process.stdout.write(output);
 } catch (err) {
   // Fall through rather than exit: server.js's own DB calls will surface the
   // real error if the schema truly isn't usable, matching what happens today
   // when the NSIS installer's migration step fails (it warns, then still
-  // installs — see nodedr-pos.nsi's MB_ICONEXCLAMATION message).
-  console.error("prisma migrate deploy failed at service startup:", err.message);
+  // installs — see nodedr-pos.nsi's MB_ICONEXCLAMATION message). Forward the
+  // real captured output (not just err.message) so a future failure is
+  // actually diagnosable from backend.log instead of a bare exception line.
+  if (err.stdout) process.stdout.write(err.stdout);
+  if (err.stderr) process.stderr.write(err.stderr);
+  console.error("prisma migrate deploy failed at startup:", err.message);
 }
 
 require(path.join(backendDir, "src", "server.js"));
