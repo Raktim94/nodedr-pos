@@ -87,35 +87,46 @@ Ok "staged payload at $Stage"
 
 Step "Assembling the MSIX payload"
 Copy-Item $Stage $Payload -Recurse
-# WinSW + the .cmd operator CLI are the NSIS/EXE installer's own service-
-# registration mechanism. MSIX registers the same two services itself via
-# the manifest's windows.service extensions, so shipping WinSW inside the
-# MSIX would be dead weight (and a second, unused way to start the same
-# processes) — remove both.
-Remove-Item (Join-Path $Payload "service") -Recurse -Force -ErrorAction SilentlyContinue
+# service\ (WinSW) is KEPT — see the long comment in backend-service.js.template
+# for why: MSIX's windows.service extension only handles SCM registration,
+# it does not make an arbitrary process speak the Service Control Protocol.
+# Confirmed on real Windows CI (2026-08-14): pointing the extension directly
+# at runtime\node.exe fails with "StartService FAILED 1053" (service never
+# reports RUNNING back to the SCM). WinSW already solves exactly this for
+# the EXE install, so it does the same job here instead of being replaced.
+# bin\ (the EXE install's nodedr-pos.cmd operator CLI) is still removed —
+# open-pos.exe is its MSIX equivalent.
 Remove-Item (Join-Path $Payload "bin") -Recurse -Force -ErrorAction SilentlyContinue
 # The EXE's .ico (if it exists) is not part of the MSIX visual asset set;
 # MSIX assets are generated fresh below.
 Remove-Item (Join-Path $Payload "nodedr-pos.ico") -Force -ErrorAction SilentlyContinue
-Ok "payload ready at $Payload (service\ and bin\ removed — MSIX replaces both)"
+Ok "payload ready at $Payload (bin\ removed — open-pos.exe replaces it; service\ kept, see above)"
 
 # ---------------------------------------------------------------------------
-# 1b. Service entry-point wrappers. windows.service has no attribute for env
-#     vars or a working directory (unlike WinSW's XML config), so these
-#     wrappers supply the same configuration before requiring the real,
-#     unmodified backend/frontend entry points. See the two .js.template
-#     files for the full rationale.
+# 1b. Backend service entry-point wrapper (JWT secret + prisma migrate
+#     deploy — see the file's own header comment for the full rationale) and
+#     repointing WinSW's own copied XML config at it instead of server.js
+#     directly. The frontend needs no wrapper: its WinSW XML already sets
+#     everything it needs and calls frontend\server.js unmodified, same as
+#     the EXE install.
 # ---------------------------------------------------------------------------
-Step "Writing service entry-point wrappers"
+Step "Writing the backend service wrapper"
 $WrappersDir = Join-Path $Payload "msix-wrappers"
 New-Item -ItemType Directory -Force -Path $WrappersDir | Out-Null
-foreach ($name in @("backend-service", "frontend-service")) {
-  $js = (Get-Content (Join-Path $MsixDir "$name.js.template") -Raw).
-    Replace("@BACKEND_PORT@", "$BackendPort").
-    Replace("@FRONTEND_PORT@", "$FrontendPort")
-  Set-Content -Path (Join-Path $WrappersDir "$name.js") -Value $js -Encoding UTF8
+$backendWrapperJs = (Get-Content (Join-Path $MsixDir "backend-service.js.template") -Raw).
+  Replace("@FRONTEND_PORT@", "$FrontendPort")
+Set-Content -Path (Join-Path $WrappersDir "backend-service.js") -Value $backendWrapperJs -Encoding UTF8
+
+$backendXmlPath = Join-Path $Payload "service\nodedr-pos-backend.xml"
+$backendXml = (Get-Content $backendXmlPath -Raw).Replace(
+  '<arguments>"%BASE%\..\backend\src\server.js"</arguments>',
+  '<arguments>"%BASE%\..\msix-wrappers\backend-service.js"</arguments>'
+)
+if ($backendXml -notmatch [regex]::Escape('msix-wrappers\backend-service.js')) {
+  Die "failed to repoint nodedr-pos-backend.xml at the MSIX wrapper — the <arguments> line in packaging/windows/service/nodedr-pos-backend.xml may have changed format"
 }
-Ok "wrappers written to msix-wrappers\"
+Set-Content -Path $backendXmlPath -Value $backendXml -Encoding UTF8
+Ok "wrapper written to msix-wrappers\, backend WinSW config repointed at it"
 
 # ---------------------------------------------------------------------------
 # 2. Visual assets, generated fresh each build from the app's own logo — same

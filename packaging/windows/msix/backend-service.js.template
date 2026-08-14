@@ -1,46 +1,70 @@
-// NodeDR POS — MSIX backend service entry point.
+// NodeDR POS — MSIX backend service entry point, run by WinSW (see below for
+// why WinSW is still needed inside the MSIX package).
 //
-// The windows.service manifest extension (unlike WinSW's XML config) has no
-// attribute for environment variables or a working directory, so this
-// wrapper supplies the same configuration the WinSW service XML gives the
-// EXE install today, then requires the real, unmodified backend entry point.
-// This is packaging glue, not application logic — backend/src/server.js
-// itself is untouched.
+// PORT/NODE_ENV/FRONTEND_ORIGIN/COOKIE_SECURE/DATABASE_URL/CHECKPOINT_DISABLE/
+// PRISMA_HIDE_UPDATE_MESSAGE all come from the WinSW service XML's own <env>
+// blocks (packaging/windows/service/nodedr-pos-backend.xml) — identical to
+// the EXE install, inherited automatically since WinSW spawns this script as
+// its child process. This wrapper only adds what's specific to the MSIX path:
 //
-// It also runs `prisma migrate deploy` on every start: the NSIS/EXE
-// installer runs this once at install time (a hook MSIX has no equivalent
-// of), so running it here instead — on every service start — covers both
-// first-run schema creation and applying a future version's migrations on
-// upgrade. `migrate deploy` only applies migrations not already recorded,
-// so this is a no-op on every boot after the first.
+// 1. A real random JWT_SECRET. The EXE install lets backend/src/lib/secret.js
+//    write one to a path relative to its own source file, then redirects
+//    that path out of Program Files with an NTFS junction (mklink /J) created
+//    at install time. MSIX's package root is read-only at runtime with no
+//    install-time hook to create a junction, so that write would fail. Fixed
+//    here — NOT by patching secret.js — by generating/reading the same kind
+//    of random secret directly at a writable MSIX-appropriate path
+//    (C:\ProgramData\NodeDRPOS\.jwt-secret) and passing it in as
+//    JWT_SECRET, which secret.js already checks first before ever touching
+//    its own file path.
+// 2. `prisma migrate deploy` on every start — the NSIS/EXE installer runs
+//    this once at install time (a hook MSIX has no equivalent of); running
+//    it here instead covers both first-run schema creation and applying a
+//    future version's migrations on upgrade. `migrate deploy` only applies
+//    migrations not already recorded, so it's a no-op on every boot after
+//    the first.
+// 3. FRONTEND_PORT and MANAGE_FIREWALL — see backend/src/server.js's
+//    ensureFirewallRules(). Deliberately not added to the shared WinSW XML
+//    template: that template is also used by the EXE install, which already
+//    gets its firewall rules from nodedr-pos.nsi at install time and must
+//    not also run this.
 //
-// Compiled/token-substituted by build-msix.ps1 (@BACKEND_PORT@,
-// @FRONTEND_PORT@), mirroring how build-windows.ps1 already substitutes the
-// WinSW service XML files.
-process.env.PORT = process.env.PORT || "@BACKEND_PORT@";
-process.env.NODE_ENV = "production";
-process.env.FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:@FRONTEND_PORT@";
-process.env.COOKIE_SECURE = process.env.COOKIE_SECURE || "false";
-// Forward slashes and a space-free directory on purpose — this string is
-// parsed as a URL by the better-sqlite3 driver adapter (same reasoning as
-// the WinSW service XML and nodedr-pos.nsi).
-process.env.DATABASE_URL = process.env.DATABASE_URL || "file:C:/ProgramData/NodeDRPOS/pos.db";
-process.env.CHECKPOINT_DISABLE = "1";
-process.env.PRISMA_HIDE_UPDATE_MESSAGE = "1";
+// Why WinSW is still needed here at all: MSIX's windows.service manifest
+// extension only handles SCM *registration* (start type, account). It does
+// not make an arbitrary long-running process speak the actual Windows
+// Service Control Protocol (StartServiceCtrlDispatcher / reporting RUNNING
+// back to the SCM) — confirmed on real Windows CI (2026-08-14): pointing
+// the extension directly at runtime\node.exe failed with
+// "StartService FAILED 1053" (service didn't respond to the start request
+// in time), because node.exe never performs that handshake. WinSW already
+// solves exactly this for the EXE install, so the MSIX manifest points its
+// windows.service Executable at service\nodedr-pos-backend.exe (WinSW)
+// instead of at node.exe directly, and build-msix.ps1 repoints that
+// service's own <arguments> at this wrapper instead of server.js.
+//
+// Token-substituted by build-msix.ps1 (@FRONTEND_PORT@).
 process.env.FRONTEND_PORT = process.env.FRONTEND_PORT || "@FRONTEND_PORT@";
-// Opts the backend into registering its own firewall rules at startup — see
-// the MANAGE_FIREWALL check in backend/src/server.js. Only set here (the
-// MSIX path); the EXE install gets its firewall rules from nodedr-pos.nsi
-// at install time instead, so this must stay off there.
 process.env.MANAGE_FIREWALL = "1";
 
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const dataDir = "C:\\ProgramData\\NodeDRPOS";
 for (const sub of ["", "logs", "backups"]) {
   fs.mkdirSync(path.join(dataDir, sub), { recursive: true });
+}
+
+if (!process.env.JWT_SECRET) {
+  const secretPath = path.join(dataDir, ".jwt-secret");
+  if (fs.existsSync(secretPath)) {
+    process.env.JWT_SECRET = fs.readFileSync(secretPath, "utf8").trim();
+  } else {
+    const secret = crypto.randomBytes(48).toString("hex");
+    fs.writeFileSync(secretPath, secret, { mode: 0o600 });
+    process.env.JWT_SECRET = secret;
+  }
 }
 
 const backendDir = path.join(__dirname, "..", "backend");

@@ -106,19 +106,29 @@
       </uap:VisualElements>
       <Extensions>
         <!--
-          Arguments point at msix-wrappers\*-service.js, NOT directly at
-          backend\src\server.js / frontend\server.js: the windows.service
-          extension has no attribute for environment variables or a working
-          directory (unlike WinSW's XML config), so a small packaging-layer
-          wrapper supplies the same config WinSW gives the EXE install today
-          before requiring the real, unmodified entry point. See
-          backend-service.js.template / frontend-service.js.template.
+          Executable is service\nodedr-pos-*.exe (WinSW), NOT runtime\node.exe
+          directly. windows.service only handles SCM *registration*
+          (StartAccount/StartupType) — it does not make an arbitrary
+          long-running process speak the actual Windows Service Control
+          Protocol (StartServiceCtrlDispatcher / reporting RUNNING back to
+          the SCM). Confirmed on real Windows CI (2026-08-14): pointing this
+          directly at node.exe failed with "StartService FAILED 1053"
+          (service never reported RUNNING within the timeout) because
+          node.exe never performs that handshake. WinSW already solves
+          exactly this for the EXE install (it's a real Windows-service-
+          protocol-speaking binary that spawns node.exe as its own child
+          process and relays start/stop), so the MSIX package keeps and
+          reuses it instead of trying to replace it — see
+          backend-service.js.template's header comment for the full
+          rationale, and build-msix.ps1 for how the backend's copied WinSW
+          XML gets repointed at that wrapper (JWT secret + prisma migrate
+          deploy) while the frontend's WinSW XML is used unmodified.
         -->
-        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="runtime\node.exe">
-          <desktop6:Service Name="NodeDRPOSBackend" StartAccount="localSystem" StartupType="auto" Arguments="msix-wrappers\backend-service.js" />
+        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="service\nodedr-pos-backend.exe">
+          <desktop6:Service Name="NodeDRPOSBackend" StartAccount="localSystem" StartupType="auto" />
         </desktop6:Extension>
-        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="runtime\node.exe">
-          <desktop6:Service Name="NodeDRPOSFrontend" StartAccount="localSystem" StartupType="auto" Arguments="msix-wrappers\frontend-service.js" />
+        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="service\nodedr-pos-frontend.exe">
+          <desktop6:Service Name="NodeDRPOSFrontend" StartAccount="localSystem" StartupType="auto" />
         </desktop6:Extension>
       </Extensions>
     </Application>
