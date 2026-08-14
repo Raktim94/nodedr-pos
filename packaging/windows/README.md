@@ -300,10 +300,11 @@ they're set, the workflow still builds and smoke-tests under an obvious
 exercised — that output is explicitly **not** what gets uploaded to Partner
 Center.
 
-`PublisherDisplayName` in the manifest is currently `NODEDR INFOTECH LIMITED`
-— note this differs from `NODEDR INFOTECH PRIVATE LIMITED`, used everywhere
-else in this repo (NSIS installer, registry, LICENSE). Confirm which is
-correct for the Store listing before submitting.
+`PublisherDisplayName` in the manifest is `NODEDR INFOTECH PRIVATE LIMITED`,
+matching the legal name used everywhere else in this repo (NSIS installer,
+LICENSE, README, MAINTAINERS.md) — this must also match the legal business
+name registered on the Partner Center account, since Store certification
+checks publisher identity consistency.
 
 ### Building
 
@@ -355,8 +356,7 @@ real-Windows-verification discipline as the EXE workflow.
 2. Packages step → upload `Nodedr-POS-<version>.0-x64.msix` (built **without**
    `-SelfSignForTesting`).
 3. Store listing / properties: display name **Nodedr POS**, publisher
-   **NODEDR INFOTECH LIMITED** (see the naming-consistency note above),
-   x64 only.
+   **NODEDR INFOTECH PRIVATE LIMITED**, x64 only.
 4. Submit for certification. No code-signing certificate step exists in this
    flow — Microsoft signs after certification passes.
 
