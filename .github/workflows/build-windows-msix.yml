@@ -130,8 +130,25 @@ jobs:
       - name: Start the packaged services (CI check — Store users get this from open-pos.exe)
         shell: pwsh
         run: |
-          Start-Service NodeDRPOSBackend, NodeDRPOSFrontend
+          $failed = $false
+          foreach ($name in @("NodeDRPOSBackend", "NodeDRPOSFrontend")) {
+            Write-Host "==> sc qc $name"
+            sc.exe qc $name
+            Write-Host "==> sc start $name"
+            sc.exe start $name
+            Start-Sleep -Seconds 2
+            Write-Host "==> sc query $name"
+            sc.exe query $name
+          }
+          Write-Host "=== Get-Service ==="
           Get-Service NodeDRPOSBackend, NodeDRPOSFrontend | Format-Table
+          Write-Host "=== System event log: Service Control Manager, last 10 min ==="
+          Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager"; StartTime = (Get-Date).AddMinutes(-10) } -ErrorAction SilentlyContinue |
+            Format-Table -Wrap -AutoSize TimeCreated, Id, Message
+          $states = Get-Service NodeDRPOSBackend, NodeDRPOSFrontend
+          if ($states | Where-Object { $_.Status -ne 'Running' }) {
+            throw "one or both services did not reach Running — see sc.exe/event log output above"
+          }
 
       - name: Wait for the services to come up
         shell: pwsh
