@@ -177,7 +177,9 @@ if (-not $csc) { Die "csc.exe (.NET Framework C# compiler) not found — expecte
 $csSrc = (Get-Content (Join-Path $MsixDir "open-pos.cs.template") -Raw).Replace("@FRONTEND_PORT@", "$FrontendPort")
 $csPath = Join-Path $Work "open-pos.cs"
 Set-Content -Path $csPath -Value $csSrc -Encoding UTF8
-& $csc /nologo /target:winexe /out:"$(Join-Path $Payload 'open-pos.exe')" $csPath
+& $csc /nologo /target:winexe `
+  /r:System.ServiceProcess.dll /r:System.Windows.Forms.dll `
+  /out:"$(Join-Path $Payload 'open-pos.exe')" $csPath
 if ($LASTEXITCODE -ne 0) { Die "csc.exe failed to compile open-pos.cs" }
 Ok "open-pos.exe compiled"
 

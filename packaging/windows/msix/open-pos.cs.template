@@ -1,13 +1,22 @@
 // NodeDR POS — MSIX Start Menu / tile launch target.
 //
 // The packaged Windows Services (NodeDRPOSBackend, NodeDRPOSFrontend) do all
-// the real work and start automatically at boot; this is only what runs when
-// someone clicks the "Nodedr POS" tile. It does exactly what the EXE
-// installer's Start Menu/Desktop shortcuts already do via nodedr-pos.cmd's
-// "open" command: wait for the web port to accept a connection, then hand the
-// URL to the shell so it opens in the user's default browser. There is no
-// embedded browser window and no other UI here on purpose — same "browser
-// tab is the UI" model as the EXE install.
+// the real work; this is what runs when someone clicks the "Nodedr POS"
+// tile. It does exactly what the EXE installer's Start Menu/Desktop
+// shortcuts already do via nodedr-pos.cmd's "open" command: make sure the
+// services are running, wait for the web port to accept a connection, then
+// hand the URL to the shell so it opens in the user's default browser.
+// There is no embedded browser window and no other UI here on purpose —
+// same "browser tab is the UI" model as the EXE install.
+//
+// Starting the services here (not just relying on StartupType="auto") is
+// necessary, confirmed on real windows-latest CI (2026-08-14): Add-AppxPackage
+// registers both services but does NOT start them — like a plain `sc create
+// start=auto`, Windows only auto-starts them at the *next* boot, not the
+// moment they're registered. The EXE installer works around the identical
+// issue with an explicit `net start` at install time and nodedr-pos.cmd's
+// own start-if-not-running check; this is the same fix for the packaged
+// service model.
 //
 // Compiled by build-msix.ps1 via csc.exe (part of the .NET Framework that
 // ships with every windows-latest runner and every Windows 10/11 machine —
@@ -16,7 +25,9 @@
 using System;
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.ServiceProcess;
 using System.Threading;
+using System.Windows.Forms;
 
 class OpenPos
 {
@@ -24,6 +35,9 @@ class OpenPos
     {
         const int port = @FRONTEND_PORT@;
         const int maxAttempts = 45;
+
+        TryStartService("NodeDRPOSBackend");
+        TryStartService("NodeDRPOSFrontend");
 
         for (int i = 0; i < maxAttempts; i++)
         {
@@ -34,22 +48,55 @@ class OpenPos
                     var result = client.BeginConnect("127.0.0.1", port, null, null);
                     if (result.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1)) && client.Connected)
                     {
-                        break;
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "http://localhost:" + port,
+                            UseShellExecute = true,
+                        });
+                        return;
                     }
                 }
             }
             catch
             {
-                // Not up yet — the packaged services may still be starting
-                // after a cold boot. Keep polling until maxAttempts.
+                // Not up yet — keep polling until maxAttempts.
             }
             Thread.Sleep(1000);
         }
 
-        Process.Start(new ProcessStartInfo
+        // Ran out of attempts. Silently opening a browser tab that will just
+        // show "connection refused" is worse than saying what actually
+        // happened — the most likely cause is that this process couldn't
+        // start the services itself (e.g. it isn't elevated and the
+        // packaged-service ACL doesn't grant the interactive user start
+        // rights), which needs a real Windows install to confirm either way.
+        MessageBox.Show(
+            "Nodedr POS didn't start in time. Open Services (services.msc), check that " +
+            "\"Nodedr POS\" (NodeDRPOSBackend and NodeDRPOSFrontend) are Running, and start " +
+            "them manually as Administrator if not, then try again.",
+            "Nodedr POS",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+    }
+
+    static void TryStartService(string serviceName)
+    {
+        try
         {
-            FileName = "http://localhost:" + port,
-            UseShellExecute = true,
-        });
+            using (var sc = new ServiceController(serviceName))
+            {
+                if (sc.Status != ServiceControllerStatus.Running && sc.Status != ServiceControllerStatus.StartPending)
+                {
+                    sc.Start();
+                }
+            }
+        }
+        catch
+        {
+            // Swallow and fall through to the port-poll loop below — if this
+            // genuinely can't start the service (e.g. an ACL/permission
+            // issue), the poll will time out and the message box above
+            // explains what to check, rather than this crashing silently.
+        }
     }
 }

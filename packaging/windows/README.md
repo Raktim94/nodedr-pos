@@ -351,6 +351,19 @@ real-Windows-verification discipline as the EXE workflow.
 - The dropped `.next\cache` junction (see the gap table above) is reasoned
   through, not yet confirmed error-free under MSIX — check the Application
   event log during local/CI testing before submitting.
+- **`Add-AppxPackage` registers the two services but does not start them**
+  (confirmed on real windows-latest CI, 2026-08-14 — `StartupType="auto"`
+  only takes effect at the *next* boot, same as a plain `sc create
+  start=auto`). `open-pos.exe` now starts both services itself before
+  waiting for the port, mirroring `nodedr-pos.cmd`'s existing start-if-not-
+  running check for the EXE install. **Open question, not yet verified**:
+  whether a non-elevated interactive process (the Start Menu tile launch)
+  actually has permission to start a `LocalSystem` service registered via
+  `packagedServices` — if the ACL doesn't grant this, first launch after
+  install would need a manual `Start-Service ... ` as Administrator (or a
+  reboot) instead of "just works." CI works around this by running
+  `Start-Service` from an already-elevated context, which doesn't answer
+  the question for a real Store install.
 - Every manifest detail above (the `desktop6` extension schema, `MinVersion
   10.0.19041.0`, the wrapper approach) is written from Microsoft's public
   documentation, not verified end-to-end on a physical Windows machine from

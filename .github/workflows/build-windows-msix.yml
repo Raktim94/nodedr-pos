@@ -117,6 +117,22 @@ jobs:
           Write-Host "Installing $($msix.Name)"
           Add-AppxPackage -Path $msix.FullName
 
+      # Add-AppxPackage registers the two windows.service extensions but does
+      # NOT start them (confirmed 2026-08-14: same as a plain `sc create
+      # start=auto` — Windows only auto-starts at the *next* boot). The real
+      # Start Menu launch target (open-pos.exe) now starts them itself before
+      # waiting for the port; this step exercises that same start-if-not-
+      # running path here in CI (running as Administrator, same as the CI
+      # runner), independent of whether open-pos.exe's own attempt (running
+      # as whatever account triggers it) turns out to need elevation it
+      # doesn't have — that's still an open question for a real end-user
+      # install, tracked in packaging/windows/README.md.
+      - name: Start the packaged services (CI check — Store users get this from open-pos.exe)
+        shell: pwsh
+        run: |
+          Start-Service NodeDRPOSBackend, NodeDRPOSFrontend
+          Get-Service NodeDRPOSBackend, NodeDRPOSFrontend | Format-Table
+
       - name: Wait for the services to come up
         shell: pwsh
         run: |
