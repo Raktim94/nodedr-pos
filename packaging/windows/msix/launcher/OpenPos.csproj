@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NodeDR POS — MSIX foreground app.
+
+    Targets classic .NET Framework 4.8 (NOT modern .NET) deliberately: 4.8
+    ships on every supported Windows 10/11 install already, so this stays
+    framework-dependent with no runtime to bundle or install — same
+    "nothing for the shopkeeper to install" philosophy as the rest of this
+    packaging (see packaging/windows/README.md). windows-latest GitHub
+    Actions runners have the .NET Framework 4.8 targeting pack preinstalled
+    (part of the Visual Studio Build Tools workload on that image), so
+    `dotnet build`/`dotnet publish` work here with no extra setup — same as
+    every other pinned-version tool in this packaging tree (Node, WinSW),
+    this is a documented, not guessed, capability of that runner image.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>open-pos</AssemblyName>
+    <RootNamespace>NodedrPos.Launcher</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- MSIX identity/version/description live in AppxManifest.xml, not here. -->
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Pinned like every other third-party version in this packaging tree
+      (Node in build-windows.ps1's -NodeVersion, WinSW's -WinswVersion) —
+      NOT verified against nuget.org's current "latest" from this Linux
+      build environment (no network access to check here). Before a real
+      Store submission, confirm this is still a published, current version
+      at https://www.nuget.org/packages/Microsoft.Web.WebView2 and bump it
+      if not — `dotnet restore` will fail loudly with a clear "package not
+      found" error if this version has been unlisted, so a stale pin fails
+      safely rather than silently building against something wrong.
+    -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+</Project>

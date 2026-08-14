@@ -240,25 +240,42 @@ Building it never touches or depends on `nodedr-pos.nsi` /
 
 ### What's different from the EXE install
 
-NodeDR POS is two always-on Windows Services with no foreground window (the
-"UI" is the shop's browser pointed at `http://localhost:1994`) — WinSW +
-NSIS handle that today with a proper installer. MSIX has a real, documented
-way to package per-machine Windows Services (the `windows.service` manifest
-extension, `LocalSystem` account, gated behind the **`packagedServices`** and
-**`localSystemServices`** restricted capabilities), but three things needed
-fixing before it actually worked, which `packaging/windows/msix/` handles at
-the packaging layer — **no changes to `backend/src` or `frontend` application
-logic**, other than one intentionally small addition (see below):
+The EXE install is two always-on Windows Services with no foreground window
+(the "UI" is the shop's browser pointed at `http://localhost:1994`) — WinSW +
+NSIS handle that today. **The MSIX build is architecturally different on
+purpose, not just repackaged**: it is a real foreground app.
+`open-pos.exe` (`packaging/windows/msix/launcher/`) is a small WebView2-hosted
+window — when the shopkeeper opens it, it spawns the backend and frontend as
+its own plain child processes (no Windows Service, no SCM registration), waits
+for the frontend's port, and shows the POS UI inside its own app window
+instead of opening a browser tab. Closing the window stops both child
+processes.
 
-| Gap | Fix |
+This was a deliberate trade-off, not a default: an earlier draft of this MSIX
+package used the `windows.service` manifest extension (WinSW-wrapped, same
+model as the EXE install) and needed the **`packagedServices`** and
+**`localSystemServices`** restricted capabilities for it — both gone now.
+The one thing given up for that: **this build is single-machine and
+foreground-only**. Unlike the EXE/Docker installs, other devices on the shop
+LAN (a counter tablet, a phone doing camera-scan) cannot reach the POS from
+this build while its window is closed — the frontend binds to `127.0.0.1`
+only and no firewall rules are opened. If that trade-off ever needs
+reversing, the Windows-Service model is still exactly what the EXE install
+uses; see git history for the pre-2026-08-14 version of this package for the
+`windows.service`/WinSW approach.
+
+`packaging/windows/msix/` handles this at the packaging layer —
+**no changes to `backend/src` or `frontend` application logic** beyond what
+was already there for the EXE install (`ensureFirewallRules()` simply stays
+a no-op here since `MANAGE_FIREWALL` is never set for this path):
+
+| Problem | Fix |
 |---|---|
-| **`windows.service` only handles SCM *registration*, not the actual Windows Service Control Protocol.** Pointing it directly at `runtime\node.exe` — the first attempt — installed fine but failed to *start*: `StartService FAILED 1053` ("service didn't respond to the start request in time"), confirmed on real Windows CI. `node.exe` never calls `StartServiceCtrlDispatcher`, so the SCM waits forever for a signal that never comes. | **WinSW is kept inside the MSIX package** (not removed, as an earlier draft of this did) and does the same job it does for the EXE install — it's a real service-protocol-speaking binary that spawns `node.exe` as its own child and relays start/stop. The manifest's `Executable` points at `service\nodedr-pos-*.exe` (WinSW), not `node.exe` directly. |
-| `windows.service` has no attribute for environment variables or a working directory | WinSW's own XML `<env>` blocks (`packaging/windows/service/*.xml`) already solve this — same files the EXE install uses, copied unmodified into the MSIX payload. Only the backend's copied XML gets its `<arguments>` repointed (by `build-msix.ps1`, a text substitution, not a new template) at `msix-wrappers/backend-service.js` instead of `server.js` directly; the frontend's XML is used as-is. |
-| No installer-time hook to run `prisma migrate deploy` | The backend wrapper runs it on every service start instead (idempotent — applies only new migrations, so this covers first-run schema creation *and* future-version upgrades) |
-| The `backend\data` / `.next\cache` NTFS junction trick (MSIX's install root is read-only at runtime, unlike Program Files) | The backend wrapper generates/reads a real random `JWT_SECRET` at `C:\ProgramData\NodeDRPOS\.jwt-secret` (same generation technique `backend/src/lib/secret.js` itself uses) and passes it in as an env var — `secret.js` already checks `process.env.JWT_SECRET` first, so the file-write path this junction exists for is never reached, and (unlike an earlier draft) every install still gets its own real random secret rather than a build-time-baked one shared across installs. `DATABASE_URL` already pointed outside the install tree (`C:\ProgramData\NodeDRPOS\pos.db`) even in the EXE install, so no change needed there. The `.next\cache` junction is simply dropped — it's Next's own build/ISR cache, not user data; most routes here are server-rendered on demand rather than ISR-cached, so this is expected to fail-soft, but it's a genuine open item to confirm via the Application event log in local/CI testing rather than an assumption. |
-| `netsh advfirewall` firewall rules (today: installer-time, elevated) | MSIX has no manifest primitive for this. `backend/src/server.js` gained a ~25-line `ensureFirewallRules()` function, opt-in via `MANAGE_FIREWALL=1` (set only by the MSIX wrapper, never in Docker/Debian/dev/the EXE install), which registers the same two rules the installer would have — safe because the service already runs as `LocalSystem`, so no new elevation is needed. **This is the one real application-code change in the whole MSIX conversion.** |
+| MSIX's install root is read-only at runtime, unlike Program Files (no NTFS junction trick available) | `msix-wrappers/backend-service.js` (spawned directly by `open-pos.exe`, see below) generates/reads a real random `JWT_SECRET` at `C:\ProgramData\NodeDRPOS\.jwt-secret` (same technique `backend/src/lib/secret.js` itself uses) and passes it in as an env var — `secret.js` already checks `process.env.JWT_SECRET` first. `DATABASE_URL` already pointed outside the install tree (`C:\ProgramData\NodeDRPOS\pos.db`) even in the EXE install, so no change needed there. |
+| No installer-time hook to run `prisma migrate deploy` | The backend wrapper runs it every time `open-pos.exe` starts the backend process instead (idempotent — applies only new migrations, so this covers first-run schema creation *and* future-version upgrades) |
+| No Start Menu tile behavior at all until built | `open-pos.exe` (`packaging/windows/msix/launcher/`, `dotnet publish`-built .NET Framework 4.8 WinForms + WebView2 app) — spawns both child processes via `System.Diagnostics.Process`, assigns them to a Win32 Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (so they're force-terminated if this app crashes, not just on a clean close — the same technique Electron uses on Windows), waits for the frontend port, then shows a `WebView2` control navigated at `http://localhost:1994`. A named Mutex guards against a second launch spawning a conflicting second pair of processes. |
+| WebView2's default user-data folder is next to the exe — the read-only package root | `Program.cs` passes an explicit `userDataFolder` under `C:\ProgramData\NodeDRPOS\webview2-data` to `CoreWebView2Environment.CreateAsync`. |
 | Missing MSIX visual asset set | Generated fresh every build from `frontend/public/logo.png` (same "generate at build time" approach `build-windows.ps1` already uses for the EXE's `.ico`) — 44/71/150/310×150/StoreLogo sizes |
-| No foreground app to launch from the Start Menu tile, and (found on real CI) the packaged services don't auto-start the moment they're installed — `StartupType="auto"` only takes effect at the *next* boot | `open-pos.cs.template` — a C# stub, compiled at build time via `csc.exe` (ships with every Windows install), that starts both services itself (`System.ServiceProcess.ServiceController`) before waiting for the port and opening the default browser — same start-if-not-running check `nodedr-pos.cmd open` already does for the EXE install. **Open question, not yet resolved**: whether a non-elevated interactive launch actually has permission to start a `LocalSystem` service — see the certification-risks list below. |
 
 Everything else — login, POS flow, printing, barcode scanning, the database,
 the API — is unmodified application code. The direct-USB ESC/POS print path
@@ -314,8 +331,12 @@ Import-Certificate -FilePath <path printed by build-msix.ps1> -CertStoreLocation
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" -Name AllowAllTrustedApps -Value 1
 
 Add-AppxPackage -Path dist\Nodedr-POS-1.0.0.0-x64.msix
-Get-Service NodeDRPOSBackend, NodeDRPOSFrontend        # both should be Running
-Start-Process http://localhost:1994                    # login, POS flow, print, barcode
+
+# Launch from the Start Menu ("Nodedr POS") or:
+Start-Process shell:AppsFolder\$(Get-AppxPackage -Name "*NodedrPOS*").PackageFamilyName!NodeDRPOS
+# A window should open showing the POS UI directly (no browser tab) — try
+# login, POS flow, print, barcode. Closing the window should also end the
+# two node.exe child processes (check Task Manager).
 Get-WinEvent -LogName Application -MaxEvents 50 | Where-Object LevelDisplayName -eq Error
 
 $pkg = Get-AppxPackage -Name "*NodedrPOS*"
@@ -341,46 +362,47 @@ real-Windows-verification discipline as the EXE workflow.
 
 ### Certification risks — not guaranteed
 
-- **`localSystemServices` is a restricted capability.** Microsoft's
-  certification team reviews these case by case; declaring it correctly in
-  the manifest doesn't guarantee approval.
-- **No foreground app on launch is an unusual Store app shape.** This
-  product's prior Store submission was rejected on signing (10.2.9) before
-  reaching a full functional/content review — that review, and how it treats
-  an app whose Start Menu tile opens a browser tab rather than showing UI
-  itself, hasn't been tested yet.
-- The dropped `.next\cache` junction (see the gap table above) is reasoned
-  through, not yet confirmed error-free under MSIX — check the Application
-  event log during local/CI testing before submitting.
-- **`Add-AppxPackage` registers the two services but does not start them**
-  (confirmed on real windows-latest CI, 2026-08-14 — `StartupType="auto"`
-  only takes effect at the *next* boot, same as a plain `sc create
-  start=auto`). `open-pos.exe` now starts both services itself before
-  waiting for the port, mirroring `nodedr-pos.cmd`'s existing start-if-not-
-  running check for the EXE install. **Open question, not yet verified**:
-  whether a non-elevated interactive process (the Start Menu tile launch)
-  actually has permission to start a `LocalSystem` service registered via
-  `packagedServices` — if the ACL doesn't grant this, first launch after
-  install would need a manual `Start-Service ... ` as Administrator (or a
-  reboot) instead of "just works." CI works around this by running
-  `Start-Service` from an already-elevated context, which doesn't answer
-  the question for a real Store install.
-- Every manifest detail above (the `desktop6` extension schema, `MinVersion
-  10.0.19041.0`, the wrapper approach) is written from Microsoft's public
-  documentation, not verified end-to-end on a physical Windows machine from
-  this build environment — `makeappx pack` and the CI install/uninstall
-  cycle are the real validation gates; a clean CI run is meaningfully more
-  evidence than the manifest merely looking right.
+- **`runFullTrust` is still a restricted capability.** Microsoft's
+  certification team reviews it case by case; declaring it correctly in the
+  manifest doesn't guarantee approval — but it's the single most common
+  restricted capability in the Store (every classic Win32 app packaged as
+  MSIX needs it), so friction here is expected to be materially lower than
+  the previous `packagedServices`/`localSystemServices` declarations were.
+- **WebView2 Runtime dependency, not yet confirmed on a physical machine
+  from this build environment.** The Evergreen WebView2 Runtime ships with
+  Windows 11 and current Windows 10 by default (bundled with Microsoft
+  Edge), so this is expected to be a non-issue on real hardware — but
+  `Program.cs` has an explicit fallback message if `CoreWebView2Environment.
+  CreateAsync` throws `WebView2RuntimeNotFoundException`, and this hasn't
+  been exercised on a machine that's actually missing it. Confirm on real
+  Windows CI / hardware before submitting.
+- **This is a foreground-only, single-machine app now — a real functional
+  change from the earlier always-on-services draft**, not just a packaging
+  detail. If Partner Center's functional review expects the "install once,
+  runs in the background" shape the product's own README describes for the
+  EXE/Docker installs, this MSIX build's foreground-only scope should be
+  called out explicitly in the certification notes (see below) rather than
+  assumed obvious.
+- Every manifest and launcher detail above is written from Microsoft's
+  public documentation and the WebView2 SDK's own docs, not verified
+  end-to-end on a physical Windows machine from this build environment —
+  `makeappx pack`, `dotnet publish`, and the CI install/uninstall cycle are
+  the real validation gates; a clean CI run is meaningfully more evidence
+  than the manifest merely looking right.
 
 ## Notes for certification (suggested text for Store reviewers)
 
-> NodeDR POS installs two Windows Services (NodeDRPOSBackend, NodeDRPOSFrontend)
-> and opens local firewall port 1994 for LAN access from a counter tablet/phone
-> (private/domain network profiles only). No pre-seeded test account exists —
-> the first launch shows a registration screen; create an admin account there
+> NodeDR POS is a single-machine, offline-first Point of Sale app. Opening it
+> starts its own local backend and web server as child processes (bound to
+> 127.0.0.1 only — no network services, no LAN exposure in this Store build)
+> and displays the POS UI in this app's own window via WebView2; closing the
+> window stops those processes. No pre-seeded test account exists — the
+> first launch shows a registration screen; create an admin account there
 > (Settings → Company, then add a product, then run a sale through the POS
 > screen to exercise the full checkout flow). USB thermal printer support is
 > optional and not required to test core functionality — printing also works
-> via the browser print dialog with no physical printer attached. Elevation
-> (UAC) during install is expected and by design (installing Windows Services
-> requires it); the installer UI itself runs silently per Store requirements.
+> via the built-in print dialog with no physical printer attached. This
+> package declares `runFullTrust` because it launches local Node.js
+> processes as part of its normal operation (the backend API and web
+> server) — it installs and runs no system service and requests no other
+> restricted capability.

@@ -15,18 +15,22 @@
   $env:NODEDR_MSIX_IDENTITY_NAME / $env:NODEDR_MSIX_PUBLISHER_CN. The build
   fails loudly if either is still a placeholder — see build-msix.ps1.
 
-  Declares NodeDR POS as a full-trust Win32 app (Desktop Bridge) with two
-  packaged Windows Services (backend, frontend), matching what the NSIS/WinSW
-  installer already registers today — same service IDs, same ports, same
-  LocalSystem start account. See packaging/windows/README.md's "MSIX
-  (Microsoft Store)" section for what changed vs. the EXE installer and why.
+  Declares NodeDR POS as a full-trust Win32 app (Desktop Bridge). The app
+  itself (open-pos.exe, a WebView2-hosted window — see launcher\Program.cs)
+  spawns the backend and frontend as plain child processes when it opens and
+  stops them when it closes; there is no packaged Windows Service and no
+  windows.service extension, so this package only needs the one restricted
+  capability every Desktop Bridge app needs (runFullTrust), not
+  packagedServices/localSystemServices. See packaging/windows/README.md's
+  "MSIX (Microsoft Store)" section for the reasoning and the trade-off this
+  implies (foreground-only — no LAN access from other devices while the app
+  is closed, unlike the EXE/Docker installs).
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
-  IgnorableNamespaces="uap rescap desktop6">
+  IgnorableNamespaces="uap rescap">
 
   <Identity
     Name="@PACKAGE_IDENTITY_NAME@"
@@ -46,54 +50,44 @@
   </Resources>
 
   <!--
-    windows.service (desktop6) requires build 19041 (Windows 10, version 2004)
-    or later. This has NOT been confirmed against a real Windows install by
-    this build — makeappx pack / the Windows App Certification Kit on the
-    windows-latest CI runner is the actual validation gate. Do not treat this
-    MinVersion as verified fact.
+    This has NOT been confirmed against a real Windows install by this
+    build — makeappx pack / the Windows App Certification Kit on the
+    windows-latest CI runner is the actual validation gate. Do not treat
+    this MinVersion as verified fact. 10.0.17763.0 (Windows 10 1809) is
+    WebView2's own documented minimum OS; kept here rather than dropped
+    further since the app is unusable without it.
   -->
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.19041.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.17763.0" />
   </Dependencies>
 
   <!--
-    runFullTrust: required for any Desktop Bridge (Win32-in-MSIX) app.
-    packagedServices: required for ANY windows.service extension use,
-    regardless of start account (localService/networkService/localSystem).
-    localSystemServices: an ADDITIONAL requirement layered on top of
-    packagedServices specifically because both services here start as
-    LocalSystem (matching WinSW's default today). Confirmed by makeappx
-    pack itself on the windows-latest CI runner (2026-08-14): the first
-    build attempt, declaring only localSystemServices, failed with
-    "error 80080204: ... requires 'packagedServices' capability" at the
-    windows.service Extension element — this is real Windows-verified
-    fact, not a guess. All three are RESTRICTED capabilities — Microsoft's
-    certification team reviews these case by case; declaring them
-    correctly does not guarantee approval.
+    runFullTrust is required for any Desktop Bridge (Win32-in-MSIX) app —
+    unavoidable here since the app spawns node.exe child processes, which a
+    sandboxed UWP app cannot do. It is still a RESTRICTED capability:
+    Microsoft's certification team reviews it case by case, and declaring
+    it correctly does not guarantee approval — but it is the single most
+    common restricted capability in the Store (every classic Win32 app
+    packaged as MSIX declares it), so certification friction here is
+    expected to be materially lower than the previous packagedServices/
+    localSystemServices declarations were. This package deliberately does
+    NOT declare those two: there is no packaged Windows Service anymore
+    (see this file's header comment) to require them.
   -->
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
-    <rescap:Capability Name="packagedServices" />
-    <rescap:Capability Name="localSystemServices" />
   </Capabilities>
 
   <Applications>
     <!--
-      There is no real foreground app — the POS UI is the shop's browser
-      pointed at http://localhost:@FRONTEND_PORT@, exactly as with the EXE
-      install today. This Application entry exists because MSIX requires at
-      least one Application with visual elements for Start Menu / Store
-      listing purposes.
-
-      Executable is open-pos.exe, NOT runtime\node.exe directly: the
-      <Application> element has no standard way to pass a script path as an
-      argument to node.exe, so build-msix.ps1 compiles a ~15-line C# stub
-      (open-pos.cs.template -> open-pos.exe, via csc.exe on the
-      windows-latest runner, same "generate at build time" pattern
-      build-windows.ps1 already uses for the .ico) that does exactly what
-      the EXE installer's Start Menu/Desktop shortcuts already do: wait for
-      http://localhost:@FRONTEND_PORT@ to accept a connection, then open it
-      in the default browser. See open-pos.cs.template.
+      open-pos.exe (packaging/windows/msix/launcher/) IS the real foreground
+      app now — a WebView2-hosted window, not a stub. On launch it starts the
+      backend and frontend as its own child processes, waits for the
+      frontend's port, then navigates the embedded WebView2 control to
+      http://localhost:@FRONTEND_PORT@. Closing the window stops both child
+      processes (see launcher\Program.cs's JobObject). No windows.service
+      extension, no WinSW — see packaging/windows/README.md's "MSIX
+      (Microsoft Store)" section for what changed and why.
     -->
     <Application Id="NodeDRPOS" Executable="open-pos.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
@@ -104,33 +98,6 @@
         BackgroundColor="transparent">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" />
       </uap:VisualElements>
-      <Extensions>
-        <!--
-          Executable is service\nodedr-pos-*.exe (WinSW), NOT runtime\node.exe
-          directly. windows.service only handles SCM *registration*
-          (StartAccount/StartupType) — it does not make an arbitrary
-          long-running process speak the actual Windows Service Control
-          Protocol (StartServiceCtrlDispatcher / reporting RUNNING back to
-          the SCM). Confirmed on real Windows CI (2026-08-14): pointing this
-          directly at node.exe failed with "StartService FAILED 1053"
-          (service never reported RUNNING within the timeout) because
-          node.exe never performs that handshake. WinSW already solves
-          exactly this for the EXE install (it's a real Windows-service-
-          protocol-speaking binary that spawns node.exe as its own child
-          process and relays start/stop), so the MSIX package keeps and
-          reuses it instead of trying to replace it — see
-          backend-service.js.template's header comment for the full
-          rationale, and build-msix.ps1 for how the backend's copied WinSW
-          XML gets repointed at that wrapper (JWT secret + prisma migrate
-          deploy) while the frontend's WinSW XML is used unmodified.
-        -->
-        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="service\nodedr-pos-backend.exe">
-          <desktop6:Service Name="NodeDRPOSBackend" StartAccount="localSystem" StartupType="auto" />
-        </desktop6:Extension>
-        <desktop6:Extension Category="windows.service" EntryPoint="Windows.FullTrustApplication" Executable="service\nodedr-pos-frontend.exe">
-          <desktop6:Service Name="NodeDRPOSFrontend" StartAccount="localSystem" StartupType="auto" />
-        </desktop6:Extension>
-      </Extensions>
     </Application>
   </Applications>
 </Package>

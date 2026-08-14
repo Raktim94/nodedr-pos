@@ -117,40 +117,26 @@ jobs:
           Write-Host "Installing $($msix.Name)"
           Add-AppxPackage -Path $msix.FullName
 
-      # Add-AppxPackage registers the two windows.service extensions but does
-      # NOT start them (confirmed 2026-08-14: same as a plain `sc create
-      # start=auto` — Windows only auto-starts at the *next* boot). The real
-      # Start Menu launch target (open-pos.exe) now starts them itself before
-      # waiting for the port; this step exercises that same start-if-not-
-      # running path here in CI (running as Administrator, same as the CI
-      # runner), independent of whether open-pos.exe's own attempt (running
-      # as whatever account triggers it) turns out to need elevation it
-      # doesn't have — that's still an open question for a real end-user
-      # install, tracked in packaging/windows/README.md.
-      - name: Start the packaged services (CI check — Store users get this from open-pos.exe)
+      # There is no packaged Windows Service anymore (see
+      # packaging/windows/README.md's "MSIX" section) — open-pos.exe IS the
+      # app, and it spawns the backend/frontend as its own child processes
+      # when launched. Launching the exe directly from its install location
+      # (rather than via shell:AppsFolder\<PackageFamilyName>!NodeDRPOS)
+      # is deliberate for CI reliability: for a runFullTrust app with no
+      # WinRT/Package-identity API usage, the two are functionally
+      # equivalent, and a direct exe path avoids depending on Explorer/shell
+      # activation working inside a CI session.
+      - name: Launch the app
         shell: pwsh
         run: |
-          $failed = $false
-          foreach ($name in @("NodeDRPOSBackend", "NodeDRPOSFrontend")) {
-            Write-Host "==> sc qc $name"
-            sc.exe qc $name
-            Write-Host "==> sc start $name"
-            sc.exe start $name
-            Start-Sleep -Seconds 2
-            Write-Host "==> sc query $name"
-            sc.exe query $name
-          }
-          Write-Host "=== Get-Service ==="
-          Get-Service NodeDRPOSBackend, NodeDRPOSFrontend | Format-Table
-          Write-Host "=== System event log: Service Control Manager, last 10 min ==="
-          Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager"; StartTime = (Get-Date).AddMinutes(-10) } -ErrorAction SilentlyContinue |
-            Format-Table -Wrap -AutoSize TimeCreated, Id, Message
-          $states = Get-Service NodeDRPOSBackend, NodeDRPOSFrontend
-          if ($states | Where-Object { $_.Status -ne 'Running' }) {
-            throw "one or both services did not reach Running — see sc.exe/event log output above"
-          }
+          $pkg = Get-AppxPackage -Name "*NodedrPOS*" | Select-Object -First 1
+          if (-not $pkg) { throw "package not found after install" }
+          $exe = Join-Path $pkg.InstallLocation "open-pos.exe"
+          if (-not (Test-Path $exe)) { throw "open-pos.exe not found at $exe" }
+          Write-Host "Starting $exe"
+          Start-Process -FilePath $exe
 
-      - name: Wait for the services to come up
+      - name: Wait for the POS to come up
         shell: pwsh
         run: |
           $ok = $false
@@ -161,8 +147,11 @@ jobs:
             } catch { Start-Sleep -Seconds 2 }
           }
           if (-not $ok) {
-            Write-Host "=== service state ==="
-            Get-Service NodeDRPOSBackend, NodeDRPOSFrontend -ErrorAction SilentlyContinue | Format-Table
+            Write-Host "=== open-pos.exe / node.exe processes ==="
+            Get-Process open-pos, node -ErrorAction SilentlyContinue | Format-Table
+            Write-Host "=== C:\ProgramData\NodeDRPOS\logs ==="
+            Get-ChildItem "C:\ProgramData\NodeDRPOS\logs" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "--- $($_.Name) ---"; Get-Content $_.FullName -ErrorAction SilentlyContinue | Select-Object -Last 40 }
             Write-Host "=== event log (Application) ==="
             Get-WinEvent -LogName Application -MaxEvents 50 -ErrorAction SilentlyContinue |
               Where-Object { $_.LevelDisplayName -eq "Error" } | Format-Table -AutoSize
@@ -170,21 +159,37 @@ jobs:
           }
           Write-Host "API healthy"
 
-      - name: Verify services and firewall rules
+      - name: Verify process tree and loopback-only binding
         shell: pwsh
         run: |
           $fail = 0
           function Check($name, [bool]$cond) {
             if ($cond) { Write-Host "  [PASS] $name" } else { Write-Host "  [FAIL] $name"; $script:fail++ }
           }
-          Check "backend service running"  ((Get-Service NodeDRPOSBackend).Status  -eq 'Running')
-          Check "frontend service running" ((Get-Service NodeDRPOSFrontend).Status -eq 'Running')
+          Check "open-pos.exe running"      ((Get-Process open-pos -ErrorAction SilentlyContinue) -ne $null)
+          Check "two node.exe children running" ((Get-Process node -ErrorAction SilentlyContinue | Measure-Object).Count -eq 2)
           Check "database created" (Test-Path "C:\ProgramData\NodeDRPOS\pos.db")
-          # Registered by the backend service itself at startup (MANAGE_FIREWALL) —
-          # see backend/src/server.js — since MSIX has no installer-time hook.
-          Check "firewall allow rule for the web port" ((netsh advfirewall firewall show rule name="NodeDR POS Web" | Out-String) -match "1994")
-          Check "firewall block rule for the API port" ((netsh advfirewall firewall show rule name="NodeDR POS API (internal only)" | Out-String) -match "Block")
+          # This build deliberately binds the frontend to 127.0.0.1 only — no
+          # LAN exposure, no firewall rules opened (see packaging/windows/
+          # README.md's MSIX section on the foreground-only trade-off).
+          $conn = Get-NetTCPConnection -LocalPort 1994 -State Listen -ErrorAction SilentlyContinue
+          Check "port 1994 bound to loopback only (not 0.0.0.0/::)" (($conn | Measure-Object).Count -gt 0 -and ($conn | ForEach-Object { $_.LocalAddress } | Where-Object { $_ -notin @("127.0.0.1", "::1") } | Measure-Object).Count -eq 0)
           if ($fail -gt 0) { throw "$fail check(s) failed" }
+
+      # Regression check for launcher\Program.cs's Job Object: killing
+      # open-pos.exe should force-terminate both node.exe children
+      # (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE), not leave them orphaned.
+      - name: Verify closing the app stops its child processes
+        shell: pwsh
+        run: |
+          Stop-Process -Name open-pos -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
+          $orphaned = Get-Process node -ErrorAction SilentlyContinue
+          if ($orphaned) {
+            $orphaned | Format-Table
+            throw "node.exe process(es) survived open-pos.exe closing — Job Object cleanup did not work"
+          }
+          Write-Host "  [PASS] no orphaned node.exe processes after closing the app"
 
       - name: Check Application event log for errors
         shell: pwsh
@@ -218,9 +223,8 @@ jobs:
           $pkg = Get-AppxPackage -Name "*NodedrPOS*" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($pkg) { Remove-AppxPackage -Package $pkg.PackageFullName }
           Start-Sleep -Seconds 5
-          if ((Get-Service NodeDRPOSBackend  -ErrorAction SilentlyContinue)) { throw "backend service still registered after uninstall" }
-          if ((Get-Service NodeDRPOSFrontend -ErrorAction SilentlyContinue)) { throw "frontend service still registered after uninstall" }
-          Write-Host "  [PASS] services removed"
+          if ((Get-AppxPackage -Name "*NodedrPOS*" -ErrorAction SilentlyContinue)) { throw "package still registered after uninstall" }
+          Write-Host "  [PASS] package removed"
           if (-not (Test-Path "C:\ProgramData\NodeDRPOS\pos.db")) { throw "uninstall deleted the database — it must be preserved" }
           Write-Host "  [PASS] database preserved through uninstall (ProgramData is outside the MSIX package)"
 

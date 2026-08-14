@@ -1,11 +1,12 @@
-// NodeDR POS — MSIX backend service entry point, run by WinSW (see below for
-// why WinSW is still needed inside the MSIX package).
+// NodeDR POS — MSIX backend entry point, spawned directly as a plain child
+// process by open-pos.exe (packaging/windows/msix/launcher/Program.cs) —
+// there is no Windows Service and no WinSW in this package; see
+// AppxManifest.xml.template's header comment for why.
 //
 // PORT/NODE_ENV/FRONTEND_ORIGIN/COOKIE_SECURE/DATABASE_URL/CHECKPOINT_DISABLE/
-// PRISMA_HIDE_UPDATE_MESSAGE all come from the WinSW service XML's own <env>
-// blocks (packaging/windows/service/nodedr-pos-backend.xml) — identical to
-// the EXE install, inherited automatically since WinSW spawns this script as
-// its child process. This wrapper only adds what's specific to the MSIX path:
+// PRISMA_HIDE_UPDATE_MESSAGE all come from the environment block
+// Program.cs's StartChild() sets on the child process it spawns for this
+// script. This wrapper only adds what's specific to the MSIX path:
 //
 // 1. A real random JWT_SECRET. The EXE install lets backend/src/lib/secret.js
 //    write one to a path relative to its own source file, then redirects
@@ -23,28 +24,13 @@
 //    future version's migrations on upgrade. `migrate deploy` only applies
 //    migrations not already recorded, so it's a no-op on every boot after
 //    the first.
-// 3. FRONTEND_PORT and MANAGE_FIREWALL — see backend/src/server.js's
-//    ensureFirewallRules(). Deliberately not added to the shared WinSW XML
-//    template: that template is also used by the EXE install, which already
-//    gets its firewall rules from nodedr-pos.nsi at install time and must
-//    not also run this.
 //
-// Why WinSW is still needed here at all: MSIX's windows.service manifest
-// extension only handles SCM *registration* (start type, account). It does
-// not make an arbitrary long-running process speak the actual Windows
-// Service Control Protocol (StartServiceCtrlDispatcher / reporting RUNNING
-// back to the SCM) — confirmed on real Windows CI (2026-08-14): pointing
-// the extension directly at runtime\node.exe failed with
-// "StartService FAILED 1053" (service didn't respond to the start request
-// in time), because node.exe never performs that handshake. WinSW already
-// solves exactly this for the EXE install, so the MSIX manifest points its
-// windows.service Executable at service\nodedr-pos-backend.exe (WinSW)
-// instead of at node.exe directly, and build-msix.ps1 repoints that
-// service's own <arguments> at this wrapper instead of server.js.
-//
-// Token-substituted by build-msix.ps1 (@FRONTEND_PORT@).
-process.env.FRONTEND_PORT = process.env.FRONTEND_PORT || "@FRONTEND_PORT@";
-process.env.MANAGE_FIREWALL = "1";
+// MANAGE_FIREWALL is deliberately NOT set here (unlike an earlier,
+// service-based draft of this file): this MSIX build is foreground-only
+// (see AppxManifest.xml.template's header comment) and Program.cs binds the
+// frontend to 127.0.0.1 only, so there is no LAN-facing port to open a
+// firewall rule for. backend/src/server.js's ensureFirewallRules() stays a
+// no-op here, same as it already is for Docker/Debian/dev.
 
 const path = require("path");
 const fs = require("fs");

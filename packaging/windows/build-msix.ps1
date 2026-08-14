@@ -5,15 +5,17 @@
 
 .DESCRIPTION
   MUST run on Windows (same reason as build-windows.ps1: native Node addons,
-  Prisma's platform-specific engine, plus this script additionally needs
-  csc.exe and makeappx.exe, both Windows-only).
+  Prisma's platform-specific engine, plus this script additionally needs the
+  dotnet SDK (to publish the WebView2 launcher) and makeappx.exe, both
+  Windows-only).
 
   Does NOT touch, replace, or depend on the NSIS/EXE installer output. It
   calls build-windows.ps1 -SkipInstaller to get the same staged payload the
   EXE installer uses (single source of truth for "what files ship"), strips
-  out the WinSW/NSIS-specific pieces the MSIX manifest replaces (service\,
-  bin\), adds the MSIX manifest + visual assets + a small compiled launcher,
-  and packs it with makeappx.
+  out the WinSW/NSIS-specific pieces this package has no use for (service\,
+  bin\ — see the "Assembling the MSIX payload" step below), adds the MSIX
+  manifest + visual assets + the WebView2-hosted launcher app, and packs it
+  with makeappx.
 
   Package identity (Name + Publisher CN) is intentionally NOT hardcoded
   anywhere in this repo — it comes from Partner Center -> your app -> Product
@@ -87,46 +89,37 @@ Ok "staged payload at $Stage"
 
 Step "Assembling the MSIX payload"
 Copy-Item $Stage $Payload -Recurse
-# service\ (WinSW) is KEPT — see the long comment in backend-service.js.template
-# for why: MSIX's windows.service extension only handles SCM registration,
-# it does not make an arbitrary process speak the Service Control Protocol.
-# Confirmed on real Windows CI (2026-08-14): pointing the extension directly
-# at runtime\node.exe fails with "StartService FAILED 1053" (service never
-# reports RUNNING back to the SCM). WinSW already solves exactly this for
-# the EXE install, so it does the same job here instead of being replaced.
-# bin\ (the EXE install's nodedr-pos.cmd operator CLI) is still removed —
-# open-pos.exe is its MSIX equivalent.
+# service\ (WinSW) is REMOVED here — this package has no packaged Windows
+# Service anymore. open-pos.exe (packaging/windows/msix/launcher/) spawns
+# the backend and frontend as its own plain child processes instead; see
+# AppxManifest.xml.template's header comment for the reasoning and the
+# packagedServices/localSystemServices capabilities this drops. service\ is
+# still built and used by the EXE install (build-windows.ps1's own output),
+# just not shipped inside the MSIX.
+# bin\ (the EXE install's nodedr-pos.cmd operator CLI) is also removed —
+# it has no MSIX equivalent; the launcher's log files under
+# C:\ProgramData\NodeDRPOS\logs\ are the MSIX path's equivalent visibility.
+Remove-Item (Join-Path $Payload "service") -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $Payload "bin") -Recurse -Force -ErrorAction SilentlyContinue
 # The EXE's .ico (if it exists) is not part of the MSIX visual asset set;
 # MSIX assets are generated fresh below.
 Remove-Item (Join-Path $Payload "nodedr-pos.ico") -Force -ErrorAction SilentlyContinue
-Ok "payload ready at $Payload (bin\ removed — open-pos.exe replaces it; service\ kept, see above)"
+Ok "payload ready at $Payload (bin\ and service\ removed — open-pos.exe replaces both)"
 
 # ---------------------------------------------------------------------------
-# 1b. Backend service entry-point wrapper (JWT secret + prisma migrate
-#     deploy — see the file's own header comment for the full rationale) and
-#     repointing WinSW's own copied XML config at it instead of server.js
-#     directly. The frontend needs no wrapper: its WinSW XML already sets
-#     everything it needs and calls frontend\server.js unmodified, same as
-#     the EXE install.
+# 1b. Backend entry-point wrapper (JWT secret + prisma migrate deploy — see
+#     the file's own header comment for the full rationale). open-pos.exe
+#     spawns runtime\node.exe directly against this script (see
+#     launcher\Program.cs's StartChild call for the backend process) instead
+#     of server.js — no WinSW, no XML config to repoint. The frontend needs
+#     no wrapper: Program.cs spawns frontend\server.js directly with the env
+#     vars it needs set on the child process.
 # ---------------------------------------------------------------------------
-Step "Writing the backend service wrapper"
+Step "Writing the backend entry-point wrapper"
 $WrappersDir = Join-Path $Payload "msix-wrappers"
 New-Item -ItemType Directory -Force -Path $WrappersDir | Out-Null
-$backendWrapperJs = (Get-Content (Join-Path $MsixDir "backend-service.js.template") -Raw).
-  Replace("@FRONTEND_PORT@", "$FrontendPort")
-Set-Content -Path (Join-Path $WrappersDir "backend-service.js") -Value $backendWrapperJs -Encoding UTF8
-
-$backendXmlPath = Join-Path $Payload "service\nodedr-pos-backend.xml"
-$backendXml = (Get-Content $backendXmlPath -Raw).Replace(
-  '<arguments>"%BASE%\..\backend\src\server.js"</arguments>',
-  '<arguments>"%BASE%\..\msix-wrappers\backend-service.js"</arguments>'
-)
-if ($backendXml -notmatch [regex]::Escape('msix-wrappers\backend-service.js')) {
-  Die "failed to repoint nodedr-pos-backend.xml at the MSIX wrapper — the <arguments> line in packaging/windows/service/nodedr-pos-backend.xml may have changed format"
-}
-Set-Content -Path $backendXmlPath -Value $backendXml -Encoding UTF8
-Ok "wrapper written to msix-wrappers\, backend WinSW config repointed at it"
+Copy-Item (Join-Path $MsixDir "backend-service.js.template") (Join-Path $WrappersDir "backend-service.js")
+Ok "wrapper written to msix-wrappers\backend-service.js"
 
 # ---------------------------------------------------------------------------
 # 2. Visual assets, generated fresh each build from the app's own logo — same
@@ -176,23 +169,41 @@ New-WideAsset   $logo (Join-Path $AssetsDir "Wide310x150Logo.png") 310 150
 Ok "assets generated from frontend\public\logo.png (44/71/150/310x150/StoreLogo) — visually spot-check on Windows before submitting; not verified from this build environment"
 
 # ---------------------------------------------------------------------------
-# 3. Compile the Start Menu launch target (open-pos.exe).
+# 3. Build the Start Menu launch target (open-pos.exe) — a real WebView2-
+#    hosted app now, not a ~15-line stub, so this is a `dotnet publish` of a
+#    proper project (packaging/windows/msix/launcher/) rather than a bare
+#    csc.exe compile. Requires the .NET Framework 4.8 targeting pack
+#    (present on windows-latest out of the box — see OpenPos.csproj's own
+#    comment) and internet access for `dotnet restore` to fetch the
+#    Microsoft.Web.WebView2 NuGet package.
 # ---------------------------------------------------------------------------
-Step "Compiling the launch target (open-pos.exe)"
-$csc = @(
-  "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe",
-  "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $csc) { Die "csc.exe (.NET Framework C# compiler) not found — expected on every windows-latest runner / Windows install" }
+Step "Building the launch target (open-pos.exe)"
+$dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
+if (-not $dotnetCmd) { Die "dotnet SDK not found — expected on every windows-latest runner" }
 
-$csSrc = (Get-Content (Join-Path $MsixDir "open-pos.cs.template") -Raw).Replace("@FRONTEND_PORT@", "$FrontendPort")
-$csPath = Join-Path $Work "open-pos.cs"
-Set-Content -Path $csPath -Value $csSrc -Encoding UTF8
-& $csc /nologo /target:winexe `
-  /r:System.ServiceProcess.dll /r:System.Windows.Forms.dll `
-  /out:"$(Join-Path $Payload 'open-pos.exe')" $csPath
-if ($LASTEXITCODE -ne 0) { Die "csc.exe failed to compile open-pos.cs" }
-Ok "open-pos.exe compiled"
+$LauncherDir = Join-Path $MsixDir "launcher"
+$LauncherWork = Join-Path $Work "launcher-src"
+Copy-Item $LauncherDir $LauncherWork -Recurse
+$programCsPath = Join-Path $LauncherWork "Program.cs"
+$programCs = (Get-Content $programCsPath -Raw).
+  Replace("@BACKEND_PORT@", "$BackendPort").
+  Replace("@FRONTEND_PORT@", "$FrontendPort")
+Set-Content -Path $programCsPath -Value $programCs -Encoding UTF8
+
+$LauncherPublish = Join-Path $Work "launcher-publish"
+& dotnet publish (Join-Path $LauncherWork "OpenPos.csproj") -c Release -o $LauncherPublish
+if ($LASTEXITCODE -ne 0) { Die "dotnet publish failed for the open-pos launcher" }
+if (-not (Test-Path (Join-Path $LauncherPublish "open-pos.exe"))) { Die "dotnet publish did not produce open-pos.exe" }
+
+# Copy the whole publish output (exe + its .config + the WebView2 managed
+# and native-loader DLLs the NuGet package supplies) into the payload root,
+# next to backend\/frontend\/runtime\ — Program.cs resolves those via
+# AppDomain.CurrentDomain.BaseDirectory, i.e. relative to wherever this exe
+# actually sits.
+Copy-Item (Join-Path $LauncherPublish "*") $Payload -Recurse -Force
+# .pdb is debug symbols only — no reason to ship it in the Store package.
+Remove-Item (Join-Path $Payload "open-pos.pdb") -Force -ErrorAction SilentlyContinue
+Ok "open-pos.exe published"
 
 # ---------------------------------------------------------------------------
 # 4. Manifest.
