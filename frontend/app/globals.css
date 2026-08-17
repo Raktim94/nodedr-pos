@@ -160,3 +160,70 @@ svg.lucide {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--brand-soft);
 }
+
+/* Homepage hero signature: a mocked-up thermal receipt ("this is what we'd
+   bill you — nothing"). Fixed cream/ink colors regardless of [data-theme]:
+   real receipt paper doesn't switch to dark mode, and the contrast against
+   the page's own dark background is part of the effect. Scoped to
+   .receipt-* only — not used anywhere else in the app. */
+:root {
+  --receipt-paper: #f3efe4;
+  --receipt-ink: #2a2620;
+  --receipt-ink-muted: rgba(42, 38, 32, 0.55);
+}
+
+.receipt-card {
+  position: relative;
+  background: var(--receipt-paper);
+  color: var(--receipt-ink);
+}
+
+/* Torn/perforated bottom edge: two 45deg gradients tiled into a sawtooth,
+   sitting just past the card's own bottom border. Relies on the hero
+   section behind it being a flat --background — the gaps between "paper"
+   triangles show that color through, reading as torn-away paper. */
+.receipt-card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -9px;
+  height: 10px;
+  background-image:
+    linear-gradient(135deg, var(--receipt-paper) 50%, transparent 50.5%),
+    linear-gradient(225deg, var(--receipt-paper) 50%, transparent 50.5%);
+  background-size: 16px 16px;
+  background-position: bottom left;
+  background-repeat: repeat-x;
+}
+
+@keyframes receipt-print {
+  from {
+    transform: translateY(-18px) rotate(0deg);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) rotate(-2deg);
+    opacity: 1;
+  }
+}
+
+.receipt-print-in {
+  animation: receipt-print 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .receipt-print-in {
+    animation: none;
+    transform: rotate(-2deg);
+  }
+}
+
+/* FAQ accordion: hide the default <details> marker (the chevron icon in
+   page.tsx rotates itself via Tailwind's group-open: variant instead). */
+.faq-row > summary {
+  list-style: none;
+}
+.faq-row > summary::-webkit-details-marker {
+  display: none;
+}
