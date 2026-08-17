@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth, requireAdmin, readSession } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requirePasswordConfirm, readSession } = require('../middleware/auth');
 const { CURRENCIES, symbolFor } = require('../lib/currency');
 
 const router = express.Router();
@@ -102,7 +102,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/settings — admins edit company/currency/tax/loyalty/receipt config
-router.put('/', requireAuth, requireAdmin, async (req, res) => {
+router.put('/', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
   const existing = await prisma.shopSettings.findFirst();
   if (!existing) return res.status(404).json({ error: 'No shop settings to update' });
 

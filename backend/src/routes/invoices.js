@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, verifyPassword } = require('../middleware/auth');
 const { computeSale, round2 } = require('../lib/pricing');
 
 const router = express.Router();
@@ -72,6 +72,16 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
   const body = parsed.data;
+
+  // Step-up re-auth: only a bill that actually returns/refunds something
+  // needs the password re-confirmed — the overwhelming majority of
+  // checkouts are plain sales and must not be interrupted by this.
+  if (body.returns.length > 0) {
+    const ok = await verifyPassword(req.user.id, req.body?.confirmPassword);
+    if (!ok) {
+      return res.status(401).json({ error: 'Confirm your password to process this refund', code: 'PASSWORD_CONFIRM_REQUIRED' });
+    }
+  }
 
   try {
     const invoice = await prisma.$transaction(async (tx) => {

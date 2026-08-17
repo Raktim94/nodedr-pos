@@ -13,6 +13,7 @@ import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
+import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { api, ApiError, describeApiError } from "@/lib/api";
 import { formatMoney, round2 } from "@/lib/format";
 import { openReceiptPrint } from "@/lib/print";
@@ -22,6 +23,7 @@ import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/
 export default function PosPage() {
   const { data: shop } = useShopSettings();
   const { show } = useToast();
+  const { withPasswordConfirm } = usePasswordConfirm();
   const queryClient = useQueryClient();
 
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -204,20 +206,31 @@ export default function PosPage() {
         )
       );
 
-      const invoice = await api.post<Invoice>("/invoices", {
-        customerName,
-        customerPhone,
-        items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
-        discountType,
-        discountValue: Number(discountValue) || 0,
-        pointsRedeemed: Number(pointsRedeemed) || 0,
-        paymentMethod,
-        amountPaid: paymentMethod === "CASH" ? Number(amountPaid) || 0 : 0,
-        duePaid: dueToClear,
-        returns: returnsPayload,
-        refundMode,
-        creditApplied: creditUse,
-      });
+      const submitCheckout = (confirmPassword?: string) =>
+        api.post<Invoice>("/invoices", {
+          customerName,
+          customerPhone,
+          items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+          discountType,
+          discountValue: Number(discountValue) || 0,
+          pointsRedeemed: Number(pointsRedeemed) || 0,
+          paymentMethod,
+          amountPaid: paymentMethod === "CASH" ? Number(amountPaid) || 0 : 0,
+          duePaid: dueToClear,
+          returns: returnsPayload,
+          refundMode,
+          creditApplied: creditUse,
+          confirmPassword,
+        });
+
+      // A return/refund needs the password re-confirmed (see backend's
+      // requirePasswordConfirm on POST /invoices) — a plain sale does not,
+      // so this only prompts when returnsPayload actually has lines in it.
+      const invoice =
+        returnsPayload.length > 0
+          ? await withPasswordConfirm("process this refund", (confirmPassword) => submitCheckout(confirmPassword))
+          : await submitCheckout();
+      if (!invoice) return; // cancelled the password prompt
 
       const parts = [`${invoice.invoiceNumber} · ${money(invoice.totalAmount)}`];
       if (invoice.previousDuePaid > 0) parts.push(`${money(invoice.previousDuePaid)} due cleared`);
@@ -256,7 +269,7 @@ export default function PosPage() {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, shop?.autoPrintReceipt, shop?.autoPrintMethod]);
+  }, [cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, withPasswordConfirm, shop?.autoPrintReceipt, shop?.autoPrintMethod]);
 
   useBarcodeScanner({
     onScan: handleScan,

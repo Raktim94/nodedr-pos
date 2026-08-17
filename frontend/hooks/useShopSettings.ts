@@ -31,7 +31,10 @@ export function useCurrencies() {
 export function useUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: Partial<ShopSettings>) => api.put<ShopSettings>("/settings", data),
+    // confirmPassword is step-up re-auth (see backend's requirePasswordConfirm
+    // on PUT /settings), not a real shop setting — kept out of ShopSettings itself.
+    mutationFn: (data: Partial<ShopSettings> & { confirmPassword?: string }) =>
+      api.put<ShopSettings>("/settings", data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shop-settings"] }),
   });
 }

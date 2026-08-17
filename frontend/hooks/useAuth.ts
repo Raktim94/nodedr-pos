@@ -24,6 +24,9 @@ export interface CreateUserInput {
   email: string;
   password: string;
   role: Role;
+  // Step-up re-auth: the currently signed-in admin's own password,
+  // re-confirmed for this specific action — see backend's requirePasswordConfirm.
+  confirmPassword?: string;
 }
 
 export function useCreateUser() {

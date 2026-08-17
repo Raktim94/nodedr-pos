@@ -9,6 +9,8 @@ const {
   clearSessionCookie,
   requireAuth,
   requireAdmin,
+  requirePasswordConfirm,
+  verifyPassword,
 } = require('../middleware/auth');
 
 const router = express.Router();
@@ -104,12 +106,11 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'New password must be at least 8 characters' });
   }
-  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-  const ok = await bcrypt.compare(parsed.data.currentPassword, user.password);
+  const ok = await verifyPassword(req.user.id, parsed.data.currentPassword);
   if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
 
   const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
-  await prisma.user.update({ where: { id: user.id }, data: { password: passwordHash } });
+  await prisma.user.update({ where: { id: req.user.id }, data: { password: passwordHash } });
   res.status(204).end();
 });
 
@@ -126,7 +127,7 @@ const createUserSchema = z.object({
   password: z.string().min(8).max(200),
   role: z.enum(['admin', 'cashier']).default('cashier'),
 });
-router.post('/users', requireAuth, requireAdmin, async (req, res) => {
+router.post('/users', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -147,7 +148,7 @@ const updateUserSchema = z.object({
   active: z.boolean().optional(),
   password: z.string().min(8).max(200).optional(),
 });
-router.put('/users/:id', requireAuth, requireAdmin, async (req, res) => {
+router.put('/users/:id', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' });
 

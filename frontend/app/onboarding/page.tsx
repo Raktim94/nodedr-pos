@@ -132,6 +132,10 @@ export default function OnboardingPage() {
               error={accountForm.formState.errors.password?.message}
               {...accountForm.register("password")}
             />
+            <p className="-mt-2 text-xs text-foreground/50">
+              There&apos;s no &quot;forgot password&quot; for this account — it lives only on this
+              machine. Write it down or save it in a password manager.
+            </p>
             {serverError && <p role="alert" className="text-sm text-danger">{serverError}</p>}
             <Button type="submit" disabled={accountForm.formState.isSubmitting} className="mt-2 w-full">
               Continue

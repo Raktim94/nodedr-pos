@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
+import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useCurrencies, useShopSettings, useUpdateSettings } from "@/hooks/useShopSettings";
 import { api, ApiError } from "@/lib/api";
 import { gstStateFromGstin, isValidGstinFormat, isValidPanFormat } from "@/lib/masters";
@@ -87,13 +88,12 @@ export default function SettingsPage() {
 function useSaver() {
   const update = useUpdateSettings();
   const { show } = useToast();
+  const { withPasswordConfirm } = usePasswordConfirm();
   return async (patch: Partial<ShopSettings>) => {
-    try {
-      await update.mutateAsync(patch);
-      show("Settings saved", "success");
-    } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not save settings", "error");
-    }
+    const result = await withPasswordConfirm("save these settings", (confirmPassword) =>
+      update.mutateAsync({ ...patch, confirmPassword })
+    );
+    if (result) show("Settings saved", "success");
   };
 }
 

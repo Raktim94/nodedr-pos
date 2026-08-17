@@ -10,9 +10,9 @@ import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
+import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useUsers, useCreateUser, useUpdateUser } from "@/hooks/useAuth";
 import { useMe } from "@/hooks/useAuth";
-import { ApiError } from "@/lib/api";
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
@@ -28,6 +28,7 @@ export function UsersPanel() {
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const { show } = useToast();
+  const { withPasswordConfirm } = usePasswordConfirm();
 
   const {
     register,
@@ -39,23 +40,21 @@ export function UsersPanel() {
   const [showForm, setShowForm] = useState(false);
 
   async function onCreate(values: CreateForm) {
-    try {
-      await createUser.mutateAsync(values);
+    const result = await withPasswordConfirm("create this staff login", (confirmPassword) =>
+      createUser.mutateAsync({ ...values, confirmPassword })
+    );
+    if (result) {
       show("Staff account created", "success");
       reset({ role: "cashier" });
       setShowForm(false);
-    } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not create user", "error");
     }
   }
 
   async function toggleActive(id: number, active: boolean) {
-    try {
-      await updateUser.mutateAsync({ id, data: { active } });
-      show(active ? "User enabled" : "User disabled", "success");
-    } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not update user", "error");
-    }
+    const result = await withPasswordConfirm(active ? "enable this user" : "disable this user", (confirmPassword) =>
+      updateUser.mutateAsync({ id, data: { active, confirmPassword } })
+    );
+    if (result) show(active ? "User enabled" : "User disabled", "success");
   }
 
   return (
