@@ -191,9 +191,54 @@ $programCs = (Get-Content $programCsPath -Raw).
 Set-Content -Path $programCsPath -Value $programCs -Encoding UTF8
 
 $LauncherPublish = Join-Path $Work "launcher-publish"
-& dotnet publish (Join-Path $LauncherWork "OpenPos.csproj") -c Release -o $LauncherPublish
+# -p:Platform=x64 / -p:Prefer32Bit=false are explicit here on top of what
+# OpenPos.csproj itself now pins (see that file's comment) — belt-and-
+# suspenders so a future edit to the csproj can't silently reintroduce the
+# AnyCPU/Prefer32Bit bitness mismatch that caused the Store's 0x8007000B
+# certification failure ("An attempt was made to load a program with an
+# incorrect format") without this build failing loudly first.
+& dotnet publish (Join-Path $LauncherWork "OpenPos.csproj") -c Release -p:Platform=x64 -p:Prefer32Bit=false -o $LauncherPublish
 if ($LASTEXITCODE -ne 0) { Die "dotnet publish failed for the open-pos launcher" }
 if (-not (Test-Path (Join-Path $LauncherPublish "open-pos.exe"))) { Die "dotnet publish did not produce open-pos.exe" }
+
+# ---------------------------------------------------------------------------
+# Architecture guardrail — regression protection for the 0x8007000B Store
+# certification failure. Verifies open-pos.exe actually built as x64 (not
+# AnyCPU/MSIL, which historically defaulted to a 32-bit process here — see
+# OpenPos.csproj's comment) and that the WebView2 native loader shipped
+# alongside it is the x64 variant. A mismatch here reproduces the exact
+# failure Microsoft's certification reported, so this build stops instead
+# of packaging a broken MSIX.
+# ---------------------------------------------------------------------------
+Step "Verifying launcher architecture (x64)"
+Add-Type -AssemblyName "System.Reflection"
+$exePath = Join-Path $LauncherPublish "open-pos.exe"
+$asmName = [System.Reflection.AssemblyName]::GetAssemblyName($exePath)
+Info "open-pos.exe ProcessorArchitecture: $($asmName.ProcessorArchitecture)"
+if ($asmName.ProcessorArchitecture -ne [System.Reflection.ProcessorArchitecture]::Amd64) {
+  Die "open-pos.exe built as '$($asmName.ProcessorArchitecture)', not Amd64/x64. This exactly reproduces the Microsoft Store certification failure (0x8007000B, 'incorrect format') — a non-x64 launcher loading the x64 WebView2Loader.dll. Check OpenPos.csproj's PlatformTarget/Prefer32Bit and this dotnet publish command's -p:Platform flag."
+}
+Ok "open-pos.exe is genuinely x64"
+
+function Get-PEMachineType($path) {
+  # Minimal COFF header parse: e_lfanew at offset 0x3C points to the PE
+  # signature; the 2-byte Machine field immediately follows it. No external
+  # tool (dumpbin/corflags) required — just the DOS/COFF header layout,
+  # which is stable ABI, not an implementation detail that could drift.
+  $bytes = [System.IO.File]::ReadAllBytes($path)
+  $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+  $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+  return $machine
+}
+$IMAGE_FILE_MACHINE_AMD64 = 0x8664
+$loaderPath = Join-Path $LauncherPublish "WebView2Loader.dll"
+if (-not (Test-Path $loaderPath)) { Die "WebView2Loader.dll missing from the launcher publish output — the WebView2 NuGet package did not deploy its native loader." }
+$loaderMachine = Get-PEMachineType $loaderPath
+Info ("WebView2Loader.dll machine type: 0x{0:X4}" -f $loaderMachine)
+if ($loaderMachine -ne $IMAGE_FILE_MACHINE_AMD64) {
+  Die ("WebView2Loader.dll is not x64 (machine type 0x{0:X4}, expected 0x{1:X4}) — this is the exact architecture mismatch that caused the Store's 0x8007000B failure." -f $loaderMachine, $IMAGE_FILE_MACHINE_AMD64)
+}
+Ok "WebView2Loader.dll is x64"
 
 # Copy the whole publish output (exe + its .config + the WebView2 managed
 # and native-loader DLLs the NuGet package supplies) into the payload root,

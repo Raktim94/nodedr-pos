@@ -18,7 +18,7 @@ on:
       version:
         description: "Version to stamp on the MSIX (four-part x.y.z.0)"
         required: false
-        default: "1.0.0"
+        default: "1.0.1"
       release_tag:
         description: "Attach the MSIX to this existing release tag (blank = artifact only, not published)"
         required: false
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ github.event.inputs.version }}"
-          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.0" }
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.1" }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Building version $v"
 
@@ -158,6 +158,34 @@ jobs:
             throw "the POS did not answer on http://127.0.0.1:1994 within 120s"
           }
           Write-Host "API healthy"
+
+      # This is a DISTINCT check from the health check above on purpose. The
+      # health check above only proves the backend child process (a plain
+      # node.exe, unaffected by open-pos.exe's own bitness) answers HTTP —
+      # it says nothing about whether open-pos.exe's own WebView2 control
+      # ever initialized. That gap is exactly how the 0x8007000B Store
+      # certification failure (open-pos.exe running 32-bit due to a missing
+      # PlatformTarget, LoadLibrary-failing on the x64 WebView2Loader.dll)
+      # shipped past this pipeline every time: StartAsync's catch block
+      # swaps a label instead of crashing the process, so the exe stayed
+      # alive and "looked" fine to any check that doesn't look at WebView2
+      # state specifically. See launcher\Program.cs's Log() calls and
+      # OpenPos.csproj's PlatformTarget/Prefer32Bit comment.
+      - name: Verify WebView2 actually initialized (not just the backend HTTP endpoint)
+        shell: pwsh
+        run: |
+          $logPath = "C:\ProgramData\NodeDRPOS\logs\launcher.log"
+          $ready = $false
+          foreach ($i in 1..30) {
+            if ((Test-Path $logPath) -and (Select-String -Path $logPath -Pattern "READY" -SimpleMatch -Quiet)) { $ready = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) {
+            Write-Host "=== C:\ProgramData\NodeDRPOS\logs\launcher.log ==="
+            Get-Content $logPath -ErrorAction SilentlyContinue
+            throw "open-pos.exe never logged a WebView2 READY line — the launcher's own WebView2 control did not initialize, even though the backend HTTP health check passed. This is the failure mode that shipped as the 0x8007000B Store certification rejection; do not treat a passing HTTP health check alone as proof this build works."
+          }
+          Write-Host "  [PASS] WebView2 initialized and navigated (launcher.log contains READY)"
 
       - name: Verify process tree and loopback-only binding
         shell: pwsh

@@ -25,6 +25,26 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <!-- MSIX identity/version/description live in AppxManifest.xml, not here. -->
     <Deterministic>true</Deterministic>
+    <!--
+      Root cause of the Microsoft Store certification failure (10.1.2.10,
+      HRESULT 0x8007000B / "An attempt was made to load a program with an
+      incorrect format"): without an explicit PlatformTarget, SDK-style
+      WinForms projects default Prefer32Bit=true, so open-pos.exe ran as a
+      32-bit (WOW64) process even on 64-bit Windows. Everything else in this
+      package is x64-only — the AppxManifest declares
+      ProcessorArchitecture="x64", the bundled runtime\node.exe is win-x64,
+      better-sqlite3/usb are win-x64 native addons — and the WebView2 SDK
+      ships architecture-specific native loaders (runtimes/win-x86/native
+      vs. runtimes/win-x64/native). A 32-bit process loading the x64
+      WebView2Loader.dll fails LoadLibrary with ERROR_BAD_FORMAT, which
+      surfaces to managed code as BadImageFormatException — exactly this
+      error. Pinning both properties here makes the mismatch structurally
+      impossible instead of dependent on SDK defaults. Do not remove either
+      line or reintroduce AnyCPU/Prefer32Bit=true for this project.
+    -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <Platforms>x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>

@@ -76,6 +76,7 @@ namespace NodedrPos.Launcher
         private JobObject _jobObject;
         private Process _backendProcess;
         private Process _frontendProcess;
+        private StreamWriter _launcherLog;
 
         public MainForm()
         {
@@ -97,14 +98,33 @@ namespace NodedrPos.Launcher
             FormClosing += (_, __) => ShutDownChildProcesses();
         }
 
+        // Logs the launcher's own lifecycle stages — separate from
+        // backend.log/frontend.log (those are the child processes' own
+        // output). Exists so a startup failure that happens INSIDE this exe
+        // (WebView2 init, process spawn) is diagnosable from
+        // C:\ProgramData\NodeDRPOS\logs rather than only visible as a label
+        // on a window the shopkeeper may have already closed. Also gives an
+        // external test (CI, WACK) a real "did WebView2 actually come up"
+        // signal to poll for — the HTTP health check alone only proves the
+        // backend child process is up, not that this exe's own WebView2
+        // control initialized (this gap is exactly how the AnyCPU/
+        // Prefer32Bit bitness bug shipped past CI in the first place: see
+        // OpenPos.csproj's comment).
+        private void Log(string message)
+        {
+            try { _launcherLog?.WriteLine(DateTime.Now.ToString("s") + "  " + message); } catch { /* best-effort */ }
+        }
+
         private async Task StartAsync()
         {
+            var dataDir = @"C:\ProgramData\NodeDRPOS";
             try
             {
                 var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                var dataDir = @"C:\ProgramData\NodeDRPOS";
                 Directory.CreateDirectory(dataDir);
                 Directory.CreateDirectory(Path.Combine(dataDir, "logs"));
+                _launcherLog = new StreamWriter(Path.Combine(dataDir, "logs", "launcher.log"), append: true) { AutoFlush = true };
+                Log("Launcher starting");
 
                 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: both child processes die
                 // the instant this process exits or is killed — including a
@@ -132,6 +152,7 @@ namespace NodedrPos.Launcher
                         ["PRISMA_HIDE_UPDATE_MESSAGE"] = "1",
                     });
                 _jobObject.AddProcess(_backendProcess);
+                Log("Backend child process started (pid=" + _backendProcess.Id + ")");
 
                 _frontendProcess = StartChild(
                     exe: Path.Combine(baseDir, "runtime", "node.exe"),
@@ -150,21 +171,50 @@ namespace NodedrPos.Launcher
                         ["NEXT_TELEMETRY_DISABLED"] = "1",
                     });
                 _jobObject.AddProcess(_frontendProcess);
+                Log("Frontend child process started (pid=" + _frontendProcess.Id + ")");
 
                 var ready = await WaitForPortAsync(FrontendPort, MaxWaitAttempts);
                 if (!ready)
                 {
+                    Log("STARTUP FAILED: frontend port " + FrontendPort + " never accepted a connection within " + MaxWaitAttempts + "s");
                     _statusLabel.Text =
                         "Nodedr POS didn't start in time.\n\n" +
                         "Check C:\\ProgramData\\NodeDRPOS\\logs\\backend.log and frontend.log for errors, then try again.";
                     return;
                 }
+                Log("Frontend port ready");
 
                 await InitializeWebViewAsync();
             }
             catch (Exception ex)
             {
-                _statusLabel.Text = "Nodedr POS failed to start:\n\n" + ex.Message;
+                // BadImageFormatException (HRESULT 0x8007000B, "An attempt was
+                // made to load a program with an incorrect format") is a
+                // distinct, actionable failure mode — an architecture mismatch
+                // between this exe and a native DLL it depends on (this is
+                // exactly the bug OpenPos.csproj's PlatformTarget/Prefer32Bit
+                // pinning now prevents, and build-msix.ps1's architecture
+                // guardrail catches at build time — but log it distinctly in
+                // case it ever recurs some other way, e.g. a future native
+                // dependency added without the same care). Full exception
+                // detail always goes to the log for diagnostics; the on-screen
+                // message stays clean for the shopkeeper, per the "log the
+                // technical cause, show a friendly message" split.
+                Log("STARTUP FAILED: " + ex.GetType().FullName + ": " + ex.Message + "\n" + ex.StackTrace);
+                if (ex is BadImageFormatException)
+                {
+                    _statusLabel.Text =
+                        "Nodedr POS couldn't start a required component (architecture mismatch).\n\n" +
+                        "Please restart the application. If the problem continues, contact support with the details in " +
+                        "C:\\ProgramData\\NodeDRPOS\\logs\\launcher.log.";
+                }
+                else
+                {
+                    _statusLabel.Text =
+                        "Nodedr POS couldn't start a required component.\n\n" +
+                        "Please restart the application. If the problem continues, contact support with the details in " +
+                        "C:\\ProgramData\\NodeDRPOS\\logs\\launcher.log.";
+                }
             }
         }
 
@@ -184,9 +234,11 @@ namespace NodedrPos.Launcher
             try
             {
                 environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+                Log("WebView2 environment created");
             }
             catch (WebView2RuntimeNotFoundException)
             {
+                Log("STARTUP FAILED: WebView2RuntimeNotFoundException — Edge WebView2 Runtime not installed");
                 _statusLabel.Text =
                     "Nodedr POS needs the Microsoft Edge WebView2 Runtime, which is not installed.\n\n" +
                     "It ships with Windows 11 and current Windows 10 by default. If missing, install it " +
@@ -201,6 +253,13 @@ namespace NodedrPos.Launcher
             _statusLabel.Visible = false;
 
             _webView.CoreWebView2.Navigate("http://localhost:" + FrontendPort);
+            // This is the definitive "the launcher itself came up correctly"
+            // signal — see the Log() method's comment. build-windows-msix.yml
+            // polls for this exact line instead of only the backend's HTTP
+            // health check, which would stay blind to a WebView2-layer
+            // failure (this app catches that exception and swaps a label
+            // instead of crashing the process — see StartAsync's catch block).
+            Log("WebView2 navigated to http://localhost:" + FrontendPort + " — READY");
         }
 
         private static Process StartChild(
@@ -270,6 +329,7 @@ namespace NodedrPos.Launcher
 
         private void ShutDownChildProcesses()
         {
+            Log("Shutting down");
             // Disposing the job object kills every process assigned to it
             // (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE) — this is the primary
             // cleanup path and covers both processes plus any children they
@@ -279,6 +339,7 @@ namespace NodedrPos.Launcher
             try { _jobObject?.Dispose(); } catch { /* best-effort */ }
             try { if (_backendProcess != null && !_backendProcess.HasExited) _backendProcess.Kill(); } catch { }
             try { if (_frontendProcess != null && !_frontendProcess.HasExited) _frontendProcess.Kill(); } catch { }
+            try { _launcherLog?.Dispose(); } catch { /* best-effort */ }
         }
     }
 
