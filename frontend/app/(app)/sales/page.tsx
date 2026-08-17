@@ -132,12 +132,16 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-40 flex justify-end bg-black/50"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Invoice details"
-        onClick={(e) => e.stopPropagation()}
         className="h-full w-full max-w-md overflow-y-auto bg-surface p-6 shadow-xl"
       >
         <div className="mb-4 flex items-center justify-between">

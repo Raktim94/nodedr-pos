@@ -148,12 +148,16 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   }, [gst, hsnValue]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-modal-title"
-        onClick={(e) => e.stopPropagation()}
         className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface p-6 shadow-xl"
       >
         <div className="mb-5 flex items-center justify-between">

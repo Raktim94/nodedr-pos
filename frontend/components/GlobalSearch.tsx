@@ -62,12 +62,11 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
       role="dialog"
       aria-modal="true"
       aria-label="Global search"
-      onClick={onClose}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="glass-panel w-full max-w-xl overflow-hidden rounded-2xl bg-surface-elevated shadow-2xl"
-      >
+      <div className="glass-panel w-full max-w-xl overflow-hidden rounded-2xl bg-surface-elevated shadow-2xl">
         <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3.5">
           <Search className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden="true" />
           <input
