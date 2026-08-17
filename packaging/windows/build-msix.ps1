@@ -203,23 +203,26 @@ if (-not (Test-Path (Join-Path $LauncherPublish "open-pos.exe"))) { Die "dotnet 
 
 # ---------------------------------------------------------------------------
 # Architecture guardrail — regression protection for the 0x8007000B Store
-# certification failure. Verifies open-pos.exe actually built as x64 (not
-# AnyCPU/MSIL, which historically defaulted to a 32-bit process here — see
-# OpenPos.csproj's comment) and that the WebView2 native loader shipped
-# alongside it is the x64 variant. A mismatch here reproduces the exact
-# failure Microsoft's certification reported, so this build stops instead
-# of packaging a broken MSIX.
+# certification failure. Verifies open-pos.exe actually built as a genuine
+# x64 image (not AnyCPU/MSIL, which historically defaulted to a 32-bit
+# process here — see OpenPos.csproj's comment) and that the WebView2 native
+# loader shipped alongside it is also x64. A mismatch here reproduces the
+# exact failure Microsoft's certification reported, so this build stops
+# instead of packaging a broken MSIX.
+#
+# Reads the raw PE/COFF header instead of using
+# [System.Reflection.AssemblyName]::GetAssemblyName() — that reflection API
+# is a .NET Framework-only feature that silently returns
+# ProcessorArchitecture=None when this script itself runs under PowerShell 7
+# (hosted on .NET Core, as it is on windows-latest's `pwsh`), which looked
+# exactly like a genuine build failure the first time this check ran in CI.
+# A raw byte parse has no such runtime dependency. It also has a real
+# semantic advantage: a pure-IL AnyCPU assembly is ALWAYS stored in a PE32
+# (32-bit) container with Machine=I386, regardless of Prefer32Bit — only an
+# explicit x64 PlatformTarget produces a genuine PE32+ image with
+# Machine=AMD64, so this check actually distinguishes "explicitly x64" from
+# "AnyCPU" the way the reflection API could not.
 # ---------------------------------------------------------------------------
-Step "Verifying launcher architecture (x64)"
-Add-Type -AssemblyName "System.Reflection"
-$exePath = Join-Path $LauncherPublish "open-pos.exe"
-$asmName = [System.Reflection.AssemblyName]::GetAssemblyName($exePath)
-Info "open-pos.exe ProcessorArchitecture: $($asmName.ProcessorArchitecture)"
-if ($asmName.ProcessorArchitecture -ne [System.Reflection.ProcessorArchitecture]::Amd64) {
-  Die "open-pos.exe built as '$($asmName.ProcessorArchitecture)', not Amd64/x64. This exactly reproduces the Microsoft Store certification failure (0x8007000B, 'incorrect format') — a non-x64 launcher loading the x64 WebView2Loader.dll. Check OpenPos.csproj's PlatformTarget/Prefer32Bit and this dotnet publish command's -p:Platform flag."
-}
-Ok "open-pos.exe is genuinely x64"
-
 function Get-PEMachineType($path) {
   # Minimal COFF header parse: e_lfanew at offset 0x3C points to the PE
   # signature; the 2-byte Machine field immediately follows it. No external
@@ -231,6 +234,16 @@ function Get-PEMachineType($path) {
   return $machine
 }
 $IMAGE_FILE_MACHINE_AMD64 = 0x8664
+
+Step "Verifying launcher architecture (x64)"
+$exePath = Join-Path $LauncherPublish "open-pos.exe"
+$exeMachine = Get-PEMachineType $exePath
+Info ("open-pos.exe machine type: 0x{0:X4}" -f $exeMachine)
+if ($exeMachine -ne $IMAGE_FILE_MACHINE_AMD64) {
+  Die ("open-pos.exe is not a genuine x64 image (machine type 0x{0:X4}, expected 0x{1:X4} AMD64). This exactly reproduces the Microsoft Store certification failure (0x8007000B, 'incorrect format') — a non-x64 launcher loading the x64 WebView2Loader.dll. Check OpenPos.csproj's PlatformTarget/Prefer32Bit and this dotnet publish command's -p:Platform flag." -f $exeMachine, $IMAGE_FILE_MACHINE_AMD64)
+}
+Ok "open-pos.exe is genuinely x64"
+
 $loaderPath = Join-Path $LauncherPublish "WebView2Loader.dll"
 if (-not (Test-Path $loaderPath)) { Die "WebView2Loader.dll missing from the launcher publish output — the WebView2 NuGet package did not deploy its native loader." }
 $loaderMachine = Get-PEMachineType $loaderPath
