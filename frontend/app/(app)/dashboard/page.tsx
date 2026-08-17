@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, Award, Download, Package, Receipt, Star, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Award, CircleDollarSign, Download, Package, Receipt, Star, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { SalesCharts } from "@/components/SalesCharts";
 import { useLowStock, useProducts } from "@/hooks/useProducts";
 import { useInvoices, useSalesAnalytics, useSalesSummary } from "@/hooks/useInvoices";
-import { useTopLoyaltyCustomers } from "@/hooks/useCustomers";
+import { useDueSummary, useTopDueCustomers, useTopLoyaltyCustomers } from "@/hooks/useCustomers";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { formatMoney } from "@/lib/format";
 
@@ -20,6 +20,8 @@ export default function DashboardPage() {
   const { data: invoices } = useInvoices();
   const { data: analytics } = useSalesAnalytics();
   const { data: topCustomers } = useTopLoyaltyCustomers(10);
+  const { data: dueSummary } = useDueSummary();
+  const { data: topDueCustomers } = useTopDueCustomers(8);
 
   const sym = shop?.currencySymbol || "Rs.";
   const money = (n: number) => formatMoney(n, sym);
@@ -53,7 +55,7 @@ export default function DashboardPage() {
         </a>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           icon={Receipt}
           label="Today's Sales"
@@ -75,6 +77,12 @@ export default function DashboardPage() {
           value={`${lowStock?.products.length ?? 0}`}
           accent={lowStock?.products.length ? "warning" : undefined}
         />
+        <StatCard
+          icon={CircleDollarSign}
+          label="Total Due"
+          value={money(dueSummary?.totalDue ?? 0)}
+          accent={dueSummary?.totalDue ? "danger" : undefined}
+        />
       </div>
 
       {bestSeller && bestSeller.quantity > 0 && (
@@ -93,7 +101,7 @@ export default function DashboardPage() {
 
       <SalesCharts sym={sym} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-semibold text-foreground">Low Inventory Alerts</h2>
@@ -155,6 +163,32 @@ export default function DashboardPage() {
             </ul>
           )}
         </Card>
+
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-foreground">Customers with Due</h2>
+            <Link href="/customers" className="text-sm font-medium text-brand hover:underline">
+              View all
+            </Link>
+          </div>
+          {!topDueCustomers || topDueCustomers.length === 0 ? (
+            <p className="py-6 text-center text-sm text-foreground/50">No outstanding dues right now.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {topDueCustomers.map((customer) => (
+                <li key={customer.id} className="flex items-center justify-between py-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{customer.name}</p>
+                    <p className="text-xs text-foreground/50">{customer.phone}</p>
+                  </div>
+                  <span className="rounded-full bg-danger-soft px-3 py-1 text-xs font-semibold text-danger">
+                    {money(customer.totalDue)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
       <Card className="p-5">
@@ -206,7 +240,7 @@ function StatCard({
   icon: React.ElementType;
   label: string;
   value: string;
-  accent?: "warning";
+  accent?: "warning" | "danger";
   /** Percentage change vs. yesterday. Omit when there's no meaningful "yesterday" to compare (e.g. a point-in-time count). */
   delta?: number | null;
   sparkline?: number[];
@@ -222,7 +256,11 @@ function StatCard({
           <div className="mb-3 flex items-center gap-3">
             <span
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                accent === "warning" ? "bg-warning-soft text-warning" : "bg-brand-soft text-brand icon-glow"
+                accent === "warning"
+                  ? "bg-warning-soft text-warning"
+                  : accent === "danger"
+                    ? "bg-danger-soft text-danger"
+                    : "bg-brand-soft text-brand icon-glow"
               }`}
             >
               <Icon className="h-[18px] w-[18px]" aria-hidden="true" />

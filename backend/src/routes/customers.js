@@ -38,6 +38,30 @@ router.get('/top-loyalty', async (req, res) => {
   res.json(customers);
 });
 
+// GET /api/customers/due-summary — dashboard "Total Due" stat: how much
+// udhaar is outstanding across every customer right now, and how many
+// customers it's spread across. Summed in SQL rather than pulled client-side
+// so this stays correct even past the 500-row cap on GET /customers.
+router.get('/due-summary', async (req, res) => {
+  const [agg, count] = await Promise.all([
+    prisma.customer.aggregate({ where: { totalDue: { gt: 0 } }, _sum: { totalDue: true } }),
+    prisma.customer.count({ where: { totalDue: { gt: 0 } } }),
+  ]);
+  res.json({ totalDue: round2(agg._sum.totalDue || 0), customersWithDue: count });
+});
+
+// GET /api/customers/top-due?limit=5 — dashboard widget, customers who owe
+// the most right now.
+router.get('/top-due', async (req, res) => {
+  const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
+  const customers = await prisma.customer.findMany({
+    where: { totalDue: { gt: 0 } },
+    orderBy: { totalDue: 'desc' },
+    take: limit,
+  });
+  res.json(customers);
+});
+
 // GET /api/customers/phone/:phone — POS lookup for loyalty
 router.get('/phone/:phone', async (req, res) => {
   const customer = await prisma.customer.findUnique({ where: { phone: req.params.phone } });

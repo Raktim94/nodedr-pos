@@ -18,6 +18,25 @@ export function useTopLoyaltyCustomers(limit = 5) {
   });
 }
 
+export interface DueSummary {
+  totalDue: number;
+  customersWithDue: number;
+}
+
+export function useDueSummary() {
+  return useQuery({
+    queryKey: ["customers", "due-summary"],
+    queryFn: () => api.get<DueSummary>("/customers/due-summary"),
+  });
+}
+
+export function useTopDueCustomers(limit = 5) {
+  return useQuery({
+    queryKey: ["customers", "top-due", limit],
+    queryFn: () => api.get<Customer[]>(`/customers/top-due?limit=${limit}`),
+  });
+}
+
 export interface CustomerInput {
   name: string;
   phone: string;
