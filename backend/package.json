@@ -41,6 +41,13 @@
   "overrides": {
     "fast-uri": ">=3.1.4",
     "@hono/node-server": ">=2.0.5",
-    "valibot": ">=1.4.2"
+    "valibot": ">=1.4.2",
+    "deepmerge-ts": ">=8.0.0"
+  },
+  "allowScripts": {
+    "@prisma/engines": true,
+    "better-sqlite3": true,
+    "prisma": true,
+    "usb": true
   }
 }

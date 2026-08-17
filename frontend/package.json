@@ -48,5 +48,8 @@
     "typescript-eslint": {
       "brace-expansion": "^5.0.9"
     }
+  },
+  "allowScripts": {
+    "unrs-resolver": true
   }
 }
