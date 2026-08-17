@@ -40,7 +40,7 @@
 
   <Properties>
     <DisplayName>Nodedr POS</DisplayName>
-    <PublisherDisplayName>NODEDR INFOTECH PRIVATE LIMITED</PublisherDisplayName>
+    <PublisherDisplayName>NODEDR INFOTECH LIMITED</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <Description>Offline-first Point of Sale for retail shops — billing, inventory, barcode scanning, GST-inclusive pricing, and receipt printing, all on your own machine.</Description>
   </Properties>

@@ -310,7 +310,7 @@ Center," not "trust a copy pasted into a README." A `workflow_dispatch` run
 passes every CI check under the real identity — see "Partner Center
 submission" below for what's left before an actual upload.
 
-`PublisherDisplayName` in the manifest is `NODEDR INFOTECH PRIVATE LIMITED`,
+`PublisherDisplayName` in the manifest is `NODEDR INFOTECH LIMITED`,
 matching the legal name used everywhere else in this repo (NSIS installer,
 LICENSE, README, MAINTAINERS.md) — this must also match the legal business
 name registered on the Partner Center account, since Store certification

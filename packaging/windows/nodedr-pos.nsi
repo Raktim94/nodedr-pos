@@ -27,7 +27,7 @@ SetCompressor /SOLID lzma
 !endif
 
 !define APP_NAME     "NodeDR POS"
-!define APP_PUBLISHER "NODEDR INFOTECH PRIVATE LIMITED"
+!define APP_PUBLISHER "NODEDR INFOTECH LIMITED"
 !define APP_URL      "https://pos.nodedr.com/"
 ; No spaces in the install or data directory on purpose: these paths end up in
 ; a SQLite connection URL, service arguments and batch scripts, where spaces
