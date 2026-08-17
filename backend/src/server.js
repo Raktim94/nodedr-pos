@@ -37,6 +37,23 @@ app.use(
   })
 );
 
+// Every /api/* response is dynamic and often auth-sensitive (login state,
+// stock levels, prices, invoices) — none of it may ever be cached by the
+// browser or an intermediate proxy. Without this, a route like GET
+// /auth/status only had an Express-auto-generated ETag and no
+// Cache-Control at all, which per HTTP caching rules leaves a browser free
+// to serve an old cached response with ZERO network round-trip — e.g. a
+// stale "onboarded: true" reappearing right after the app's onboarding
+// state actually changed back to false. Added while investigating a
+// report of exactly that shape ("reach onboarding, then instantly bounce
+// to sign-in"); every attempt to reproduce it cleanly in this session
+// traced back to stale test data instead, so this is a real gap being
+// closed on general principle, not a confirmed root cause of that report.
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/auth', authRoutes);
