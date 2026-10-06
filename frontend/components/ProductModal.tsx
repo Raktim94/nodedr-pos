@@ -341,7 +341,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               </select>
             </label>
           </div>
-          <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end gap-3 border-t border-border-subtle bg-surface px-5 py-3">
+          <div className="sticky -bottom-5 -mx-5 -mb-5 flex justify-end gap-3 border-t border-border-subtle bg-surface px-5 py-3">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>

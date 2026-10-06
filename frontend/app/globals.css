@@ -174,7 +174,11 @@ svg.lucide {
 }
 
 
-/* ---- Motion: short, transform/opacity only, one stable end state ---- */
+/* ---- Motion: short, transform/opacity only, one stable end state ----
+   IMPORTANT: use animation-fill-mode `backwards`, never `both`/`forwards`, on
+   anything that can contain a dialog. A filled transform animation keeps the
+   element a containing block for position:fixed descendants, which squeezed
+   every modal into its page container (clipped, half-dimmed, overlapping). */
 @keyframes rise-in {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: none; }
@@ -192,12 +196,12 @@ svg.lucide {
 @keyframes grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 
 /* Page + card entrance. Stagger a group by setting style={{"--i": index}}. */
-.page-enter { animation: rise-in 320ms var(--ease-out) both; }
-.rise { animation: rise-in 340ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
-.drawer-in { animation: slide-in-right 300ms var(--ease-out) both; }
-.dialog-in { animation: pop-in 280ms var(--ease-out) both; }
-.backdrop-in { animation: fade-in 220ms ease-out both; }
-.bar-grow { transform-origin: bottom; animation: grow-y 700ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms + 200ms); }
+.page-enter { animation: rise-in 320ms var(--ease-out) backwards; }
+.rise { animation: rise-in 340ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 45ms); }
+.drawer-in { animation: slide-in-right 300ms var(--ease-out) backwards; }
+.dialog-in { animation: pop-in 280ms var(--ease-out) backwards; }
+.backdrop-in { animation: fade-in 220ms ease-out backwards; }
+.bar-grow { transform-origin: bottom; animation: grow-y 700ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 40ms + 200ms); }
 
 /* Cards: borders + soft shadow, a 1px lift on actionable ones. */
 .card-surface { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); border-radius: 16px; }
@@ -297,4 +301,4 @@ svg.lucide {
 
 /* Progress ring: the arc draws once from empty to its value, then stops. */
 @keyframes ring-draw { from { stroke-dashoffset: var(--len); } }
-.ring-arc { animation: ring-draw 800ms var(--ease-out) 250ms both; }
+.ring-arc { animation: ring-draw 800ms var(--ease-out) 250ms backwards; }

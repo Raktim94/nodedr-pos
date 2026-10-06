@@ -151,17 +151,21 @@ What is verified and what still needs real-device testing: [docs/ROADMAP.md](doc
 | --- | --- |
 | ![Board: New, Packing, Ready, Collected](docs/screenshots/orders.png) | ![Revenue, margin, category split, hourly heatmap, week comparison](docs/screenshots/reports.png) |
 
-| Inventory | Optional IMEI setting per product |
+| Inventory | Add product (Generate barcode / Scan with camera) |
 | --- | --- |
-| ![Inventory list with bulk import and label actions](docs/screenshots/inventory.png) | ![Product editor with the IMEI and warranty option](docs/screenshots/product-imei.png) |
+| ![Inventory list with bulk import and label actions](docs/screenshots/inventory.png) | ![Add product dialog with the Generate barcode and Scan with camera buttons](docs/screenshots/add-product.png) |
 
-| IMEI asked at the moment of sale | Warranty lookup |
+| Optional IMEI & warranty per product | IMEI asked at the moment of sale |
 | --- | --- |
-| ![Checkout asking for the IMEI of the unit being sold](docs/screenshots/imei-sale.png) | ![Scan an IMEI to see sale date and warranty status](docs/screenshots/warranty.png) |
+| ![Product editor with the IMEI and warranty option](docs/screenshots/product-imei.png) | ![Checkout asking for the IMEI of each unit being sold](docs/screenshots/imei-sale.png) |
 
-| Settings → Features (IMEI tracking is opt-in) | A4 tax invoice with authorised signature |
+| Warranty lookup | Settings → Features (IMEI tracking is opt-in) |
 | --- | --- |
-| ![Features tab with the IMEI toggle](docs/screenshots/features.png) | ![A4 invoice with warranty table and signature](docs/screenshots/invoice-a4.png) |
+| ![Scan an IMEI to see sale date and warranty status](docs/screenshots/warranty.png) | ![Features tab with the IMEI toggle](docs/screenshots/features.png) |
+
+| A4 tax invoice with authorised signature |
+| --- |
+| ![A4 invoice with warranty table and signature](docs/screenshots/invoice-a4.png) |
 
 ## Contents
 
