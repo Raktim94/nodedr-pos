@@ -5,9 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/types";
 
-// Customer-facing pages (QR menu, loyalty portal) are opened by people who
+// Customer-facing pages (the loyalty portal) are opened by people who
 // have no account — they must never be bounced to the staff login.
-const PUBLIC_PREFIXES = ["/menu", "/me/"];
+const PUBLIC_PREFIXES = ["/me/"];
 const isPublic = (p: string) => PUBLIC_PREFIXES.some((x) => p === x || p.startsWith(x.endsWith("/") ? x : x + "/") || p === x.replace(/\/$/, ""));
 
 export function AuthGate({ children }: { children: React.ReactNode }) {

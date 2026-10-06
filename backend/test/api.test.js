@@ -287,9 +287,8 @@ test('purchasing: suppliers, reorder suggestion, PO receive updates stock + cost
   assert.equal((await admin.post(`/api/purchasing/orders/${po.data.id}/receive`, { items: [{ itemId: po.data.items[0].id, quantity: 1 }] })).status, 409);
 });
 
-test('orders: API order reserves stock, kanban status, collect bills it; QR menu is public + validated', async () => {
+test('orders: API order reserves stock, kanban status, collect bills it', async () => {
   const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
-  await admin.put(`/api/products/${cola.id}`, { showInMenu: true });
   const k = await admin.post('/api/api-keys', { name: 'orders', scopes: ['products:read', 'orders:write'], confirmPassword: PW });
   const hdr = { authorization: `Bearer ${k.data.apiKey}` };
   const api = client(srv.base);
@@ -313,19 +312,6 @@ test('orders: API order reserves stock, kanban status, collect bills it; QR menu
   const after = (await admin.get('/api/products')).data.find((p) => p.id === cola.id);
   assert.equal(after.stock, before.stock - 10);
   assert.equal((await admin.post(`/api/orders/${id}/collect`, { paymentMethod: 'UPI' })).status, 409);
-
-  // public QR menu
-  const pub = client(srv.base);
-  const menu = await pub.get('/api/public/menu');
-  assert.ok(menu.data.items.find((i) => i.name === 'Cola 1L'));
-  const bad = await pub.post('/api/public/menu/order', { name: 'x', items: [{ productId: 999999, quantity: 1 }] });
-  assert.equal(bad.status, 400);
-  const good = await pub.post('/api/public/menu/order', { name: 'Table guest', tableNo: '4', fulfilment: 'DINE_IN', items: [{ productId: cola.id, quantity: 2 }] });
-  assert.equal(good.status, 201, JSON.stringify(good.data));
-  assert.equal(good.data.total, 90);
-  const st = await pub.get(`/api/public/order/${good.data.id}?code=${good.data.pickupCode}`);
-  assert.equal(st.data.status, 'NEW');
-  assert.equal((await pub.get(`/api/public/order/${good.data.id}?code=WRONG1`)).status, 404);
 });
 
 test('store webhooks: bad signature rejected, valid Woo order becomes an order', async () => {
@@ -445,7 +431,10 @@ test('security: franchisor is limited to the hub views and read-only', async () 
 
 test('security: concurrent hand-over bills an order exactly once', async () => {
   const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
-  const o = await admin.post('/api/orders', { items: [{ productId: cola.id, quantity: 2 }], customer: { name: 'Race' } });
+  const key = await admin.post('/api/api-keys', { name: 'race-orders', scopes: ['orders:write'], confirmPassword: PW });
+  const placed = await client(srv.base).post('/api/external/orders', { externalId: 'race-o', items: [{ sku: 'COLA-1', quantity: 2 }], customer: { name: 'Race' } }, { authorization: `Bearer ${key.data.apiKey}` });
+  assert.equal(placed.status, 201, JSON.stringify(placed.data));
+  const o = { data: placed.data.order };
   const before = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
   const results = await Promise.all([1, 2, 3, 4].map(() => admin.post(`/api/orders/${o.data.id}/collect`, { paymentMethod: 'UPI' })));
   assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => r.status)));
@@ -471,4 +460,20 @@ test('security: order webhooks go only to the owning integration', async () => {
   const bad = await admin.post('/api/api-keys', { name: 'hook', scopes: ['orders:write'], webhookUrl: `http://127.0.0.1:${sink.address().port}/x`, confirmPassword: PW });
   assert.equal(bad.status, 400);
   sink.close();
+});
+
+test('A4 PDF: signature block never overflows or leaves a blank page', async () => {
+  const pages = (buf) => (buf.toString('latin1').match(/\/Type \/Page\b(?!s)/g) || []).length;
+  const cola = (await admin.post('/api/products', { barcode: 'PDF-ITEM', name: 'PDF test item', purchasePrice: 1, sellingPrice: 5, taxRate: 12, stock: 1000 })).data;
+  // long names + a signatory name wider than the signature box
+  await admin.put('/api/settings', { signatoryName: 'A Very Long Authorised Signatory Name That Must Be Clipped', termsText: 'Terms '.repeat(80), confirmPassword: PW });
+  for (const n of [1, 12, 20, 24, 25, 26, 30, 45, 80]) {
+    const sale = await admin.post('/api/invoices', { items: Array.from({ length: n }, () => ({ productId: cola.id, quantity: 1 })), paymentMethod: 'UPI' });
+    assert.equal(sale.status, 201, JSON.stringify(sale.data));
+    const pdf = await admin.get(`/api/print/${sale.data.id}/pdf?layout=a4`);
+    const p = pages(pdf.data);
+    // 1 page for a handful of lines; never more pages than the rows can fill (no stray blank page)
+    assert.ok(p >= 1 && p <= Math.ceil(n / 24) + 1, `${n} lines -> ${p} pages`);
+    if (n <= 12) assert.equal(p, 1, `${n} lines must fit on one page`);
+  }
 });

@@ -28,8 +28,8 @@ covered by a regression test in `backend/test/api.test.js` ("security: …").
 * Store webhooks: HMAC over the raw bytes, timing-safe compare, uniform 404 for unknown/inactive/mismatched integrations, per-integration rate limit, idempotent on the store's order id.
 * Branch ⇄ hub sync: AES-GCM authenticated messages, ±10 min timestamp window, uniform 401, hub role gate, transfers applied once (`AppliedTransfer`).
 * ZPL/EPL labels: control characters stripped from product text (no printer-command injection).
-* Output encoding: receipt HTML escapes all fields (including serials); new React pages render text only; QR-menu print window built with `textContent`.
-* Public endpoints (QR menu, order status, portal): rate-limited, catalog-priced server-side, order needs the pickup code, open-order cap.
+* Output encoding: receipt HTML escapes all fields (including serials); new React pages render text only.
+* Public endpoints: only the customer-portal link and signed receipt links are unauthenticated; both are rate-limited and HMAC-signed. (There is no public ordering endpoint — orders only enter through keyed APIs or signed store webhooks.)
 * Card payments: the server re-verifies the provider's payment status and amount before accepting `CARD`, and a payment id can only be used once.
 
 ## Known limits (accepted / for the operator)

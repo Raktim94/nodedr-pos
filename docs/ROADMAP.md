@@ -29,7 +29,7 @@ service from the development environment — pilot it before relying on it.
 | | Multi-branch inventory, consolidated reporting, stock transfers, franchise (read-only) mode | Verified end-to-end for the encrypted push/ingest path; branches ⇄ hub over a real network not exercised |
 | | Optional cloud sync | Delivered as **self-hosted** hub sync: data goes only to a server you run, AES-256-GCM per-branch secret |
 | | Customer PWA | Verified API; installable page (service worker + manifest) |
-| **v2.1 Omni-channel** | QR-code menu, click-and-collect board | Verified |
+| **v2.1 Omni-channel** | Click-and-collect / delivery orders board for e-commerce orders (API, WooCommerce, Shopify). A food/restaurant QR menu was deliberately **not** included — this is a retail POS | Verified |
 | | WooCommerce / Shopify order webhooks (HMAC) | Verified inbound; outbound stock push **needs a live store** |
 | **Also added** | IMEI / serial numbers with warranty tracking and scan lookup | Verified |
 | | Bulk product import (CSV/XLSX, preview → commit) | Verified |

@@ -73,7 +73,6 @@ export interface Product {
   warrantyMonths: number;
   reorderPoint: number;
   supplierId: number | null;
-  showInMenu: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -199,8 +198,7 @@ export interface Order {
   channel: string;
   externalId: string | null;
   status: "NEW" | "PACKING" | "READY" | "COLLECTED" | "CANCELLED";
-  fulfilment: "PICKUP" | "DINE_IN" | "DELIVERY";
-  tableNo: string | null;
+  fulfilment: "PICKUP" | "DELIVERY";
   pickupCode: string;
   customerName: string;
   customerPhone: string | null;

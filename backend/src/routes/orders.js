@@ -3,7 +3,6 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const orders = require('../lib/orders');
-const { qtySchema } = require('../lib/qty');
 
 const router = express.Router();
 router.use(requireAuth, requirePerm('orders'));
@@ -40,19 +39,6 @@ router.get('/by-code/:code', wrap(async (req, res) => {
   const o = await prisma.order.findFirst({ where: { pickupCode: String(req.params.code).toUpperCase(), status: { in: orders.OPEN } }, include: { items: true } });
   if (!o) return res.status(404).json({ error: 'No open order with that pickup code' });
   res.json(orders.publicOrder(o));
-}));
-
-const createSchema = z.object({
-  fulfilment: z.enum(['PICKUP', 'DINE_IN', 'DELIVERY']).default('PICKUP'),
-  tableNo: z.string().trim().max(20).optional(),
-  customer: z.object({ name: z.string().trim().max(160).optional(), phone: z.string().trim().max(30).optional() }).optional(),
-  items: z.array(z.object({ productId: z.number().int().positive(), quantity: qtySchema })).min(1).max(100),
-  note: z.string().trim().max(300).optional(),
-});
-router.post('/', wrap(async (req, res) => {
-  const p = createSchema.parse(req.body);
-  const { order } = await orders.createOrder({ ...p, channel: 'CLICK_COLLECT' });
-  res.status(201).json(orders.publicOrder(order));
 }));
 
 router.patch('/:id/status', wrap(async (req, res) => {

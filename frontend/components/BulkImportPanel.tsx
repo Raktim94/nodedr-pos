@@ -14,7 +14,7 @@ import { api, ApiError } from "@/lib/api";
 interface RowResult { row: number; name: string; outcome: "COMMITTED" | "VALID" | "ERROR" | "DUPLICATE"; message: string }
 interface Report { dryRun: boolean; total: number; committed: number; valid: number; errors: number; duplicates: number; results: RowResult[] }
 
-const COLUMNS = "name*, selling_price*, barcode, sku, category, hsn, unit, purchase_price, tax_rate, stock, reorder_point, discount_type, discount_value, track_serial, warranty_months, serials, supplier, show_in_menu";
+const COLUMNS = "name*, selling_price*, barcode, sku, category, hsn, unit, purchase_price, tax_rate, stock, reorder_point, discount_type, discount_value, track_serial, warranty_months, serials, supplier";
 
 export function BulkImportPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();

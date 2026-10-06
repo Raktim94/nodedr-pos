@@ -1,4 +1,5 @@
-// Online orders (API / WooCommerce / Shopify / QR menu / click-and-collect).
+// Online orders from e-commerce stores (API / WooCommerce / Shopify) —
+// click-and-collect or delivery.
 //
 // Stock model: an order does NOT move Product.stock. Open orders (NEW,
 // PACKING, READY) are *reservations*: availability = stock − reserved. Stock
@@ -34,7 +35,7 @@ async function reservedByProduct(tx, productIds) {
 
 /** items: [{ productId, quantity }] — prices always come from the catalog. */
 async function createOrder(input) {
-  const { channel, externalId = null, fulfilment = 'PICKUP', tableNo = null, customer = {}, items, note = null, paid = false, paymentRef = null, apiKeyId = null } = input;
+  const { channel, externalId = null, fulfilment = 'PICKUP', customer = {}, items, note = null, paid = false, paymentRef = null, apiKeyId = null } = input;
   if (!items?.length) throw err('Order has no items');
 
   return prisma.$transaction(async (tx) => {
@@ -60,7 +61,7 @@ async function createOrder(input) {
     const total = round2(lines.reduce((s, l) => s + l.price * l.quantity, 0));
     const order = await tx.order.create({
       data: {
-        channel, externalId, fulfilment, tableNo, pickupCode: pickupCode(), note, paid, paymentRef, apiKeyId, total,
+        channel, externalId, fulfilment, pickupCode: pickupCode(), note, paid, paymentRef, apiKeyId, total,
         customerName: customer.name || 'Online Customer', customerPhone: customer.phone || null, customerEmail: customer.email || null,
         items: { create: lines },
       },
@@ -75,7 +76,7 @@ async function createOrder(input) {
 
 function publicOrder(o) {
   return {
-    id: o.id, channel: o.channel, externalId: o.externalId, status: o.status, fulfilment: o.fulfilment, tableNo: o.tableNo,
+    id: o.id, channel: o.channel, externalId: o.externalId, status: o.status, fulfilment: o.fulfilment,
     pickupCode: o.pickupCode, customerName: o.customerName, customerPhone: o.customerPhone, total: o.total, paid: o.paid,
     invoiceId: o.invoiceId, createdAt: o.createdAt,
     items: (o.items || []).map((i) => ({ productId: i.productId, name: i.name, quantity: i.quantity, price: i.price })),

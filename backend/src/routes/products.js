@@ -45,7 +45,6 @@ const fields = {
   warrantyMonths: z.number().int().min(0).max(240),
   reorderPoint: z.number().min(0).max(1_000_000),
   supplierId: z.number().int().positive().nullable(),
-  showInMenu: z.boolean(),
 };
 const createSchema = z.object({
   ...fields,
@@ -56,7 +55,6 @@ const createSchema = z.object({
   warrantyMonths: fields.warrantyMonths.default(0),
   reorderPoint: fields.reorderPoint.default(0),
   supplierId: fields.supplierId.default(null),
-  showInMenu: fields.showInMenu.default(false),
 });
 const updateSchema = z.object(fields).partial();
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, ClipboardList, QrCode, Store, Truck, UtensilsCrossed, XCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardList, QrCode, Store, Truck, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/Bits";
 import { Modal } from "@/components/ui/Modal";
@@ -22,7 +22,7 @@ const COLUMNS: { key: Col; title: string; hint: string }[] = [
 const NEXT: Record<string, Col | undefined> = { NEW: "PACKING", PACKING: "READY", READY: "COLLECTED" };
 const ALLOWED: Record<string, string[]> = { NEW: ["PACKING", "READY"], PACKING: ["READY"], READY: ["COLLECTED"] };
 
-const channelLabel = (c: string) => ({ QR_MENU: "QR menu", CLICK_COLLECT: "In shop", API: "API", WOOCOMMERCE: "WooCommerce", SHOPIFY: "Shopify", GENERIC: "Webhook" }[c] ?? c);
+const channelLabel = (c: string) => ({ API: "Store API", WOOCOMMERCE: "WooCommerce", SHOPIFY: "Shopify", GENERIC: "Webhook" }[c] ?? c);
 
 export default function OrdersPage() {
   const { data: shop } = useShopSettings();
@@ -88,7 +88,7 @@ export default function OrdersPage() {
     <div>
       <PageHeader
         title="Online orders"
-        subtitle="Click-and-collect, QR-menu, API and store orders. Drag a card — or use its button — to move it along."
+        subtitle="Orders from your e-commerce stores (WooCommerce, Shopify, API) for pickup or delivery. Drag a card — or use its button — to move it along."
         actions={
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) findByCode(); }}>
             <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Pickup code" aria-label="Pickup code" maxLength={8} className="w-32 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm uppercase tracking-widest" />
@@ -141,8 +141,8 @@ export default function OrdersPage() {
                     <p className="mt-1.5 line-clamp-2 text-xs text-foreground-muted">{o.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <Badge tone="brand">
-                        {o.fulfilment === "DINE_IN" ? <UtensilsCrossed className="h-3 w-3" aria-hidden="true" /> : o.fulfilment === "DELIVERY" ? <Truck className="h-3 w-3" aria-hidden="true" /> : <Store className="h-3 w-3" aria-hidden="true" />}
-                        {o.fulfilment === "DINE_IN" ? `Table ${o.tableNo ?? "?"}` : channelLabel(o.channel)}
+                        {o.fulfilment === "DELIVERY" ? <Truck className="h-3 w-3" aria-hidden="true" /> : <Store className="h-3 w-3" aria-hidden="true" />}
+                        {channelLabel(o.channel)} · {o.fulfilment === "DELIVERY" ? "delivery" : "pickup"}
                       </Badge>
                       {o.paid && <Badge tone="good">Paid</Badge>}
                     </div>
@@ -167,7 +167,7 @@ export default function OrdersPage() {
           ))}
         </div>
       )}
-      {!isLoading && orders.length === 0 && <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No orders yet" hint="Orders from your QR menu, website, WooCommerce or Shopify store appear here." />}
+      {!isLoading && orders.length === 0 && <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No orders yet" hint="Orders from your website, WooCommerce or Shopify store appear here. Connect a store in Settings → Online stores." />}
 
       {collecting && <CollectDialog order={collecting} sym={sym} onClose={() => setCollecting(null)} onDone={() => { setCollecting(null); qc.invalidateQueries({ queryKey: ["orders"] }); qc.invalidateQueries({ queryKey: ["products"] }); }} />}
     </div>

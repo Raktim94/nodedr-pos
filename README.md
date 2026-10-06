@@ -97,7 +97,7 @@ an e-commerce **REST API + MCP server** that can take bills, reserve click-and-c
 orders and check warranty · A4 tax-invoice PDFs with your authorised signature and a
 UPI QR · UPI QR / multi-currency / card-terminal payments · profit, category and
 hourly-sales reports with GSTR-1 exports · suppliers & purchase orders · shifts and
-granular staff permissions · online-orders board, QR menu, customer loyalty page ·
+granular staff permissions · online-orders board for e-commerce orders, customer loyalty page ·
 WooCommerce/Shopify order sync · optional self-hosted multi-branch sync · menu-bar/tray
 icon and a macOS app · a redesigned light forest-green UI.
 

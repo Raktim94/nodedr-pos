@@ -21,7 +21,6 @@ export interface ProductInput {
   warrantyMonths?: number;
   reorderPoint?: number;
   supplierId?: number | null;
-  showInMenu?: boolean;
 }
 
 export function useProducts(search = "") {

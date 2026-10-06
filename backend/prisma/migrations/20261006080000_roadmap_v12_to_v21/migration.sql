@@ -89,7 +89,6 @@ CREATE TABLE "Order" (
     "externalId" TEXT,
     "status" TEXT NOT NULL DEFAULT 'NEW',
     "fulfilment" TEXT NOT NULL DEFAULT 'PICKUP',
-    "tableNo" TEXT,
     "pickupCode" TEXT NOT NULL,
     "customerName" TEXT NOT NULL DEFAULT 'Online Customer',
     "customerPhone" TEXT,
@@ -226,7 +225,6 @@ CREATE TABLE "new_Product" (
     "warrantyMonths" INTEGER NOT NULL DEFAULT 0,
     "reorderPoint" REAL NOT NULL DEFAULT 0,
     "supplierId" INTEGER,
-    "showInMenu" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Product_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier" ("id") ON DELETE SET NULL ON UPDATE CASCADE

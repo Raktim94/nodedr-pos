@@ -17,7 +17,7 @@ const MAX_ROWS = 5000;
 const COLUMNS = [
   'name', 'barcode', 'sku', 'category', 'hsn', 'unit', 'purchase_price', 'selling_price', 'tax_rate',
   'stock', 'reorder_point', 'discount_type', 'discount_value', 'track_serial', 'warranty_months',
-  'serials', 'supplier', 'show_in_menu',
+  'serials', 'supplier',
 ];
 
 const SAMPLE_ROWS = [
@@ -186,7 +186,7 @@ async function importProducts(buffer, format, { dryRun }) {
         purchasePrice: buy.value ?? 0, sellingPrice: sell.value, taxRate: tax.value ?? 0,
         discountType: dtype || null, discountValue: dtype ? dval.value ?? 0 : 0,
         stock: track ? units.length : stock.value ?? 0, reorderPoint: reorder.value ?? 0,
-        trackSerial: track, warrantyMonths: warranty.value ?? 0, showInMenu: bool(f.show_in_menu),
+        trackSerial: track, warrantyMonths: warranty.value ?? 0,
       },
       units, supplierKey: sid, notes,
     });

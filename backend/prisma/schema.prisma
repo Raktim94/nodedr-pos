@@ -125,7 +125,6 @@ model Product {
   warrantyMonths Int          @default(0)
   reorderPoint  Float         @default(0) // suggest a purchase order at or below this stock
   supplierId    Int?
-  showInMenu    Boolean       @default(false) // listed on the public QR menu
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   invoiceItems  InvoiceItem[]
@@ -447,16 +446,16 @@ model Announcement {
   createdAt DateTime @default(now())
 }
 
-// An online / QR-menu / click-and-collect order. Stock is reserved when the
+// An online order from an e-commerce store (API / WooCommerce / Shopify) for
+// click-and-collect or delivery. Stock is reserved when the
 // order is created and handed back if it is cancelled; the bill is raised
 // when the customer collects (or immediately for prepaid delivery).
 model Order {
   id          Int       @id @default(autoincrement())
-  channel     String // API | WOOCOMMERCE | SHOPIFY | QR_MENU | CLICK_COLLECT
+  channel     String // API | WOOCOMMERCE | SHOPIFY | GENERIC
   externalId  String?
   status      String    @default("NEW") // NEW | PACKING | READY | COLLECTED | CANCELLED
-  fulfilment  String    @default("PICKUP") // PICKUP | DINE_IN | DELIVERY
-  tableNo     String?
+  fulfilment  String    @default("PICKUP") // PICKUP | DELIVERY
   pickupCode  String
   customerName  String  @default("Online Customer")
   customerPhone String?

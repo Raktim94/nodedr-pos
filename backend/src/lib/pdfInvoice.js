@@ -209,23 +209,49 @@ async function buildInvoicePdf({ shop, invoice }) {
       y += 6;
     }
 
-    // ---- terms + signatures ----
+    // ---- terms + authorised signature ----
+    // The signature block is a fixed 74pt-tall unit. If it will not fit under
+    // the content, it moves to a new page as a whole (never split, never
+    // spilling a lone label onto a blank page); otherwise it sits at the
+    // bottom of the current page. Text inside it is single-line + clipped so
+    // it can never wrap past the page margin and trigger an extra page.
+    const SIG_H = 74;
+    const pageBottom = doc.page.height - doc.page.margins.bottom;
     const termsText = shop.termsText || shop.receiptFooter || '';
-    if (y > bottomLimit() - 70) { doc.addPage(); y = doc.page.margins.top; }
+    let termsH = 0;
     if (termsText) {
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('TERMS', L, y);
-      doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(termsText, L, y + 10, { width: W * 0.55 });
+      doc.font('Helvetica').fontSize(8);
+      termsH = 12 + Math.min(doc.heightOfString(termsText, { width: W * 0.55 }), 60);
     }
-    const sigY = Math.max(y, doc.page.height - doc.page.margins.bottom - 75);
-    const sigW = 130;
-    const drawSig = (buf, x, label) => {
-      if (buf) {
-        try { doc.image(buf, x, sigY - 4, { fit: [sigW, 40] }); } catch { /* unreadable image — leave the line blank */ }
+    if (y + Math.max(termsH, SIG_H) > pageBottom) {
+      doc.addPage();
+      y = doc.page.margins.top;
+    }
+    if (termsText) {
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('TERMS', L, y, { lineBreak: false });
+      doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(termsText, L, y + 11, { width: W * 0.55, height: 60, ellipsis: true });
+    }
+    const sigW = 150;
+    const sigX = R - sigW;
+    const sigY = Math.max(y, pageBottom - SIG_H);
+    if (shopSig) {
+      try {
+        // Scaled to fit the box and centred in it, so a tall or wide image can't overflow.
+        doc.image(shopSig, sigX, sigY, { fit: [sigW, 40], align: 'center', valign: 'bottom' });
+      } catch {
+        /* unreadable image — leave the space blank */
       }
-      doc.moveTo(x, sigY + 40).lineTo(x + sigW, sigY + 40).lineWidth(0.75).strokeColor(MUTED).stroke();
-      doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(label, x, sigY + 44, { width: sigW, align: 'center' });
-    };
-    drawSig(shopSig, R - sigW, shop.signatoryName ? `Authorised signatory — ${shop.signatoryName}` : 'Authorised signatory');
+    }
+    doc.moveTo(sigX, sigY + 44).lineTo(sigX + sigW, sigY + 44).lineWidth(0.75).strokeColor(MUTED).stroke();
+    doc.font('Helvetica').fontSize(8).fillColor(MUTED);
+    doc.text('Authorised signatory', sigX + (sigW - doc.widthOfString('Authorised signatory')) / 2, sigY + 48, { lineBreak: false });
+    if (shop.signatoryName) {
+      // Clip by measuring (not pdfkit's own ellipsis, which can wrap onto a new
+      // page when a long name sits at the page foot).
+      let name = shop.signatoryName;
+      while (name.length > 1 && doc.widthOfString(name) > sigW) name = name.slice(0, -2).trimEnd() + (name.endsWith('…') ? '' : '…');
+      doc.text(name, sigX + (sigW - doc.widthOfString(name)) / 2, sigY + 59, { lineBreak: false });
+    }
 
     doc.end();
   });

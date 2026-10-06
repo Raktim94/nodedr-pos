@@ -25,7 +25,7 @@ import { EmailTab } from "./EmailTab";
 import { SyncTab } from "./SyncTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 
-const TABS = ["Company", "Tax & Loyalty", "Receipt", "Invoice & signature", "Payments", "Online & menu", "E-mail reports", "Branches", "Reference Data", "Integrations", "Password", "Staff"] as const;
+const TABS = ["Company", "Tax & Loyalty", "Receipt", "Invoice & signature", "Payments", "Online stores", "E-mail reports", "Branches", "Reference Data", "Integrations", "Password", "Staff"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
@@ -87,7 +87,7 @@ export default function SettingsPage() {
       {tab === "Receipt" && <ReceiptTab settings={settings} />}
       {tab === "Invoice & signature" && <InvoiceTab settings={settings} />}
       {tab === "Payments" && <PaymentsTab settings={settings} />}
-      {tab === "Online & menu" && <OnlineTab />}
+      {tab === "Online stores" && <OnlineTab />}
       {tab === "E-mail reports" && <EmailTab />}
       {tab === "Branches" && <SyncTab />}
       {tab === "Reference Data" && <ReferenceDataTab />}

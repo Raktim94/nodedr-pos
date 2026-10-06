@@ -59,6 +59,6 @@ money rules are identical.
 
 ## Stores (WooCommerce / Shopify / generic)
 
-Settings → Online & menu → Connect. You get a webhook URL and a signing secret
+Settings → Online stores → Connect. You get a webhook URL and a signing secret
 (shown once). Orders become click-and-collect/delivery orders matched by SKU.
 Stock changes here are pushed back (debounced, one call per SKU per ~2.5 s).

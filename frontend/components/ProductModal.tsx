@@ -37,7 +37,6 @@ const productSchema = z.object({
   warrantyMonths: z.number().int().min(0).max(240),
   reorderPoint: z.number().min(0),
   supplierId: z.number().int().positive().nullable(),
-  showInMenu: z.boolean(),
 });
 type ProductForm = z.infer<typeof productSchema>;
 
@@ -87,7 +86,6 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
       warrantyMonths: product?.warrantyMonths ?? 0,
       reorderPoint: product?.reorderPoint ?? 0,
       supplierId: product?.supplierId ?? null,
-      showInMenu: product?.showInMenu ?? false,
     },
   });
 
@@ -365,11 +363,6 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               </select>
             </label>
           </div>
-          <label className="flex items-center gap-2.5 text-sm">
-            <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" disabled={trackSerial} {...register("showInMenu")} />
-            <span className="font-medium">Show on the public QR menu</span>
-          </label>
-
           <div className="mt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel

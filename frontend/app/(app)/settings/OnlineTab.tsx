@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import QRCode from "qrcode";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Printer, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
@@ -17,39 +16,9 @@ import { api, describeApiError } from "@/lib/api";
 export function OnlineTab() {
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <MenuCard />
       <StoresCard />
       <AnnouncementsCard />
     </div>
-  );
-}
-
-function MenuCard() {
-  const [table, setTable] = useState("");
-  const [img, setImg] = useState("");
-  const [origin, setOrigin] = useState("");
-  useEffect(() => setOrigin(window.location.origin), []);
-  const url = origin ? `${origin}/menu${table.trim() ? `?table=${encodeURIComponent(table.trim())}` : ""}` : "";
-  useEffect(() => {
-    if (url) QRCode.toDataURL(url, { margin: 1, width: 280 }).then(setImg).catch(() => setImg(""));
-  }, [url]);
-
-  return (
-    <Card className="flex flex-col gap-4 p-6">
-      <h2 className="text-base font-semibold">QR menu &amp; click-and-collect</h2>
-      <p className="text-sm text-foreground-muted">Customers scan a QR, browse the products you tick <b>Show on the public QR menu</b> in Inventory, and order for dine-in or pickup. Orders land on the <b>Online orders</b> board with stock reserved. Phones must be able to reach this address — on a shop network use the till&apos;s LAN address, or publish it with HTTPS.</p>
-      <Field label="Table number (blank = pickup menu)" value={table} onChange={(e) => setTable(e.target.value)} maxLength={20} />
-      <div className="flex flex-wrap items-center gap-4">
-        {img && /* eslint-disable-next-line @next/next/no-img-element */ <img src={img} alt={`QR code for ${url}`} width={140} height={140} className="rounded-lg border border-border bg-white p-1.5" />}
-        <div className="min-w-0 flex-1">
-          <code className="block break-all rounded-lg bg-surface-muted px-3 py-2 text-xs">{url}</code>
-          <div className="mt-2 flex gap-2">
-            <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(url)}><Copy className="h-4 w-4" aria-hidden="true" /> Copy link</Button>
-            <Button variant="secondary" onClick={() => { const w = window.open("", "_blank", "width=420,height=560"); if (w) { w.document.title = "QR menu"; const h1 = w.document.createElement("h1"); h1.textContent = table ? `Table ${table}` : "Scan to order"; h1.style.cssText = "font:600 28px system-ui;text-align:center"; const im = w.document.createElement("img"); im.src = img; im.style.cssText = "display:block;margin:16px auto;width:300px"; w.document.body.append(h1, im); w.onload = () => w.print(); setTimeout(() => w.print(), 300); } }}><Printer className="h-4 w-4" aria-hidden="true" /> Print</Button>
-          </div>
-        </div>
-      </div>
-    </Card>
   );
 }
 
