@@ -60,6 +60,17 @@ model ShopSettings {
   allowNegativeStock Boolean @default(false)
   // Address lookup (see PinCode below)
   pincode        String?
+  // Authorised-signatory signature printed on A4 invoices and receipts.
+  // Stored as a file under data/signatures/ (see lib/signatures.js) — only
+  // the file name lives here, so settings reads stay small and fast.
+  signatureFile  String?
+  signatoryName  String?
+  // "receipt" = 80mm thermal-style PDF, "a4" = full tax invoice PDF.
+  invoiceLayout  String   @default("receipt")
+  // Merchant UPI id (VPA) — drives the dynamic UPI QR shown at checkout
+  // and printed on invoices.
+  upiId          String?
+  termsText      String?
 }
 
 model Product {
@@ -81,10 +92,52 @@ model Product {
   discountType  String?       // "percent" | "amount" | null (no standing discount)
   discountValue Float         @default(0) // interpreted per discountType; applied automatically at checkout
   stock         Int           @default(0)
+  // Serial / IMEI tracking: when on, every unit is a SerialUnit row, stock
+  // is the count of IN_STOCK units, and a sale must name the exact units.
+  trackSerial   Boolean       @default(false)
+  warrantyMonths Int          @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   invoiceItems  InvoiceItem[]
   returnItems   ReturnItem[]
+  serials       SerialUnit[]
+
+  @@index([name])
+  @@index([category])
+}
+
+// One physical unit of a serial-tracked product (a phone's IMEI, a laptop's
+// serial number...). Globally unique — an IMEI can only exist once — and
+// the warranty clock starts when the unit is sold.
+model SerialUnit {
+  id             Int          @id @default(autoincrement())
+  productId      Int
+  serial         String       @unique
+  status         String       @default("IN_STOCK") // IN_STOCK | SOLD | DEFECTIVE
+  invoiceItemId  Int?
+  soldAt         DateTime?
+  warrantyEndsAt DateTime?
+  note           String?
+  createdAt      DateTime     @default(now())
+  product        Product      @relation(fields: [productId], references: [id])
+  invoiceItem    InvoiceItem? @relation(fields: [invoiceItemId], references: [id])
+  events         SerialEvent[]
+
+  @@index([productId, status])
+  @@index([invoiceItemId])
+}
+
+// Append-only history of a serial: received, sold, returned, claimed...
+model SerialEvent {
+  id        Int        @id @default(autoincrement())
+  serialId  Int
+  type      String // RECEIVED | SOLD | RETURNED | CLAIM | NOTE
+  invoiceId Int?
+  note      String?
+  createdAt DateTime   @default(now())
+  serial    SerialUnit @relation(fields: [serialId], references: [id], onDelete: Cascade)
+
+  @@index([serialId])
 }
 
 model Customer {
@@ -139,10 +192,23 @@ model Invoice {
   refundMode     String? // "CASH" | "CREDIT" — how refundValue was settled
   pointsRedeemed Int           @default(0)
   pointsEarned   Int           @default(0)
+  // Where the bill came from: "POS" (till), "API" (external storefront via
+  // the External API / MCP). externalRef + apiKeyId make an API bill
+  // idempotent — retrying the same order never double-bills.
+  source         String        @default("POS")
+  externalRef    String?
+  apiKeyId       Int?
+  cashierName    String?
+  // Customer's signature captured at the till (file under data/signatures/).
+  customerSignature String?
   createdAt      DateTime      @default(now())
   customer       Customer?     @relation(fields: [customerId], references: [id])
   items          InvoiceItem[]
   returns        Return[]
+
+  @@unique([apiKeyId, externalRef])
+  @@index([createdAt])
+  @@index([customerId])
 }
 
 model InvoiceItem {
@@ -156,9 +222,14 @@ model InvoiceItem {
   taxRate   Float   @default(0)
   taxAmount Float   @default(0) // tax for this line (on discounted base)
   total     Float // line total incl. tax, after prorated discount
+  warrantyMonths Int @default(0)
   invoice   Invoice @relation(fields: [invoiceId], references: [id])
   product   Product @relation(fields: [productId], references: [id])
   returnItems ReturnItem[]
+  serials   SerialUnit[]
+
+  @@index([invoiceId])
+  @@index([productId])
 }
 
 // A return against a past invoice — one or more line items, each capped at
@@ -216,6 +287,9 @@ model ApiKey {
   // Read-only keys can only look up stock; write keys may also adjust it
   // (used by a storefront reporting its own sales back to the POS).
   canWrite      Boolean   @default(false)
+  // Comma-separated capability list, least-privilege by default:
+  //   products:read  stock:write  bills:write  bills:read  warranty:read
+  scopes        String    @default("products:read")
   webhookUrl    String?
   webhookSecret String?
   lastUsedAt    DateTime?

@@ -26,4 +26,13 @@ function generateWebhookSecret() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-module.exports = { generateApiKey, hashApiKey, generateWebhookSecret, KEY_PREFIX };
+// Capabilities a key can be granted — least privilege by default.
+const SCOPES = ['products:read', 'stock:write', 'bills:write', 'bills:read', 'warranty:read', 'orders:write'];
+
+function parseScopes(csv) {
+  return String(csv || '').split(',').map((s) => s.trim()).filter((s) => SCOPES.includes(s));
+}
+
+module.exports = {
+  SCOPES,
+  parseScopes, generateApiKey, hashApiKey, generateWebhookSecret, KEY_PREFIX };

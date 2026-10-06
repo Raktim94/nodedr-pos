@@ -3,6 +3,7 @@
 // Used for the "Download PDF" button; the same data also feeds the printable
 // HTML view (see receipt.js) that drives the browser print dialog.
 const PDFDocument = require('pdfkit');
+const { readSignature } = require('./signatures');
 
 function money(sym, n) {
   return `${sym} ${Number(n).toFixed(2)}`;
@@ -55,7 +56,9 @@ function estimateHeight({ shop, invoice }) {
   for (const it of invoice.items) {
     h += wrappedLines(it.name, CHARS_PER_LINE_NAME) * 10 + 4;
     if (shop.gstEnabled && shop.showGst && it.taxRate > 0) h += 9;
+    if (it.serials?.length) h += it.serials.length * 9 + 2;
   }
+  if (shop.signatureFile) h += 44;
   h += 8; // rule
   h += 13; // subtotal
   if (invoice.discountAmount > 0) h += 13;
@@ -144,6 +147,10 @@ function buildReceiptPdf({ shop, invoice }) {
         doc.fontSize(6.5).fillColor('#666').text(`  GST @ ${it.taxRate}%`);
         doc.fontSize(8).fillColor('#000');
       }
+      for (const s of it.serials || []) {
+        doc.fontSize(6.5).fillColor('#444').text(`  S/N ${s.serial}`);
+      }
+      doc.fontSize(8).fillColor('#000');
     }
 
     rule(doc, { dashed: true });
@@ -206,6 +213,18 @@ function buildReceiptPdf({ shop, invoice }) {
     doc.moveDown(0.5);
     rule(doc, { dashed: true });
     doc.fontSize(8).text(shop.receiptFooter || 'Thank You! Visit Again.', { align: 'center' });
+
+    const sig = readSignature(shop.signatureFile);
+    if (sig) {
+      doc.moveDown(0.4);
+      try {
+        doc.image(sig, doc.page.margins.left + width / 2 - 35, doc.y, { fit: [70, 30] });
+        doc.y += 32;
+        doc.fontSize(6.5).fillColor('#666').text('Authorised signatory', { align: 'center' });
+      } catch {
+        // unreadable image — skip rather than fail the whole receipt
+      }
+    }
 
     doc.end();
   });

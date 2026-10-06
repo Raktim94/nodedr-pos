@@ -4,6 +4,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { round2 } = require('../lib/pricing');
 const { notifyStockChange } = require('../lib/webhooks');
+const { normalizeSerial } = require('../lib/serials');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -15,6 +16,7 @@ const returnSchema = z.object({
       z.object({
         invoiceItemId: z.number().int().positive(),
         quantity: z.number().int().positive(),
+        serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
       })
     )
     .min(1),
@@ -62,7 +64,19 @@ router.post('/', async (req, res) => {
         // (invoiceItem.total already reflects any per-line discount
         // proration), not the pre-discount unit price.
         const refundAmount = round2((invoiceItem.total / invoiceItem.quantity) * line.quantity);
-        returnLines.push({ invoiceItem, quantity: line.quantity, refundAmount });
+        const prod = await tx.product.findUnique({ where: { id: invoiceItem.productId }, select: { trackSerial: true } });
+        let units = [];
+        if (prod?.trackSerial) {
+          const sers = (line.serials || []).map(normalizeSerial);
+          if (sers.length !== line.quantity) {
+            throw Object.assign(new Error(`Returning "${invoiceItem.name}" needs ${line.quantity} serial/IMEI number(s)`), { status: 400 });
+          }
+          units = await tx.serialUnit.findMany({ where: { serial: { in: sers }, invoiceItemId: invoiceItem.id, status: 'SOLD' } });
+          if (units.length !== sers.length) {
+            throw Object.assign(new Error(`Some serials were not sold on that line of "${invoiceItem.name}"`), { status: 409 });
+          }
+        }
+        returnLines.push({ invoiceItem, quantity: line.quantity, refundAmount, units });
       }
 
       const totalRefund = round2(returnLines.reduce((sum, l) => sum + l.refundAmount, 0));
@@ -94,6 +108,13 @@ router.post('/', async (req, res) => {
       });
 
       for (const l of returnLines) {
+        for (const u of l.units) {
+          await tx.serialUnit.update({
+            where: { id: u.id },
+            data: { status: 'IN_STOCK', invoiceItemId: null, soldAt: null, warrantyEndsAt: null },
+          });
+          await tx.serialEvent.create({ data: { serialId: u.id, type: 'RETURNED', invoiceId: invoice.id, note: `Return #${created.id}` } });
+        }
         await tx.product.update({
           where: { id: l.invoiceItem.productId },
           data: { stock: { increment: l.quantity } },

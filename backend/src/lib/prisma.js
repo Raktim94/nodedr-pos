@@ -12,4 +12,15 @@ const adapter = new PrismaBetterSqlite3({
 
 const prisma = new PrismaClient({ adapter });
 
+// SQLite tuning for a busy till: WAL lets reads (dashboard, API) proceed
+// while a checkout writes; NORMAL sync is safe under WAL and much faster;
+// a busy timeout turns brief lock contention into a short wait, not an error.
+// Pragmas are issued once per process — WAL mode is persisted in the DB file.
+prisma
+  .$queryRawUnsafe('PRAGMA journal_mode = WAL')
+  .then(() => prisma.$queryRawUnsafe('PRAGMA synchronous = NORMAL'))
+  .then(() => prisma.$queryRawUnsafe('PRAGMA busy_timeout = 5000'))
+  .then(() => prisma.$queryRawUnsafe('PRAGMA temp_store = MEMORY'))
+  .catch((err) => console.error('sqlite pragma setup failed:', err.message));
+
 module.exports = prisma;

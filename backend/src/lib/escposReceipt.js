@@ -145,6 +145,7 @@ function buildReceiptEscPos({ shop, invoice, width = 42 }) {
     if (shop.gstEnabled && shop.showGst && item.taxRate > 0) {
       push(`  GST @ ${item.taxRate}%`);
     }
+    for (const s of item.serials || []) push(`  S/N ${s.serial}`);
   }
   push(rule(width));
 

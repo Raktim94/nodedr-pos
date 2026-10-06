@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const { execFile } = require('child_process');
 
@@ -15,6 +16,11 @@ const printRoutes = require('./routes/print');
 const mastersRoutes = require('./routes/masters');
 const apiKeyRoutes = require('./routes/apiKeys');
 const externalRoutes = require('./routes/external');
+const warrantyRoutes = require('./routes/warranty');
+const signatureRoutes = require('./routes/signatures');
+const publicRoutes = require('./routes/public');
+const { requireApiKey } = require('./middleware/apiKeyAuth');
+const { handleMcp } = require('./mcp/http');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -25,6 +31,7 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:1994';
 app.set('trust proxy', 1);
 
 app.use(helmet({ contentSecurityPolicy: false })); // CSP is served by the Next.js frontend
+app.use(compression()); // JSON/CSV shrink ~80%; PDFs are already compressed and skipped by the filter
 app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
@@ -68,6 +75,19 @@ app.use('/api/print', printRoutes);
 app.use('/api/masters', mastersRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/external', externalRoutes);
+app.use('/api/warranty', warrantyRoutes);
+app.use('/api/signatures', signatureRoutes);
+app.use('/api/public', publicRoutes);
+
+// MCP over Streamable HTTP — authenticated with an API key (Bearer), tools
+// limited to that key's scopes. Same rate budget as the External API.
+app.post(
+  '/mcp',
+  rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false }),
+  requireApiKey(),
+  handleMcp
+);
+app.all('/mcp', (req, res) => res.status(405).json({ error: 'Use POST' }));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

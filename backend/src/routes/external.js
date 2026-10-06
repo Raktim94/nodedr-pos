@@ -4,6 +4,11 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireApiKey } = require('../middleware/apiKeyAuth');
 const { notifyStockChange } = require('../lib/webhooks');
+const { receiptUrl } = require('../lib/publicLink');
+const { createExternalBill, publicInvoice, findOwnBill } = require('../lib/externalBills');
+const { buildInvoicePdf } = require('../lib/pdfInvoice');
+const { buildReceiptPdf } = require('../lib/pdf');
+const { lookupWarranty } = require('../lib/warranty');
 
 const router = express.Router();
 
@@ -25,29 +30,49 @@ router.use(
 function publicProduct(p) {
   return {
     sku: p.sku,
+    barcode: p.barcode,
     name: p.name,
+    category: p.category,
     stock: p.stock,
     unit: p.unit,
     sellingPrice: p.sellingPrice,
     taxRate: p.taxRate,
+    trackSerial: p.trackSerial,
+    warrantyMonths: p.warrantyMonths,
     updatedAt: p.updatedAt,
   };
 }
 
+const baseUrl = (req) => process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+
 // GET /api/external/products — every product linked to an external SKU.
 // Read-only: any valid, non-revoked key can call this.
-router.get('/products', requireApiKey(), async (req, res) => {
-  const products = await prisma.product.findMany({
-    where: { sku: { not: null } },
-    orderBy: { name: 'asc' },
-  });
+// Paginated (limit ≤ 500) and incremental: ?updatedSince=<ISO> returns only
+// what changed, so a storefront syncing every minute transfers almost nothing.
+router.get('/products', requireApiKey({ scope: 'products:read' }), async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const where = { sku: { not: null } };
+  if (req.query.updatedSince) {
+    const d = new Date(String(req.query.updatedSince));
+    if (!Number.isNaN(d.getTime())) where.updatedAt = { gt: d };
+  }
+  if (req.query.q) where.name = { contains: String(req.query.q).slice(0, 80) };
+  const [products, total] = await Promise.all([
+    prisma.product.findMany({ where, orderBy: { id: 'asc' }, take: limit, skip: offset }),
+    prisma.product.count({ where }),
+  ]);
+  res.set('X-Total-Count', String(total));
   res.json(products.map(publicProduct));
 });
 
 // GET /api/external/products/:sku — single lookup, for a storefront that
 // wants live stock for one product page rather than pulling the whole list.
-router.get('/products/:sku', requireApiKey(), async (req, res) => {
-  const product = await prisma.product.findUnique({ where: { sku: req.params.sku } });
+router.get('/products/:sku', requireApiKey({ scope: 'products:read' }), async (req, res) => {
+  // SKU first, then barcode — a storefront may only know one of them.
+  const product =
+    (await prisma.product.findUnique({ where: { sku: req.params.sku } })) ||
+    (await prisma.product.findUnique({ where: { barcode: req.params.sku } }));
   if (!product) return res.status(404).json({ error: 'No product linked to that SKU' });
   res.json(publicProduct(product));
 });
@@ -90,7 +115,7 @@ function pruneIdempotencyCache() {
 // allowNegativeStock the same way an in-store checkout does, so an
 // external sale can't push stock below zero any more freely than a POS
 // sale could.
-router.patch('/products/:sku/stock', requireApiKey({ requireWrite: true }), async (req, res) => {
+router.patch('/products/:sku/stock', requireApiKey({ scope: 'stock:write' }), async (req, res) => {
   const parsed = stockSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -108,6 +133,9 @@ router.patch('/products/:sku/stock', requireApiKey({ requireWrite: true }), asyn
       const product = await tx.product.findUnique({ where: { sku: req.params.sku } });
       if (!product) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
 
+      if (product.trackSerial) {
+        throw Object.assign(new Error(`"${product.name}" is serial/IMEI-tracked — stock follows its registered units`), { status: 409 });
+      }
       const nextStock = set !== undefined ? set : product.stock + delta;
       if (nextStock < 0) {
         const settings = await tx.shopSettings.findFirst();
@@ -140,6 +168,48 @@ router.patch('/products/:sku/stock', requireApiKey({ requireWrite: true }), asyn
     }
     res.status(status).json(body);
   }
+});
+
+// ---- Bills -----------------------------------------------------------
+
+// POST /api/external/bills — an e-commerce store takes a bill from the POS.
+// Prices, GST, discounts and stock are all decided here from the catalog;
+// the caller only names products and quantities.
+router.post('/bills', requireApiKey({ scope: 'bills:write' }), async (req, res) => {
+  try {
+    const out = await createExternalBill(req.body, req.apiKey, baseUrl(req));
+    res.status(out.deduplicated ? 200 : 201).json(out);
+  } catch (err) {
+    const status = err.status || 500;
+    if (status === 500) console.error(err);
+    const body = { error: status === 500 ? 'Bill failed' : err.message };
+    if (err.details) body.details = err.details;
+    res.status(status).json(body);
+  }
+});
+
+router.get('/bills/:ref', requireApiKey({ scope: 'bills:read' }), async (req, res) => {
+  const inv = await findOwnBill(req.apiKey.id, req.params.ref);
+  if (!inv) return res.status(404).json({ error: 'Bill not found' });
+  res.json({ invoice: publicInvoice(inv), receiptUrl: receiptUrl(baseUrl(req), inv.id) });
+});
+
+router.get('/bills/:ref/pdf', requireApiKey({ scope: 'bills:read' }), async (req, res) => {
+  const inv = await findOwnBill(req.apiKey.id, req.params.ref);
+  if (!inv) return res.status(404).json({ error: 'Bill not found' });
+  const shop = await prisma.shopSettings.findFirst();
+  const layout = req.query.layout === 'receipt' ? 'receipt' : req.query.layout === 'a4' ? 'a4' : shop?.invoiceLayout;
+  const pdf = layout === 'a4' ? await buildInvoicePdf({ shop, invoice: inv }) : await buildReceiptPdf({ shop, invoice: inv });
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${inv.invoiceNumber}.pdf"` });
+  res.send(pdf);
+});
+
+// GET /api/external/warranty/:serial — warranty status from an IMEI/serial.
+// Buyer name/phone are omitted unless the unit was billed through this key.
+router.get('/warranty/:serial', requireApiKey({ scope: 'warranty:read' }), async (req, res) => {
+  const w = await lookupWarranty(req.params.serial, { includePrivate: false });
+  if (!w) return res.status(404).json({ error: 'No unit with that serial/IMEI' });
+  res.json(w);
 });
 
 module.exports = router;

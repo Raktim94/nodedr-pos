@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { buildReceiptHtml } = require('../lib/receipt');
 const { buildReceiptPdf } = require('../lib/pdf');
+const { buildInvoicePdf } = require('../lib/pdfInvoice');
 const { buildReceiptEscPos } = require('../lib/escposReceipt');
 const { sendRaw, findPrinterInterface, probeCharDevices, PrinterNotFoundError } = require('../lib/escposUsb');
 
@@ -84,7 +85,10 @@ router.post('/test', async (req, res) => {
 
 async function loadInvoiceAndShop(id) {
   const [invoice, shop] = await Promise.all([
-    prisma.invoice.findUnique({ where: { id }, include: { items: true } }),
+    prisma.invoice.findUnique({
+      where: { id },
+      include: { items: { include: { serials: { select: { serial: true, warrantyEndsAt: true } }, product: { select: { hsn: true } } } } },
+    }),
     prisma.shopSettings.findFirst(),
   ]);
   return { invoice, shop };
@@ -118,7 +122,9 @@ router.get('/:invoiceId/pdf', async (req, res) => {
   if (!shop) return res.status(400).json({ error: 'Shop settings not configured' });
 
   try {
-    const pdf = await buildReceiptPdf({ shop, invoice });
+    // ?layout=a4 | receipt — defaults to the shop's chosen invoice layout.
+    const layout = req.query.layout === 'a4' || req.query.layout === 'receipt' ? req.query.layout : shop.invoiceLayout;
+    const pdf = layout === 'a4' ? await buildInvoicePdf({ shop, invoice }) : await buildReceiptPdf({ shop, invoice });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoiceNumber}.pdf"`);
     res.send(pdf);

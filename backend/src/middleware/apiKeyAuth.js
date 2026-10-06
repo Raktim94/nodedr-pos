@@ -1,5 +1,5 @@
 const prisma = require('../lib/prisma');
-const { hashApiKey } = require('../lib/apiKey');
+const { hashApiKey, parseScopes } = require('../lib/apiKey');
 
 // Authenticates a call to the External Stock API (see routes/external.js)
 // against an ApiKey row, instead of the cookie-based session used by the
@@ -11,7 +11,8 @@ const { hashApiKey } = require('../lib/apiKey');
 // `requireWrite` gates the stock-adjustment endpoint: a read-only key
 // (the common case — most integrations only need to *display* live stock)
 // can look up products but can never modify this shop's inventory.
-function requireApiKey({ requireWrite = false } = {}) {
+function requireApiKey({ requireWrite = false, scope = null } = {}) {
+  const needed = scope || (requireWrite ? 'stock:write' : null);
   return async (req, res, next) => {
     const header = req.get('authorization') || '';
     const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : null;
@@ -24,11 +25,13 @@ function requireApiKey({ requireWrite = false } = {}) {
     if (!record || record.revoked) {
       return res.status(401).json({ error: 'Invalid or revoked API key' });
     }
-    if (requireWrite && !record.canWrite) {
-      return res.status(403).json({ error: 'This API key is read-only' });
+    const scopes = parseScopes(record.scopes);
+    if (needed && !scopes.includes(needed)) {
+      return res.status(403).json({ error: `This API key lacks the "${needed}" permission` });
     }
 
     req.apiKey = record;
+    req.apiScopes = scopes;
     // Best-effort — a failed "touch" must never block the actual request.
     prisma.apiKey
       .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })

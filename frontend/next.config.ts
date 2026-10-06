@@ -20,6 +20,8 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${BACKEND_URL}/api/:path*`,
       },
+      // MCP endpoint for AI agents / storefront automation (API-key auth).
+      { source: "/mcp", destination: `${BACKEND_URL}/mcp` },
     ];
   },
 };
