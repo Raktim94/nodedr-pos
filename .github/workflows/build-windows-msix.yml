@@ -18,7 +18,7 @@ on:
       version:
         description: "Version to stamp on the MSIX (four-part x.y.z.0)"
         required: false
-        default: "1.0.1"
+        default: "1.2.0"
       release_tag:
         description: "Attach the MSIX to this existing release tag (blank = artifact only, not published)"
         required: false
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ github.event.inputs.version }}"
-          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.0.1" }
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = "1.2.0" }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Building version $v"
 
