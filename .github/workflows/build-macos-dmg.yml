@@ -1,0 +1,74 @@
+name: Build macOS app (.dmg)
+
+# Built on real macOS runners (one per CPU architecture): the backend's native
+# addons are architecture-specific, so the payload is assembled by `npm ci` on
+# the target arch. The app bundles its own Node runtime (no Docker needed).
+# Unsigned unless the signing secrets are set — Gatekeeper then needs a
+# right-click > Open the first time.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp on the app"
+        required: false
+        default: "1.2.0"
+      release_tag:
+        description: "Attach the .dmg to this existing release tag (blank = artifact only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { runner: macos-14, arch: arm64 }
+          - { runner: macos-13, arch: x64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      HAVE_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - name: Import signing certificate (optional)
+        if: env.HAVE_CERT == 'true'
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          echo "$CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm cert.p12
+      - name: Build the .dmg
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: packaging/macos/build-dmg.sh --version "${{ inputs.version || '1.2.0' }}" --arch ${{ matrix.arch }}
+      - name: Smoke test — the bundled backend boots and answers /api/health
+        run: |
+          DMG=$(ls dist/*.dmg | head -1)
+          hdiutil attach "$DMG" -mountpoint /Volumes/nodedr -nobrowse -quiet
+          APP="/Volumes/nodedr/NodeDR POS.app/Contents/Resources"
+          DATA=$(mktemp -d)
+          export DATABASE_URL="file:$DATA/t.db" PORT=4100
+          ( cd "$APP/backend" && "$APP/runtime/node" node_modules/.bin/prisma migrate deploy )
+          ( cd "$APP/backend" && "$APP/runtime/node" src/server.js & echo $! > /tmp/pid )
+          for i in $(seq 1 30); do curl -fs localhost:4100/api/health && break; sleep 1; done
+          curl -fs localhost:4100/api/health
+          kill "$(cat /tmp/pid)"
+          hdiutil detach /Volumes/nodedr -quiet
+      - uses: actions/upload-artifact@v4
+        with: { name: "nodedr-pos-macos-${{ matrix.arch }}", path: dist/*.dmg }
+      - name: Attach to release
+        if: ${{ inputs.release_tag != '' }}
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release upload "${{ inputs.release_tag }}" dist/*.dmg --clobber

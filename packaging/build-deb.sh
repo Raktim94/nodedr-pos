@@ -490,6 +490,32 @@ install -m 0755 "$PKG_DIR/nodedr-pos-backend.sh" "$APP_DIR/bin/nodedr-pos-backen
 install -m 0755 "$PKG_DIR/nodedr-pos-migrate.sh" "$APP_DIR/bin/nodedr-pos-migrate"
 install -m 0755 "$PKG_DIR/nodedr-pos.cli.sh"     "$ROOT/usr/bin/nodedr-pos"
 
+# --- 5d-2. Tray icon (optional) ---
+# A small desktop-session companion: status, open, restart. It is best-effort —
+# if its npm install fails the package still builds, just without the tray.
+mkdir -p "$APP_DIR/tray" "$ROOT/etc/xdg/autostart"
+if cp -a "$SRC/packaging/tray/"{tray.js,lib.js,icon.png,package.json} "$APP_DIR/tray/" \
+   && ( cd "$APP_DIR/tray" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 ); then
+  cat > "$APP_DIR/bin/nodedr-pos-tray" <<TRAY
+#!/bin/sh
+cd /opt/$PKG_NAME/tray && exec /opt/$PKG_NAME/runtime/bin/node tray.js
+TRAY
+  chmod 0755 "$APP_DIR/bin/nodedr-pos-tray"
+  cat > "$ROOT/etc/xdg/autostart/nodedr-pos-tray.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=NodeDR POS tray icon
+Exec=/opt/$PKG_NAME/bin/nodedr-pos-tray
+Icon=nodedr-pos
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESK
+  ok "tray icon bundled (autostarts with the desktop session)"
+else
+  rm -rf "$APP_DIR/tray" "$ROOT/etc/xdg/autostart"
+  warn "tray icon not bundled (npm install of packaging/tray failed) — the POS itself is unaffected"
+fi
+
 # --- 5e. systemd, udev, desktop ---
 install -m 0644 "$PKG_DIR/nodedr-pos.service"          "$ROOT/usr/lib/systemd/system/nodedr-pos.service"
 install -m 0644 "$PKG_DIR/nodedr-pos-backend.service"  "$ROOT/usr/lib/systemd/system/nodedr-pos-backend.service"

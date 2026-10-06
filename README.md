@@ -90,6 +90,21 @@ troubleshooting.
 - [Contributing](#contributing)
 - [License](#license)
 
+## What's new in 1.2
+
+IMEI / serial-number tracking with warranty lookup · bulk product import (CSV/XLSX) ·
+an e-commerce **REST API + MCP server** that can take bills, reserve click-and-collect
+orders and check warranty · A4 tax-invoice PDFs with your authorised signature and a
+UPI QR · UPI QR / multi-currency / card-terminal payments · profit, category and
+hourly-sales reports with GSTR-1 exports · suppliers & purchase orders · shifts and
+granular staff permissions · online-orders board, QR menu, customer loyalty page ·
+WooCommerce/Shopify order sync · optional self-hosted multi-branch sync · menu-bar/tray
+icon and a macOS app · a redesigned light forest-green UI.
+
+Per-item status (what is verified and what still needs real hardware or accounts):
+[docs/ROADMAP.md](docs/ROADMAP.md). API and MCP reference: [docs/API.md](docs/API.md).
+Security review: [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
+
 ## Features
 
 - **Guided onboarding** — first launch walks you through creating an admin
@@ -986,9 +1001,10 @@ Authenticate with `Authorization: Bearer <api key>`.
 
 | Method & path | Access | Purpose |
 | --- | --- | --- |
-| `GET /external/products` | any valid key | Every product with a SKU linked: `{ sku, name, stock, unit, sellingPrice, taxRate, updatedAt }` |
-| `GET /external/products/:sku` | any valid key | Same shape, single product |
-| `PATCH /external/products/:sku/stock` | **write** keys only | Adjust stock — body is `{ "delta": -2 }` (relative) or `{ "set": 17 }` (absolute), never both. Rejects going negative unless *Allow selling below zero stock* is on in Settings, same rule a POS checkout follows. Add `"idempotencyKey": "<your event id>"` to make a retried call safe to resend — a repeated key returns the original result instead of applying the change twice (kept in memory for 24h) |
+| `GET /external/products` | `products:read` | Every product with a SKU linked (paginated, `updatedSince` for incremental sync): `{ sku, barcode, name, stock, available, unit, sellingPrice, taxRate, … }` |
+| `GET /external/products/:sku` | `products:read` | Same shape, single product |
+| `POST /external/bills`, `GET /external/bills/:ref[/pdf]`, `POST /external/orders`, `GET /external/warranty/:serial`, `POST /mcp` | scoped | Take bills, PDFs, click-and-collect orders, warranty, MCP — see [docs/API.md](docs/API.md) |
+| `PATCH /external/products/:sku/stock` | `stock:write` | Adjust stock — body is `{ "delta": -2 }` (relative) or `{ "set": 17 }` (absolute), never both. Rejects going negative unless *Allow selling below zero stock* is on in Settings, same rule a POS checkout follows. Add `"idempotencyKey": "<your event id>"` to make a retried call safe to resend — a repeated key returns the original result instead of applying the change twice (kept in memory for 24h) |
 
 ### Webhook (stock pushed to you)
 

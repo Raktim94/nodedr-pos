@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Optional: start NodeDR POS at login and keep it running.
+     Install:  cp com.nodedr.pos.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nodedr.pos.plist
+     The tray's "Restart service" uses this label (launchctl kickstart -k). -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.nodedr.pos</string>
+  <key>ProgramArguments</key><array><string>/Applications/NodeDR POS.app/Contents/MacOS/nodedr-pos</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+</dict></plist>

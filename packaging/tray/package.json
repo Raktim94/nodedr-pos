@@ -1,0 +1,10 @@
+{
+  "name": "nodedr-pos-tray",
+  "version": "1.2.0",
+  "private": true,
+  "description": "System tray / menu-bar companion for NodeDR POS (Windows, Linux, macOS)",
+  "license": "AGPL-3.0-only",
+  "main": "tray.js",
+  "scripts": { "start": "node tray.js", "test": "node --test test/" },
+  "dependencies": { "systray2": "^2.1.4" }
+}
