@@ -5,10 +5,11 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
-import { Barcode as BarcodeIcon, Camera, X } from "lucide-react";
+import { Barcode as BarcodeIcon, Camera } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { BarcodeDownloadPanel } from "@/components/BarcodeDownloadPanel";
 import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { useCreateProduct, useProducts, useUpdateProduct } from "@/hooks/useProducts";
@@ -162,40 +163,20 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   }, [gst, hsnValue]);
 
   return (
-    <div
-      className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-[rgb(8_28_18/0.32)] p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="product-modal-title"
-        className="dialog-in max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-float)]"
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <h2 id="product-modal-title" className="text-lg font-semibold text-foreground">
-            {mode === "edit" ? "Edit Product" : "Add New Product"}
-          </h2>
-          <button type="button" aria-label="Close dialog" onClick={onClose} className="text-foreground/40 hover:text-foreground">
-            <X className="h-5 w-5" aria-hidden="true" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-4">
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <Field label="Barcode" autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
-            </div>
+    <Modal title={mode === "edit" ? "Edit product" : "Add new product"} onClose={onClose} size="lg" closeOnBackdrop={false}>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+        <section aria-label="Barcode" className="flex flex-col gap-2.5">
+          <Field label="Barcode" autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" onClick={generateBarcode} title="Create a new barcode for a product that doesn't have one">
+              <BarcodeIcon className="h-4 w-4" aria-hidden="true" />
+              Generate barcode
+            </Button>
             <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)} title="Scan an existing barcode with your camera">
               <Camera className="h-4 w-4" aria-hidden="true" />
-              Scan
+              Scan with camera
             </Button>
-            <Button type="button" variant="secondary" onClick={generateBarcode} title="Generate a barcode for a product that doesn't have one">
-              <BarcodeIcon className="h-4 w-4" aria-hidden="true" />
-              Generate
-            </Button>
+            <span className="text-xs text-foreground-muted">No barcode on the item? Generate one, then print the label.</span>
           </div>
           {cameraScannerOpen && (
             <CameraScannerModal
@@ -222,6 +203,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               )}
             </div>
           )}
+        </section>
           <Field label="Product name" error={errors.name?.message} {...register("name")} />
           <div>
             <Field
@@ -235,7 +217,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               → Integrations. Leave blank if this product isn&apos;t sold anywhere else.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Category" list="category-options" {...register("category")} />
             <Select label="Unit" options={UNIT_OPTIONS} {...register("unit")} />
           </div>
@@ -252,7 +234,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               </option>
             ))}
           </datalist>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field
               label="Purchase price"
               type="number"
@@ -300,7 +282,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               <p className="mt-1 text-xs text-success">Sells at {formatMoney(discountedPrice, sym)}</p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field
               label="Stock quantity"
               type="number"
@@ -322,7 +304,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
             )}
           </div>
           {gst && (
-            <div className="-mt-2 flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {GST_RATES.map((rate) => (
                 <button
                   key={rate}
@@ -350,7 +332,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               {trackSerial && <Field label="Warranty (months)" type="number" min={0} max={240} error={errors.warrantyMonths?.message} {...register("warrantyMonths", { valueAsNumber: true })} />}
             </fieldset>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Reorder at (stock)" type="number" min={0} step="0.001" error={errors.reorderPoint?.message} {...register("reorderPoint", { valueAsNumber: true })} />
             <label className="flex flex-col gap-1.5 text-sm font-medium">Supplier
               <select className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm" {...register("supplierId", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })}>
@@ -359,7 +341,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               </select>
             </label>
           </div>
-          <div className="mt-2 flex justify-end gap-3">
+          <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end gap-3 border-t border-border-subtle bg-surface px-5 py-3">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
@@ -368,7 +350,6 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
