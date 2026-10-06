@@ -38,7 +38,7 @@ machine:
 
 | I have… | Best option | Needs |
 | --- | --- | --- |
-| 🪟 **Windows 10/11** | [**Windows installer**](#windows-1011--recommended-for-most-shops) | nothing else |
+| 🪟 **Windows 10/11** | [**Microsoft Store** or **installer**](#windows-1011--recommended-for-most-shops) | nothing else |
 | 🐧 **Ubuntu / Debian** | [**.deb package**](#ubuntu--debian) | nothing else |
 | 🍎 **Mac** | [**macOS app (.dmg)**](#macos) or [Docker](#any-os-with-docker-windows-mac-linux-nas-vps) | — / Docker |
 | 🖥️ **Anything else, a NAS or a VPS** | [**Docker Compose**](#any-os-with-docker-windows-mac-linux-nas-vps) | Docker |
@@ -66,9 +66,11 @@ Your data lives in `C:\ProgramData\NodeDRPOS`, outside the program folder, so
 updating (run a newer installer over the old one) or uninstalling never
 deletes it. More detail: [`packaging/windows/README.md`](packaging/windows/README.md).
 
-> **Microsoft Store:** the project can build an MSIX package
-> ([`build-msix.ps1`](packaging/windows/build-msix.ps1)), but there is **no
-> Microsoft Store listing yet** — use the installer above.
+> **Microsoft Store:** NodeDR POS also has a Microsoft Store listing —
+> **[apps.microsoft.com/detail/9N4D0GW2XZ37](https://apps.microsoft.com/detail/9N4D0GW2XZ37)**
+> (or open `ms-windows-store://pdp/?productid=9N4D0GW2XZ37`). Installing from the
+> Store gives automatic updates and no SmartScreen warning. If the page says it
+> isn't available yet, the listing hasn't been published — use the installer above.
 
 ### Ubuntu / Debian
 
