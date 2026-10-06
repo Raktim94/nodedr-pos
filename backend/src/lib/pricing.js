@@ -122,4 +122,4 @@ function computeSale(lines, opts) {
   };
 }
 
-module.exports = { computeSale, round2 };
+module.exports = { computeSale, round2, effectivePrice };

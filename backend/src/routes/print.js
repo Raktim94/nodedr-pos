@@ -4,7 +4,8 @@ const { requireAuth } = require('../middleware/auth');
 const { buildReceiptHtml } = require('../lib/receipt');
 const { buildReceiptPdf } = require('../lib/pdf');
 const { buildInvoicePdf } = require('../lib/pdfInvoice');
-const { buildReceiptEscPos } = require('../lib/escposReceipt');
+const { buildReceiptEscPos, DRAWER_KICK } = require('../lib/escposReceipt');
+const { buildZpl, buildEpl } = require('../lib/labels');
 const { sendRaw, findPrinterInterface, probeCharDevices, PrinterNotFoundError } = require('../lib/escposUsb');
 
 const router = express.Router();
@@ -80,6 +81,49 @@ router.post('/test', async (req, res) => {
     }
     console.error('USB test print failed:', err);
     res.status(500).json({ error: 'Could not print a test slip to the USB printer' });
+  }
+});
+
+// POST /api/print/drawer — open the cash drawer (manual "no sale" button, or
+// after a cash sale when receipts print through the browser dialog instead of
+// raw USB — which would otherwise never fire the drawer kick).
+router.post('/drawer', async (req, res) => {
+  try {
+    await sendRaw(DRAWER_KICK);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof PrinterNotFoundError) return res.status(503).json({ error: err.message });
+    console.error('drawer kick failed:', err);
+    res.status(500).json({ error: 'Could not open the cash drawer' });
+  }
+});
+
+// GET /api/print/label/:productId?language=zpl|epl&copies=&size=50x30 — the
+// raw label program, to download or send to a label printer yourself.
+router.get('/label/:productId', async (req, res) => {
+  const id = Number(req.params.productId);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
+  const [product, shop] = await Promise.all([prisma.product.findUnique({ where: { id } }), prisma.shopSettings.findFirst()]);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  const epl = req.query.language === 'epl';
+  const opts = { product, symbol: shop?.currencySymbol || '', copies: Number(req.query.copies) || 1, size: String(req.query.size || '') };
+  res.type('text/plain; charset=utf-8').set('Content-Disposition', `attachment; filename="label-${product.barcode}.${epl ? 'epl' : 'zpl'}"`).send(epl ? buildEpl(opts) : buildZpl(opts));
+});
+
+// POST /api/print/label — send the label straight to a USB label printer.
+router.post('/label', async (req, res) => {
+  const id = Number(req.body?.productId);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
+  const [product, shop] = await Promise.all([prisma.product.findUnique({ where: { id } }), prisma.shopSettings.findFirst()]);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  const opts = { product, symbol: shop?.currencySymbol || '', copies: Number(req.body?.copies) || 1, size: String(req.body?.size || '') };
+  try {
+    await sendRaw(Buffer.from(req.body?.language === 'epl' ? buildEpl(opts) : buildZpl(opts), 'utf8'));
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof PrinterNotFoundError) return res.status(503).json({ error: err.message });
+    console.error('label print failed:', err);
+    res.status(500).json({ error: 'Could not print the label' });
   }
 });
 

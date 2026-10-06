@@ -19,6 +19,17 @@ const externalRoutes = require('./routes/external');
 const warrantyRoutes = require('./routes/warranty');
 const signatureRoutes = require('./routes/signatures');
 const publicRoutes = require('./routes/public');
+const shiftRoutes = require('./routes/shifts');
+const paymentRoutes = require('./routes/payments');
+const reportRoutes = require('./routes/reports');
+const integrationRoutes = require('./routes/integrations');
+const hubRoutes = require('./routes/hub');
+const { startSync } = require('./lib/sync');
+const orderRoutes = require('./routes/orders');
+const announcementRoutes = require('./routes/announcements');
+const purchasingRoutes = require('./routes/purchasing');
+const emailReportRoutes = require('./routes/emailReports');
+const { startScheduler } = require('./lib/scheduler');
 const { requireApiKey } = require('./middleware/apiKeyAuth');
 const { handleMcp } = require('./mcp/http');
 
@@ -34,7 +45,16 @@ app.use(helmet({ contentSecurityPolicy: false })); // CSP is served by the Next.
 app.use(compression()); // JSON/CSV shrink ~80%; PDFs are already compressed and skipped by the filter
 app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: '1mb' }));
+// Keep the exact received bytes for signed-webhook routes only — HMACs are
+// computed over the raw body, and buffering it everywhere would waste memory.
+app.use(
+  express.json({
+    limit: '1mb',
+    verify: (req, res, buf) => {
+      if (req.url.startsWith('/api/webhooks/')) req.rawBody = buf;
+    },
+  })
+);
 
 // Defense-in-depth: cap overall request volume per IP.
 app.use(
@@ -78,6 +98,18 @@ app.use('/api/external', externalRoutes);
 app.use('/api/warranty', warrantyRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/shifts', shiftRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/email-reports', emailReportRoutes);
+app.use('/api/purchasing', purchasingRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/hub', hubRoutes.ingest);
+app.use('/api/hub', hubRoutes.views);
+app.use('/api/sync', hubRoutes.cfg);
+app.use('/api/integrations', integrationRoutes.admin);
+app.use('/api/webhooks', integrationRoutes.hook);
+app.use('/api/announcements', announcementRoutes);
 
 // MCP over Streamable HTTP — authenticated with an API key (Bearer), tools
 // limited to that key's scopes. Same rate budget as the External API.
@@ -132,5 +164,7 @@ function ensureFirewallRules() {
 
 app.listen(PORT, () => {
   console.log(`nodedr-pos backend listening on port ${PORT}`);
+  startScheduler();
+  startSync();
   ensureFirewallRules();
 });

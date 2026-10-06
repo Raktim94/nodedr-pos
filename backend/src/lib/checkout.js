@@ -4,6 +4,10 @@ const { computeSale, round2 } = require('./pricing');
 const { notifyStockChange } = require('./webhooks');
 const { validateSerial, normalizeSerial, addMonths } = require('./serials');
 const { saveSignature } = require('./signatures');
+const { qtySchema } = require('./qty');
+const { hasPerm } = require('../middleware/auth');
+const { parseRates } = require('./fx');
+const terminal = require('./terminal');
 
 const checkoutSchema = z
   .object({
@@ -13,7 +17,7 @@ const checkoutSchema = z
       .array(
         z.object({
           productId: z.number().int().positive(),
-          quantity: z.number().int().positive(),
+          quantity: qtySchema,
           // IMEI / serial numbers for serial-tracked products — exactly
           // `quantity` of them, each an in-stock unit of that product.
           serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
@@ -39,7 +43,7 @@ const checkoutSchema = z
             .array(
               z.object({
                 invoiceItemId: z.number().int().positive(),
-                quantity: z.number().int().positive(),
+                quantity: qtySchema,
                 refundAmount: z.number().min(0).optional(),
                 // Required for serial-tracked items: which sold units come back.
                 serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
@@ -58,6 +62,13 @@ const checkoutSchema = z
     customerSignature: z.string().max(450000).optional(),
     // Idempotency key for API/webhook bills — the same ref never bills twice.
     externalRef: z.string().trim().min(1).max(120).optional(),
+    customerGstin: z.string().trim().toUpperCase().regex(/^[0-9A-Z]{15}$/, 'GSTIN must be 15 characters').optional().or(z.literal('')),
+    // Multi-currency: the currency the customer pays in. The RATE is always
+    // taken from the server's own table, never from the client.
+    payCurrency: z.string().regex(/^[A-Z]{3}$/).optional(),
+    // Card terminal: id of a payment the reader reports as completed. The
+    // server re-verifies it with the provider before trusting it.
+    terminalPaymentId: z.string().trim().max(100).optional(),
   })
   .refine((d) => d.items.length > 0 || d.returns.length > 0 || d.duePaid > 0, {
     message: 'Add an item to sell, a return, or a previous due to collect',
@@ -90,6 +101,19 @@ async function performCheckout(body, ctx = {}) {
 
   const signatureFile = body.customerSignature ? saveSignature(body.customerSignature) : null;
 
+  // Card terminal payment: confirmed with the provider BEFORE the DB
+  // transaction (a network call must never run while holding SQLite's write
+  // lock). The amount is compared to the computed payable inside it.
+  let verifiedTerminal = null;
+  if (body.terminalPaymentId) {
+    if (await prisma.invoice.findFirst({ where: { paymentRef: body.terminalPaymentId }, select: { id: true } })) {
+      throw Object.assign(new Error('That card payment was already used for another bill'), { status: 409 });
+    }
+    const st = await terminal.getStatus(body.terminalPaymentId);
+    if (st.status !== 'PAID') throw Object.assign(new Error(`Card payment is not completed (${st.status})`), { status: 402 });
+    verifiedTerminal = { id: body.terminalPaymentId, amount: st.amount };
+  }
+
   {
     const result = await prisma.$transaction(async (tx) => {
       const settings = await tx.shopSettings.findFirst();
@@ -103,7 +127,7 @@ async function performCheckout(body, ctx = {}) {
       for (const item of body.items) {
         const product = productMap.get(item.productId);
         if (!product) throw Object.assign(new Error(`Product ${item.productId} not found`), { status: 404 });
-        if (!settings.allowNegativeStock && product.stock < item.quantity) {
+        if (!settings.allowNegativeStock && product.stock + 1e-9 < item.quantity) {
           throw Object.assign(
             new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${item.quantity})`),
             { status: 409 }
@@ -170,6 +194,18 @@ async function performCheckout(body, ctx = {}) {
 
       const saleTotal = computed.totalAmount;
 
+      // Granular rights: a manual discount needs the 'discount' right and is
+      // capped at the cashier's own limit (% of the pre-discount subtotal).
+      if (ctx.user && computed.discountAmount > 0) {
+        if (!hasPerm(ctx.user, 'discount')) {
+          throw Object.assign(new Error("You don't have permission to give discounts"), { status: 403, code: 'PERMISSION_DENIED' });
+        }
+        const cap = ctx.user.role === 'admin' ? null : ctx.user.maxDiscountPercent;
+        if (cap != null && computed.subtotal > 0 && (computed.discountAmount / computed.subtotal) * 100 > cap + 1e-9) {
+          throw Object.assign(new Error(`Your discount limit is ${cap}% of the bill`), { status: 403, code: 'DISCOUNT_LIMIT' });
+        }
+      }
+
       // --- Returns processed as part of this bill --------------------------
       // Each returned line is validated against its ORIGINAL invoice: the item
       // must belong to that invoice and the quantity can't exceed what's still
@@ -194,7 +230,7 @@ async function performCheckout(body, ctx = {}) {
             _sum: { quantity: true },
           });
           const returnable = invItem.quantity - (already._sum.quantity || 0);
-          if (rl.quantity > returnable) {
+          if (rl.quantity > returnable + 1e-9) {
             throw Object.assign(new Error(`Only ${returnable} of "${invItem.name}" can still be returned`), { status: 409 });
           }
           const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
@@ -267,9 +303,22 @@ async function performCheckout(body, ctx = {}) {
       // changing hands. The previous version only pulled from tendered cash,
       // so a due-clear requested on a pure-return bill (nothing to "tender")
       // silently never applied — the balance just sat there unchanged.
-      const tenderedCash = body.paymentMethod === 'CASH' ? body.amountPaid : payable + duePaidIntent;
+      if (verifiedTerminal && verifiedTerminal.amount + 0.005 < payable) {
+        throw Object.assign(new Error(`Card payment (${verifiedTerminal.amount}) is less than the bill (${payable})`), { status: 402 });
+      }
+      const paymentMethod = verifiedTerminal ? 'CARD' : body.paymentMethod;
+      const tenderedCash = paymentMethod === 'CASH' ? body.amountPaid : payable + duePaidIntent;
       const pool = round2(tenderedCash + grossRefund);
       const amountPaid = round2(Math.min(pool, payable));
+
+      // Foreign-currency tender: record what the customer handed over in
+      // their currency at the server's own rate.
+      let fxFields = {};
+      if (body.payCurrency && body.payCurrency !== settings.currencyCode) {
+        const rate = parseRates(settings)[body.payCurrency];
+        if (!rate) throw Object.assign(new Error(`No exchange rate set for ${body.payCurrency}`), { status: 400 });
+        fxFields = { payCurrency: body.payCurrency, payRate: rate, payAmount: round2(amountPaid / rate) };
+      }
       const afterGoods = round2(Math.max(0, pool - amountPaid));
       const previousDuePaid = round2(Math.min(duePaidIntent, afterGoods));
       const leftover = round2(Math.max(0, afterGoods - previousDuePaid));
@@ -288,6 +337,7 @@ async function performCheckout(body, ctx = {}) {
         );
       }
 
+      const openShift = ctx.user ? await tx.shift.findFirst({ where: { userId: ctx.user.id, closedAt: null }, select: { id: true } }) : null;
       const invoiceNumber = await nextInvoiceNumber(tx);
       const created = await tx.invoice.create({
         data: {
@@ -302,7 +352,10 @@ async function performCheckout(body, ctx = {}) {
           taxAmount: computed.taxAmount,
           loyaltyDiscount: computed.loyaltyDiscount,
           totalAmount: computed.totalAmount,
-          paymentMethod: body.paymentMethod,
+          paymentMethod,
+          paymentRef: verifiedTerminal?.id ?? null,
+          customerGstin: body.customerGstin || null,
+          ...fxFields,
           amountPaid,
           changeDue,
           dueAmount,
@@ -318,7 +371,8 @@ async function performCheckout(body, ctx = {}) {
           apiKeyId: ctx.apiKeyId ?? null,
           cashierName: ctx.cashierName ?? null,
           customerSignature: signatureFile,
-          items: { create: computed.items.map((it, i) => ({ ...it, warrantyMonths: lines[i].product.warrantyMonths || 0 })) },
+          shiftId: openShift?.id ?? null,
+          items: { create: computed.items.map((it, i) => ({ ...it, warrantyMonths: lines[i].product.warrantyMonths || 0, costPrice: lines[i].product.purchasePrice || 0 })) },
         },
         include: { items: true },
       });

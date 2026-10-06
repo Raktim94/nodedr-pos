@@ -2,6 +2,7 @@ const { z } = require('zod');
 const prisma = require('./prisma');
 const { checkoutSchema, performCheckout } = require('./checkout');
 const { receiptUrl } = require('./publicLink');
+const { qtySchema } = require('./qty');
 
 const billSchema = z.object({
   // Your own order id. Required: it makes the call idempotent — sending the
@@ -16,7 +17,7 @@ const billSchema = z.object({
         .object({
           sku: z.string().trim().min(1).max(64).optional(),
           barcode: z.string().trim().min(1).max(64).optional(),
-          quantity: z.number().int().positive().max(100000),
+          quantity: qtySchema,
           serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
         })
         .refine((i) => i.sku || i.barcode, { message: 'Each item needs a sku or barcode' })

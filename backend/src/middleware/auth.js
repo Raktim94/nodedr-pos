@@ -55,7 +55,18 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Account not found or disabled' });
   }
 
-  req.user = { id: user.id, name: user.name, email: user.email, role: user.role };
+  if (user.role === 'franchisor' && !['GET', 'HEAD'].includes(req.method) && !req.path.startsWith('/logout')) {
+    return res.status(403).json({ error: 'Franchisor accounts are read-only' });
+  }
+
+  req.user = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    permissions: user.permissions ? user.permissions.split(',').filter(Boolean) : [],
+    maxDiscountPercent: user.maxDiscountPercent,
+  };
   next();
 }
 
@@ -78,6 +89,23 @@ function requireAdmin(req, res, next) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();
+}
+
+// Granular rights for non-admins (see User.permissions). Admins pass every
+// check; a franchisor is read-only everywhere and so only ever passes
+// 'reports'. Usage: router.post('/x', requirePerm('returns'), handler).
+const PERMISSIONS = ['discount', 'returns', 'reports', 'inventory', 'customers', 'orders', 'purchasing'];
+function hasPerm(user, perm) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.role === 'franchisor') return perm === 'reports';
+  return user.permissions.includes(perm);
+}
+function requirePerm(perm) {
+  return (req, res, next) => {
+    if (!hasPerm(req.user, perm)) return res.status(403).json({ error: `You don't have the "${perm}" permission`, code: 'PERMISSION_DENIED' });
+    next();
+  };
 }
 
 // Step-up re-authentication: even on a long-lived "same device" session
@@ -151,6 +179,9 @@ module.exports = {
   clearSessionCookie,
   requireAuth,
   requireAdmin,
+  requirePerm,
+  hasPerm,
+  PERMISSIONS,
   requirePasswordConfirm,
   verifyPassword,
   readSession,

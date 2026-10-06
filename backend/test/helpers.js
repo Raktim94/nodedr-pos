@@ -45,7 +45,14 @@ function client(base) {
     const data = ct.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
     return { status: res.status, data, headers: res.headers };
   }
-  return { get: (u, h) => call('GET', u, undefined, h), post: (u, b, h) => call('POST', u, b, h), put: (u, b, h) => call('PUT', u, b, h), patch: (u, b, h) => call('PATCH', u, b, h), del: (u, b, h) => call('DELETE', u, b, h) };
+  // Raw body upload (files, signed webhooks) — keeps the cookie jar.
+  async function raw(url, body, contentType, headers = {}) {
+    const res = await fetch(base + url, { method: 'POST', headers: { 'content-type': contentType, ...(cookie ? { cookie } : {}), ...headers }, body });
+    const ct = res.headers.get('content-type') || '';
+    const data = ct.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
+    return { status: res.status, data, headers: res.headers };
+  }
+  return { raw, get: (u, h) => call('GET', u, undefined, h), post: (u, b, h) => call('POST', u, b, h), put: (u, b, h) => call('PUT', u, b, h), patch: (u, b, h) => call('PATCH', u, b, h), del: (u, b, h) => call('DELETE', u, b, h) };
 }
 
 module.exports = { startServer, client };

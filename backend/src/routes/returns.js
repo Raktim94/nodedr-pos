@@ -1,13 +1,14 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requirePerm } = require('../middleware/auth');
 const { round2 } = require('../lib/pricing');
 const { notifyStockChange } = require('../lib/webhooks');
 const { normalizeSerial } = require('../lib/serials');
+const { qtySchema } = require('../lib/qty');
 
 const router = express.Router();
-router.use(requireAuth);
+router.use(requireAuth, requirePerm('returns'));
 
 const returnSchema = z.object({
   invoiceId: z.number().int().positive(),
@@ -15,7 +16,7 @@ const returnSchema = z.object({
     .array(
       z.object({
         invoiceItemId: z.number().int().positive(),
-        quantity: z.number().int().positive(),
+        quantity: qtySchema,
         serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
       })
     )
@@ -54,7 +55,7 @@ router.post('/', async (req, res) => {
           _sum: { quantity: true },
         });
         const returnable = invoiceItem.quantity - (alreadyReturned._sum.quantity || 0);
-        if (line.quantity > returnable) {
+        if (line.quantity > returnable + 1e-9) {
           throw Object.assign(
             new Error(`Only ${returnable} of "${invoiceItem.name}" can still be returned`),
             { status: 409 }

@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireAuth, verifyPassword } = require('../middleware/auth');
+const { requireAuth, verifyPassword, hasPerm } = require('../middleware/auth');
 const { round2 } = require('../lib/pricing');
 const { checkoutSchema, performCheckout } = require('../lib/checkout');
 
@@ -20,6 +20,7 @@ router.post('/', async (req, res) => {
   // needs the password re-confirmed — the overwhelming majority of
   // checkouts are plain sales and must not be interrupted by this.
   if (body.returns.length > 0) {
+    if (!hasPerm(req.user, 'returns')) return res.status(403).json({ error: "You don't have permission to process returns", code: 'PERMISSION_DENIED' });
     const ok = await verifyPassword(req.user.id, req.body?.confirmPassword);
     if (!ok) {
       return res.status(401).json({ error: 'Confirm your password to process this refund', code: 'PASSWORD_CONFIRM_REQUIRED' });
@@ -27,12 +28,12 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const { invoice } = await performCheckout(body, { source: 'POS', cashierName: req.user.name });
+    const { invoice } = await performCheckout(body, { source: 'POS', cashierName: req.user.name, user: req.user });
     res.status(201).json(invoice);
   } catch (err) {
     const status = err.status || 500;
     if (status === 500) console.error(err);
-    res.status(status).json({ error: err.message || 'Checkout failed' });
+    res.status(status).json({ error: err.message || 'Checkout failed', ...(err.code && typeof err.code === 'string' && err.code.includes('_') ? { code: err.code } : {}) });
   }
 });
 

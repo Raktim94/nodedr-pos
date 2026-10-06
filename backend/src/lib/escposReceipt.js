@@ -100,6 +100,10 @@ function wrap(text, width) {
   return lines.length > 0 ? lines : [''];
 }
 
+// ESC p m t1 t2 — pulse pin 2 for 50ms on / 500ms off: the standard
+// "open cash drawer" kick wired through the receipt printer's RJ11 port.
+const DRAWER_KICK = Buffer.from([ESC, 0x70, 0x00, 0x19, 0xfa]);
+
 function buildReceiptEscPos({ shop, invoice, width = 42 }) {
   // Only fall back to the currency CODE (e.g. "EUR") instead of the symbol
   // when the symbol itself isn't plain ASCII (€, £, ﷼, ₱, ...) — a generic
@@ -206,7 +210,8 @@ function buildReceiptEscPos({ shop, invoice, width = 42 }) {
     segments.push(bold ? Buffer.concat([CMD.boldOn, lineBuffer, CMD.boldOff]) : lineBuffer);
   }
   segments.push(CMD.feedAndCut);
+  if (shop.cashDrawer && invoice.paymentMethod === 'CASH') segments.push(DRAWER_KICK);
   return Buffer.concat(segments);
 }
 
-module.exports = { buildReceiptEscPos, toPrinterText };
+module.exports = { buildReceiptEscPos, toPrinterText, DRAWER_KICK };

@@ -9,6 +9,7 @@ const { createExternalBill, publicInvoice, findOwnBill } = require('../lib/exter
 const { lookupWarranty } = require('../lib/warranty');
 const { receiptUrl } = require('../lib/publicLink');
 const { notifyStockChange } = require('../lib/webhooks');
+const orders = require('../lib/orders');
 
 const text = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 const fail = (message) => ({ content: [{ type: 'text', text: JSON.stringify({ error: message }) }], isError: true });
@@ -71,7 +72,7 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
       {
         title: 'Adjust stock',
         description: 'Change stock of a SKU-linked, non-serial product by a signed delta (e.g. -2 after an online sale) or set an absolute value. Provide exactly one of delta or set.',
-        inputSchema: { sku: z.string().min(1).max(64), delta: z.number().int().optional(), set: z.number().int().min(0).optional() },
+        inputSchema: { sku: z.string().min(1).max(64), delta: z.number().optional(), set: z.number().min(0).optional() },
       },
       wrap(async ({ sku, delta, set }) => {
         if ((delta === undefined) === (set === undefined)) return fail('Send exactly one of delta or set');
@@ -104,7 +105,7 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
           customerName: z.string().max(200).optional(),
           customerPhone: z.string().max(30).optional(),
           items: z
-            .array(z.object({ sku: z.string().optional(), barcode: z.string().optional(), quantity: z.number().int().positive(), serials: z.array(z.string()).optional() }))
+            .array(z.object({ sku: z.string().optional(), barcode: z.string().optional(), quantity: z.number().positive(), serials: z.array(z.string()).optional() }))
             .min(1)
             .max(200),
           paymentMethod: z.enum(['CASH', 'UPI', 'CARD']).default('UPI'),
@@ -128,6 +129,46 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
           baseUrl
         );
         return text(out);
+      })
+    );
+  }
+
+  if (has('orders:write')) {
+    server.registerTool(
+      'create_order',
+      {
+        title: 'Create click-and-collect order',
+        description: 'Reserve stock for an online order without billing it. The shop bills it at hand-over (or use create_bill for an immediate sale). externalRef makes it idempotent. Returns a pickup code for the customer.',
+        inputSchema: {
+          externalId: z.string().min(1).max(120),
+          customerName: z.string().max(160).optional(),
+          customerPhone: z.string().max(30).optional(),
+          fulfilment: z.enum(['PICKUP', 'DELIVERY']).default('PICKUP'),
+          paid: z.boolean().default(false),
+          items: z.array(z.object({ sku: z.string().min(1), quantity: z.number().positive() })).min(1).max(200),
+        },
+      },
+      wrap(async (a) => {
+        const products = await prisma.product.findMany({ where: { sku: { in: a.items.map((i) => i.sku) } } });
+        const items = a.items.map((i) => {
+          const p = products.find((x) => x.sku === i.sku);
+          if (!p) throw Object.assign(new Error(`No product with SKU ${i.sku}`), { status: 404 });
+          return { productId: p.id, quantity: i.quantity };
+        });
+        const { order, deduplicated } = await orders.createOrder({
+          channel: 'API', externalId: a.externalId, fulfilment: a.fulfilment, paid: a.paid, items,
+          customer: { name: a.customerName, phone: a.customerPhone }, apiKeyId: apiKey.id,
+        });
+        return text({ deduplicated, order: orders.publicOrder(order) });
+      })
+    );
+
+    server.registerTool(
+      'get_order',
+      { title: 'Get order', description: 'Status of an order created through this key (by your externalId).', inputSchema: { externalId: z.string().min(1).max(120) } },
+      wrap(async ({ externalId }) => {
+        const o = await prisma.order.findFirst({ where: { apiKeyId: apiKey.id, externalId }, include: { items: true } });
+        return o ? text(orders.publicOrder(o)) : fail('Order not found');
       })
     );
   }

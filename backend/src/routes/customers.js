@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { makePortalToken } = require('../lib/publicLink');
 const { round2 } = require('../lib/pricing');
 
 const router = express.Router();
@@ -11,6 +12,7 @@ const customerSchema = z.object({
   name: z.string().trim().min(1).max(160),
   phone: z.string().trim().min(3).max(30),
   email: z.string().trim().max(200).optional().or(z.literal('')),
+  gstin: z.string().trim().toUpperCase().regex(/^[0-9A-Z]{15}$/, 'GSTIN must be 15 characters').optional().or(z.literal('')),
 });
 
 // GET /api/customers?q=search
@@ -67,6 +69,37 @@ router.get('/phone/:phone', async (req, res) => {
   const customer = await prisma.customer.findUnique({ where: { phone: req.params.phone } });
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
   res.json(customer);
+});
+
+// GET /api/customers/by-card/:uid — an NFC card/tag tap identifies the customer.
+router.get('/by-card/:uid', async (req, res) => {
+  const customer = await prisma.customer.findUnique({ where: { cardUid: String(req.params.uid).toUpperCase() } });
+  if (!customer) return res.status(404).json({ error: 'No customer linked to that card' });
+  res.json(customer);
+});
+
+// PUT /api/customers/:id/card — link (or unlink with null) an NFC card UID.
+router.put('/:id/card', async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = z.object({ cardUid: z.string().trim().regex(/^[0-9A-Fa-f:\-]{4,40}$/).nullable() }).safeParse(req.body);
+  if (!Number.isInteger(id) || !parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    const uid = parsed.data.cardUid ? parsed.data.cardUid.toUpperCase().replace(/[:\-]/g, '') : null;
+    res.json(await prisma.customer.update({ where: { id }, data: { cardUid: uid } }));
+  } catch (e) {
+    res.status(e.code === 'P2002' ? 409 : 404).json({ error: e.code === 'P2002' ? 'That card is linked to another customer' : 'Customer not found' });
+  }
+});
+
+// GET /api/customers/:id/portal-link — the customer's personal loyalty page.
+router.get('/:id/portal-link', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
+  const customer = await prisma.customer.findUnique({ where: { id } });
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const url = `${origin.replace(/\/$/, '')}/me/${makePortalToken(id)}`;
+  res.json({ url, whatsappUrl: `https://wa.me/${customer.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Your loyalty & receipts page: ${url}`)}` });
 });
 
 router.post('/', async (req, res) => {

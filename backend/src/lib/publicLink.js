@@ -13,13 +13,15 @@ function sign(payload) {
   return crypto.createHmac('sha256', KEY).update(payload).digest('base64url');
 }
 
-function makeReceiptToken(invoiceId, ttlDays = DEFAULT_TTL_DAYS) {
+// `kind` is part of the signed payload, so a receipt token can never be
+// replayed as a customer-portal token (or vice versa) even if ids collide.
+function makeToken(kind, id, ttlDays) {
   const exp = Math.floor(Date.now() / 1000) + ttlDays * 86400;
-  const payload = `${invoiceId}.${exp}`;
+  const payload = `${kind}.${id}.${exp}`;
   return `${Buffer.from(payload).toString('base64url')}.${sign(payload)}`;
 }
 
-function verifyReceiptToken(token) {
+function verifyToken(kind, token) {
   const [p, sig] = String(token).split('.');
   if (!p || !sig) return null;
   let payload;
@@ -28,17 +30,22 @@ function verifyReceiptToken(token) {
   } catch {
     return null;
   }
-  const expected = sign(payload);
   const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
+  const b = Buffer.from(sign(payload));
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  const [id, exp] = payload.split('.').map(Number);
-  if (!Number.isInteger(id) || !Number.isInteger(exp) || exp < Date.now() / 1000) return null;
-  return id;
+  const [k, id, exp] = payload.split('.');
+  if (k !== kind || !Number.isInteger(Number(id)) || Number(exp) < Date.now() / 1000) return null;
+  return Number(id);
 }
+
+const makeReceiptToken = (invoiceId, ttlDays = DEFAULT_TTL_DAYS) => makeToken('receipt', invoiceId, ttlDays);
+const verifyReceiptToken = (token) => verifyToken('receipt', token);
+// Customer portal links are long-lived (a year) — they're a bookmark, not a one-off share.
+const makePortalToken = (customerId) => makeToken('portal', customerId, 365);
+const verifyPortalToken = (token) => verifyToken('portal', token);
 
 function receiptUrl(baseUrl, invoiceId) {
   return `${String(baseUrl).replace(/\/$/, '')}/api/public/receipt/${makeReceiptToken(invoiceId)}`;
 }
 
-module.exports = { makeReceiptToken, verifyReceiptToken, receiptUrl };
+module.exports = { makeReceiptToken, verifyReceiptToken, makePortalToken, verifyPortalToken, receiptUrl };

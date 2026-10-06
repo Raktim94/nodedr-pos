@@ -11,8 +11,14 @@ model User {
   name      String
   email     String   @unique
   password  String
-  role      String   @default("admin") // "admin" | "cashier"
+  role      String   @default("admin") // "admin" | "cashier" | "franchisor" (read-only, hub)
   active    Boolean  @default(true)
+  // Granular rights for non-admins, comma separated: discount,returns,reports,
+  // inventory,customers,orders. Admins implicitly have everything.
+  permissions String @default("")
+  // A cashier may discount up to this % of a bill (null = no cap when the
+  // "discount" right is held).
+  maxDiscountPercent Float?
   createdAt DateTime @default(now())
 }
 
@@ -71,6 +77,27 @@ model ShopSettings {
   // and printed on invoices.
   upiId          String?
   termsText      String?
+  // Hardware
+  cashDrawer     Boolean  @default(false) // pulse the cash drawer on a cash sale (ESC/POS via the receipt printer)
+  // Card terminal (Stripe Terminal / Square Terminal). Provider secrets are
+  // AES-GCM encrypted (lib/secretBox.js) — never stored or returned in clear.
+  terminalProvider String @default("none") // none | stripe | square
+  terminalConfigEnc String?
+  // Multi-currency: JSON {"USD": 83.2} = base-currency units per 1 foreign unit.
+  fxRates        String?
+  fxUpdatedAt    DateTime?
+  // Scheduled e-mail reports
+  reportEmail    String?
+  reportFrequency String  @default("off") // off | daily | weekly
+  reportLastSentAt DateTime?
+  smtpConfigEnc  String?
+  // Optional self-hosted sync (see lib/sync.js): this instance is standalone,
+  // a branch that reports to a hub, or the hub that consolidates branches.
+  syncRole       String   @default("none") // none | branch | hub
+  syncHubUrl     String?
+  syncBranchCode String?
+  syncSecretEnc  String?
+  syncLastAt     DateTime?
 }
 
 model Product {
@@ -91,16 +118,21 @@ model Product {
   taxRate       Float         @default(0) // GST % for this product
   discountType  String?       // "percent" | "amount" | null (no standing discount)
   discountValue Float         @default(0) // interpreted per discountType; applied automatically at checkout
-  stock         Int           @default(0)
+  stock         Float         @default(0) // fractional for weighed goods (kg, litre)
   // Serial / IMEI tracking: when on, every unit is a SerialUnit row, stock
   // is the count of IN_STOCK units, and a sale must name the exact units.
   trackSerial   Boolean       @default(false)
   warrantyMonths Int          @default(0)
+  reorderPoint  Float         @default(0) // suggest a purchase order at or below this stock
+  supplierId    Int?
+  showInMenu    Boolean       @default(false) // listed on the public QR menu
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   invoiceItems  InvoiceItem[]
   returnItems   ReturnItem[]
   serials       SerialUnit[]
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  poItems       PurchaseOrderItem[]
 
   @@index([name])
   @@index([category])
@@ -150,6 +182,10 @@ model Customer {
   totalDue      Float     @default(0) // outstanding credit ("udhaar") owed by this customer
   creditBalance Float     @default(0) // store credit owed TO the customer (e.g. from a return kept as balance)
   visits        Int       @default(0)
+  gstin         String?
+  // UID of an NFC loyalty card / tag — tapping it on a USB or phone reader
+  // identifies the customer at checkout.
+  cardUid       String?   @unique
   createdAt     DateTime  @default(now())
   invoices      Invoice[]
   duePayments   CustomerDuePayment[]
@@ -201,12 +237,23 @@ model Invoice {
   cashierName    String?
   // Customer's signature captured at the till (file under data/signatures/).
   customerSignature String?
+  customerGstin  String?
+  shiftId        Int?
+  // Multi-currency sale: what the customer actually handed over, in their
+  // currency, at the rate in force (base units per 1 foreign unit).
+  payCurrency    String?
+  payRate        Float?
+  payAmount      Float?
+  // Card-terminal payment id (Stripe PaymentIntent / Square checkout) that
+  // the server verified as paid before accepting this CARD sale.
+  paymentRef     String?
   createdAt      DateTime      @default(now())
   customer       Customer?     @relation(fields: [customerId], references: [id])
   items          InvoiceItem[]
   returns        Return[]
 
   @@unique([apiKeyId, externalRef])
+  @@index([shiftId])
   @@index([createdAt])
   @@index([customerId])
 }
@@ -217,8 +264,9 @@ model InvoiceItem {
   productId Int
   name      String
   unit      String? // snapshot of the product's UQC at time of sale
-  quantity  Int
+  quantity  Float
   price     Float // unit selling price at time of sale
+  costPrice Float   @default(0) // product purchase price at time of sale — drives margin reports
   taxRate   Float   @default(0)
   taxAmount Float   @default(0) // tax for this line (on discounted base)
   total     Float // line total incl. tax, after prorated discount
@@ -257,7 +305,7 @@ model ReturnItem {
   invoiceItemId Int
   productId     Int
   name          String
-  quantity      Int
+  quantity      Float
   refundAmount  Float
   return        Return      @relation(fields: [returnId], references: [id])
   invoiceItem   InvoiceItem @relation(fields: [invoiceItemId], references: [id])
@@ -321,4 +369,195 @@ model IfscCode {
   address  String?
   district String?
   state    String?
+}
+
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  gstin     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  products  Product[]
+  orders    PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id         Int      @id @default(autoincrement())
+  number     String   @unique
+  supplierId Int
+  status     String   @default("DRAFT") // DRAFT | SENT | RECEIVED | CANCELLED
+  notes      String?
+  totalCost  Float    @default(0)
+  createdAt  DateTime @default(now())
+  receivedAt DateTime?
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  items      PurchaseOrderItem[]
+
+  @@index([status])
+}
+
+model PurchaseOrderItem {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  productId   Int
+  name        String
+  quantity    Float
+  unitCost    Float
+  receivedQty Float    @default(0)
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+// A cashier's register session: opening float, cash in/out, counted close.
+model Shift {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  userName      String
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+  openingFloat  Float     @default(0)
+  closingCounted Float?
+  expectedCash  Float?
+  variance      Float?
+  note          String?
+  movements     ShiftMovement[]
+
+  @@index([userId, closedAt])
+}
+
+model ShiftMovement {
+  id        Int      @id @default(autoincrement())
+  shiftId   Int
+  type      String // IN | OUT
+  amount    Float
+  note      String?
+  createdAt DateTime @default(now())
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+}
+
+// Shown to customers on their portal page (/me/<token>).
+model Announcement {
+  id        Int      @id @default(autoincrement())
+  title     String
+  body      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// An online / QR-menu / click-and-collect order. Stock is reserved when the
+// order is created and handed back if it is cancelled; the bill is raised
+// when the customer collects (or immediately for prepaid delivery).
+model Order {
+  id          Int       @id @default(autoincrement())
+  channel     String // API | WOOCOMMERCE | SHOPIFY | QR_MENU | CLICK_COLLECT
+  externalId  String?
+  status      String    @default("NEW") // NEW | PACKING | READY | COLLECTED | CANCELLED
+  fulfilment  String    @default("PICKUP") // PICKUP | DINE_IN | DELIVERY
+  tableNo     String?
+  pickupCode  String
+  customerName  String  @default("Online Customer")
+  customerPhone String?
+  customerEmail String?
+  note        String?
+  total       Float     @default(0)
+  paid        Boolean   @default(false)
+  paymentRef  String?
+  apiKeyId    Int?
+  invoiceId   Int?      @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  items       OrderItem[]
+
+  @@unique([channel, externalId])
+  @@index([status])
+}
+
+model OrderItem {
+  id        Int    @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  name      String
+  quantity  Float
+  price     Float
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+// A connected WooCommerce / Shopify / generic store. Webhook + API secrets
+// are AES-GCM encrypted at rest (lib/secretBox.js).
+model Integration {
+  id          Int       @id @default(autoincrement())
+  platform    String // woocommerce | shopify | generic
+  name        String
+  secretEnc   String // webhook signing secret
+  configEnc   String? // outbound stock-sync credentials (JSON)
+  active      Boolean   @default(true)
+  lastEventAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// ---- Hub side of branch sync (syncRole = "hub") ----
+model Branch {
+  id         Int       @id @default(autoincrement())
+  code       String    @unique
+  name       String
+  secretEnc  String
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+  stock      BranchStock[]
+  days       BranchDay[]
+}
+
+model BranchStock {
+  branchId  Int
+  barcode   String
+  name      String
+  category  String?
+  stock     Float
+  price     Float
+  updatedAt DateTime @default(now())
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([branchId, barcode])
+}
+
+model BranchDay {
+  branchId Int
+  day      String // YYYY-MM-DD
+  revenue  Float
+  tax      Float
+  cost     Float
+  count    Int
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([branchId, day])
+}
+
+model Transfer {
+  id           Int      @id @default(autoincrement())
+  fromBranchId Int
+  toBranchId   Int
+  status       String   @default("PENDING") // PENDING | SHIPPED | RECEIVED
+  note         String?
+  createdAt    DateTime @default(now())
+  items        TransferItem[]
+}
+
+model TransferItem {
+  id         Int      @id @default(autoincrement())
+  transferId Int
+  barcode    String
+  name       String
+  quantity   Float
+  transfer   Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+}
+
+// Branch side: transfers already applied locally, so a lost acknowledgement
+// can never apply the same stock movement twice.
+model AppliedTransfer {
+  transferId Int      @id
+  status     String // SHIPPED | RECEIVED
+  appliedAt  DateTime @default(now())
 }

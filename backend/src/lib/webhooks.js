@@ -14,6 +14,8 @@ const prisma = require('./prisma');
 // can never affect another's signature verification.
 async function notifyStockChange(changes) {
   if (!changes || changes.length === 0) return;
+  // WooCommerce/Shopify inventory push (debounced, see lib/stores.js).
+  require('./stores').pushStock(changes);
 
   let targets;
   try {
@@ -59,4 +61,21 @@ async function sendOne(url, secret, payload) {
   }
 }
 
-module.exports = { notifyStockChange };
+// Generic signed event delivery to every integration webhook (orders etc.).
+// Same fire-and-forget + per-integration HMAC rules as notifyStockChange.
+async function notifyEvent(event, data) {
+  let targets;
+  try {
+    targets = await prisma.apiKey.findMany({ where: { revoked: false, webhookUrl: { not: null } } });
+  } catch (err) {
+    console.error('notifyEvent: could not load webhook targets', err);
+    return;
+  }
+  const payload = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
+  for (const t of targets) {
+    if (!t.webhookUrl || !t.webhookSecret) continue;
+    sendOne(t.webhookUrl, t.webhookSecret, payload).catch((err) => console.error(`notifyEvent: delivery to "${t.name}" failed:`, err.message));
+  }
+}
+
+module.exports = { notifyStockChange, notifyEvent };

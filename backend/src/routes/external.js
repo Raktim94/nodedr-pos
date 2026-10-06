@@ -6,6 +6,8 @@ const { requireApiKey } = require('../middleware/apiKeyAuth');
 const { notifyStockChange } = require('../lib/webhooks');
 const { receiptUrl } = require('../lib/publicLink');
 const { createExternalBill, publicInvoice, findOwnBill } = require('../lib/externalBills');
+const orders = require('../lib/orders');
+const { qtySchema } = require('../lib/qty');
 const { buildInvoicePdf } = require('../lib/pdfInvoice');
 const { buildReceiptPdf } = require('../lib/pdf');
 const { lookupWarranty } = require('../lib/warranty');
@@ -63,7 +65,9 @@ router.get('/products', requireApiKey({ scope: 'products:read' }), async (req, r
     prisma.product.count({ where }),
   ]);
   res.set('X-Total-Count', String(total));
-  res.json(products.map(publicProduct));
+  // `available` = stock minus units reserved by open orders.
+  const held = await orders.reservedByProduct(prisma, products.map((p) => p.id));
+  res.json(products.map((p) => ({ ...publicProduct(p), available: Math.max(0, p.stock - (held.get(p.id) || 0)) })));
 });
 
 // GET /api/external/products/:sku — single lookup, for a storefront that
@@ -82,8 +86,8 @@ const stockSchema = z
     // Relative change (e.g. -2 for "2 units just sold externally"), OR an
     // absolute value — exactly one of the two, never both, so a caller
     // can't send an ambiguous request.
-    delta: z.number().int().optional(),
-    set: z.number().int().min(0).optional(),
+    delta: z.number().min(-1_000_000).max(1_000_000).optional(),
+    set: z.number().min(0).max(1_000_000).optional(),
     // Optional: makes a retried call (e.g. a webhook handler retrying after
     // a timeout) safe to send again without double-applying the change.
     // Kept in-memory only (see idempotencyCache below) — cheap and correct
@@ -210,6 +214,58 @@ router.get('/warranty/:serial', requireApiKey({ scope: 'warranty:read' }), async
   const w = await lookupWarranty(req.params.serial, { includePrivate: false });
   if (!w) return res.status(404).json({ error: 'No unit with that serial/IMEI' });
   res.json(w);
+});
+
+// ---- Orders (click-and-collect / delivery) -----------------------------------
+// An order reserves stock without billing; the shop bills it on hand-over.
+const orderSchema = z.object({
+  externalId: z.string().trim().min(1).max(120),
+  fulfilment: z.enum(['PICKUP', 'DELIVERY']).default('PICKUP'),
+  customer: z.object({ name: z.string().trim().max(160).optional(), phone: z.string().trim().max(30).optional(), email: z.string().trim().max(200).optional() }).optional(),
+  items: z.array(z.object({ sku: z.string().trim().min(1).max(64).optional(), barcode: z.string().trim().min(1).max(64).optional(), quantity: qtySchema }).refine((i) => i.sku || i.barcode, { message: 'sku or barcode required' })).min(1).max(200),
+  note: z.string().trim().max(300).optional(),
+  paid: z.boolean().default(false),
+  paymentRef: z.string().trim().max(120).optional(),
+});
+
+router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res) => {
+  const p = orderSchema.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: 'Invalid input', details: p.error.flatten() });
+  try {
+    const codes = [...new Set(p.data.items.flatMap((i) => [i.sku, i.barcode].filter(Boolean)))];
+    const products = await prisma.product.findMany({ where: { OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] } });
+    const items = p.data.items.map((i) => {
+      const pr = products.find((x) => (i.sku && x.sku === i.sku) || (i.barcode && x.barcode === i.barcode));
+      if (!pr) throw Object.assign(new Error(`No product found for ${i.sku || i.barcode}`), { status: 404 });
+      return { productId: pr.id, quantity: i.quantity };
+    });
+    const { order, deduplicated } = await orders.createOrder({ ...p.data, items, channel: 'API', apiKeyId: req.apiKey.id });
+    res.status(deduplicated ? 200 : 201).json({ deduplicated, order: orders.publicOrder(order) });
+  } catch (err) {
+    if (!err.status) console.error(err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Order failed' });
+  }
+});
+
+async function findOwnOrder(req) {
+  const ref = String(req.params.ref);
+  return prisma.order.findFirst({ where: { apiKeyId: req.apiKey.id, OR: [{ externalId: ref }, ...(Number.isInteger(Number(ref)) ? [{ id: Number(ref) }] : [])] }, include: { items: true } });
+}
+
+router.get('/orders/:ref', requireApiKey({ scope: 'orders:write' }), async (req, res) => {
+  const o = await findOwnOrder(req);
+  if (!o) return res.status(404).json({ error: 'Order not found' });
+  res.json(orders.publicOrder(o));
+});
+
+router.post('/orders/:ref/cancel', requireApiKey({ scope: 'orders:write' }), async (req, res) => {
+  const o = await findOwnOrder(req);
+  if (!o) return res.status(404).json({ error: 'Order not found' });
+  try {
+    res.json(orders.publicOrder(await orders.setStatus(o.id, 'CANCELLED')));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

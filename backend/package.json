@@ -37,6 +37,7 @@
     "nodemailer": "^10.0.15",
     "pdfkit": "^0.19.1",
     "qrcode": "^1.5.4",
+    "read-excel-file": "^9.3.10",
     "usb": "2.18.0",
     "zod": "^4.4.3"
   },

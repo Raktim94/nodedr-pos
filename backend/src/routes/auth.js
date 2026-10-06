@@ -11,6 +11,7 @@ const {
   requireAdmin,
   requirePasswordConfirm,
   verifyPassword,
+  PERMISSIONS,
 } = require('../middleware/auth');
 
 const router = express.Router();
@@ -34,7 +35,15 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, active: u.active });
+const publicUser = (u) => ({
+  id: u.id,
+  name: u.name,
+  email: u.email,
+  role: u.role,
+  active: u.active,
+  permissions: u.permissions ? u.permissions.split(',').filter(Boolean) : [],
+  maxDiscountPercent: u.maxDiscountPercent,
+});
 
 // GET /api/auth/status — used by the frontend to decide onboarding vs login vs app
 router.get('/status', async (req, res) => {
@@ -125,7 +134,9 @@ const createUserSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().toLowerCase().email().max(200),
   password: z.string().min(8).max(200),
-  role: z.enum(['admin', 'cashier']).default('cashier'),
+  role: z.enum(['admin', 'cashier', 'franchisor']).default('cashier'),
+  permissions: z.array(z.enum(PERMISSIONS)).default(['discount', 'returns', 'customers', 'orders']),
+  maxDiscountPercent: z.number().min(0).max(100).nullable().optional(),
 });
 router.post('/users', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
@@ -137,14 +148,16 @@ router.post('/users', requireAuth, requireAdmin, requirePasswordConfirm, async (
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
   const user = await prisma.user.create({
-    data: { ...parsed.data, password: passwordHash },
+    data: { ...parsed.data, permissions: parsed.data.permissions.join(','), password: passwordHash },
   });
   res.status(201).json(publicUser(user));
 });
 
 const updateUserSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  role: z.enum(['admin', 'cashier']).optional(),
+  role: z.enum(['admin', 'cashier', 'franchisor']).optional(),
+  permissions: z.array(z.enum(PERMISSIONS)).optional(),
+  maxDiscountPercent: z.number().min(0).max(100).nullable().optional(),
   active: z.boolean().optional(),
   password: z.string().min(8).max(200).optional(),
 });
@@ -161,7 +174,7 @@ router.put('/users/:id', requireAuth, requireAdmin, requirePasswordConfirm, asyn
   if (!target) return res.status(404).json({ error: 'User not found' });
 
   // Guard against locking yourself out or removing the last admin.
-  if (target.role === 'admin' && (parsed.data.role === 'cashier' || parsed.data.active === false)) {
+  if (target.role === 'admin' && ((parsed.data.role && parsed.data.role !== 'admin') || parsed.data.active === false)) {
     const adminCount = await prisma.user.count({ where: { role: 'admin', active: true } });
     if (adminCount <= 1) {
       return res.status(400).json({ error: 'Cannot demote or disable the last active admin' });
@@ -170,6 +183,7 @@ router.put('/users/:id', requireAuth, requireAdmin, requirePasswordConfirm, asyn
 
   const data = { ...parsed.data };
   if (data.password) data.password = await bcrypt.hash(data.password, 12);
+  if (data.permissions) data.permissions = data.permissions.join(',');
 
   const updated = await prisma.user.update({ where: { id }, data });
   res.json(publicUser(updated));

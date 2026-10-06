@@ -1,9 +1,10 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requirePerm } = require('../middleware/auth');
 const { notifyStockChange } = require('../lib/webhooks');
 const { validateSerial } = require('../lib/serials');
+const { importProducts, sampleCsv, COLUMNS } = require('../lib/bulkImport');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -39,9 +40,12 @@ const fields = {
   // route below since that needs both fields together, not just one).
   discountType: z.enum(['percent', 'amount']).nullish(),
   discountValue: z.number().min(0),
-  stock: z.number().int().min(0),
+  stock: z.number().min(0).max(1_000_000),
   trackSerial: z.boolean(),
   warrantyMonths: z.number().int().min(0).max(240),
+  reorderPoint: z.number().min(0).max(1_000_000),
+  supplierId: z.number().int().positive().nullable(),
+  showInMenu: z.boolean(),
 };
 const createSchema = z.object({
   ...fields,
@@ -50,6 +54,9 @@ const createSchema = z.object({
   stock: fields.stock.default(0),
   trackSerial: fields.trackSerial.default(false),
   warrantyMonths: fields.warrantyMonths.default(0),
+  reorderPoint: fields.reorderPoint.default(0),
+  supplierId: fields.supplierId.default(null),
+  showInMenu: fields.showInMenu.default(false),
 });
 const updateSchema = z.object(fields).partial();
 
@@ -104,6 +111,31 @@ router.get('/barcode/:barcode', async (req, res) => {
   res.json(product);
 });
 
+// ---- Bulk import (CSV / XLSX) -------------------------------------------
+// GET  /api/products/import/sample.csv        — template with example rows
+// POST /api/products/import?format=csv|xlsx&dry_run=1 — raw file as the body.
+// dry_run previews every row's outcome without writing; without it the valid
+// rows are imported in one all-or-nothing transaction.
+router.get('/import/sample.csv', (req, res) => {
+  res.type('text/csv; charset=utf-8').set('Content-Disposition', 'attachment; filename="products-sample.csv"').send(sampleCsv());
+});
+router.get('/import/columns', (req, res) => res.json(COLUMNS));
+router.post('/import', requirePerm('inventory'), express.raw({ type: () => true, limit: '8mb' }), async (req, res) => {
+  const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) return res.status(400).json({ error: 'Send the file as the request body' });
+  try {
+    const report = await importProducts(req.body, format, { dryRun: ['1', 'true'].includes(String(req.query.dry_run)) });
+    if (!report.dryRun && report.committed > 0) {
+      const linked = await prisma.product.findMany({ where: { sku: { not: null } }, select: { sku: true, stock: true } });
+      notifyStockChange(linked.map((p) => ({ sku: p.sku, stock: p.stock })));
+    }
+    res.json(report);
+  } catch (err) {
+    if (!err.status) console.error('bulk import failed', err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Import failed — nothing was imported' });
+  }
+});
+
 // GET /api/products/scan/:code — ONE lookup for whatever a scanner reads:
 // a barcode, an external SKU, or a serial/IMEI. A serial hit returns the
 // product plus that exact unit so the POS can add it to the cart in one scan.
@@ -144,7 +176,7 @@ const serialsSchema = z.object({ serials: z.array(z.string().trim().min(1).max(6
 
 // POST /api/products/:id/serials — receive units (scan or paste a list).
 // Bad / duplicate numbers are reported back, valid ones are still saved.
-router.post('/:id/serials', async (req, res) => {
+router.post('/:id/serials', requirePerm('inventory'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
   const parsed = serialsSchema.safeParse(req.body);
@@ -181,7 +213,7 @@ router.post('/:id/serials', async (req, res) => {
 });
 
 // PATCH /api/products/serials/:serial — mark a unit DEFECTIVE / back IN_STOCK.
-router.patch('/serials/:serial', async (req, res) => {
+router.patch('/serials/:serial', requirePerm('inventory'), async (req, res) => {
   const parsed = z.object({ status: z.enum(['IN_STOCK', 'DEFECTIVE']), note: z.string().trim().max(200).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const unit = await prisma.serialUnit.findUnique({ where: { serial: String(req.params.serial).toUpperCase() } });
@@ -195,7 +227,7 @@ router.patch('/serials/:serial', async (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('inventory'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -217,7 +249,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(product);
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePerm('inventory'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
 
@@ -251,7 +283,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePerm('inventory'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
   try {
