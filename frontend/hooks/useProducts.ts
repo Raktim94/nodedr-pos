@@ -17,6 +17,11 @@ export interface ProductInput {
   discountType?: "percent" | "amount" | null;
   discountValue?: number;
   stock: number;
+  trackSerial?: boolean;
+  warrantyMonths?: number;
+  reorderPoint?: number;
+  supplierId?: number | null;
+  showInMenu?: boolean;
 }
 
 export function useProducts(search = "") {

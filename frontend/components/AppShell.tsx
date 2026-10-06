@@ -20,6 +20,13 @@ import {
   Cloud,
   CloudOff,
   CalendarRange,
+  ShoppingBag,
+  BarChart3,
+  Truck,
+  ShieldCheck,
+  UserCog,
+  Network,
+  MoreHorizontal,
 } from "lucide-react";
 import { clsx } from "clsx";
 import { api } from "@/lib/api";
@@ -30,13 +37,25 @@ import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { BrandFooter } from "@/components/BrandFooter";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { can } from "@/lib/perm";
+import type { Permission } from "@/lib/types";
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/pos", label: "POS Checkout", icon: ScanBarcode },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/customers", label: "Customers", icon: Users },
-  { href: "/sales", label: "Sales", icon: ReceiptText },
+type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean; perm?: Permission; hubOnly?: boolean; staffOnly?: boolean; primary?: boolean };
+
+// staffOnly = hidden from read-only franchisor accounts (they get Reports +
+// Branches only). perm = needs that granular right (admins always pass).
+const NAV_ITEMS: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, staffOnly: true, primary: true },
+  { href: "/pos", label: "POS Checkout", icon: ScanBarcode, staffOnly: true, primary: true },
+  { href: "/orders", label: "Online orders", icon: ShoppingBag, perm: "orders", primary: true },
+  { href: "/inventory", label: "Inventory", icon: Package, staffOnly: true, primary: true },
+  { href: "/purchasing", label: "Purchasing", icon: Truck, perm: "purchasing" },
+  { href: "/customers", label: "Customers", icon: Users, staffOnly: true },
+  { href: "/sales", label: "Sales", icon: ReceiptText, staffOnly: true },
+  { href: "/warranty", label: "Warranty", icon: ShieldCheck, staffOnly: true },
+  { href: "/reports", label: "Reports", icon: BarChart3, perm: "reports" },
+  { href: "/team", label: "Team", icon: UserCog, adminOnly: true },
+  { href: "/branches", label: "Branches", icon: Network, hubOnly: true },
   { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
 
@@ -76,7 +95,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || me?.role === "admin");
+  const isHub = shop?.syncRole === "hub";
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (!me) return false;
+    if (item.hubOnly) return isHub && (me.role === "admin" || me.role === "franchisor");
+    if (item.adminOnly) return me.role === "admin";
+    if (item.staffOnly) return me.role !== "franchisor";
+    if (item.perm) return can(me, item.perm);
+    return true;
+  });
+  const primaryItems = visibleItems.filter((i) => i.primary);
   const isOnline = health?.status === "ok";
   const sym = shop?.currencySymbol || "Rs.";
 
@@ -120,7 +148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <aside
         className={clsx(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border-subtle bg-surface transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-[232px] flex-col border-r border-border-subtle bg-surface transition-transform duration-300 ease-[var(--ease-out)] lg:static lg:z-auto lg:translate-x-0",
           navOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -140,13 +168,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 onClick={() => setNavOpen(false)}
                 className={clsx(
-                  "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                  "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                   active
-                    ? "bg-brand-soft text-foreground before:absolute before:-left-3 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-brand before:shadow-[0_0_8px_var(--brand-glow)]"
-                    : "text-foreground-muted hover:translate-x-0.5 hover:bg-surface-muted hover:text-foreground"
+                    ? "bg-brand text-brand-foreground shadow-sm"
+                    : "text-foreground-muted hover:bg-surface-muted hover:text-foreground"
                 )}
               >
-                <Icon className={clsx("h-[18px] w-[18px]", active && "text-brand icon-glow")} aria-hidden="true" />
+                <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
                 {item.label}
               </Link>
             );
@@ -203,9 +231,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
 
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground-muted xl:flex">
+            <span className="tabular hidden items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-foreground-muted xl:flex">
               <CalendarRange className="h-3.5 w-3.5" aria-hidden="true" />
-              Last 14 Days
+              {new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
             </span>
 
             <Link
@@ -261,7 +289,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-background p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1440px] flex-1 overflow-y-auto bg-background p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">{children}</main>
+
+        {/* Compact bottom navigation on phones/tablets — 44px+ touch targets. */}
+        <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] lg:hidden">
+          {primaryItems.map((item) => {
+            const Icon = item.icon;
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href} className={clsx("flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium", active ? "text-brand" : "text-foreground-muted")}>
+                <Icon className="h-5 w-5" aria-hidden="true" />
+                {item.label.replace("POS Checkout", "POS").replace("Online orders", "Orders")}
+              </Link>
+            );
+          })}
+          <button type="button" onClick={() => setNavOpen(true)} className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-foreground-muted">
+            <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+            More
+          </button>
+        </nav>
       </div>
 
       {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} sym={sym} />}

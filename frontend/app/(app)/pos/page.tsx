@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Camera, Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Camera, Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X, Monitor, Scale, Smartphone, Hash } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -18,7 +19,17 @@ import { api, ApiError, describeApiError } from "@/lib/api";
 import { formatMoney, round2 } from "@/lib/format";
 import { openReceiptPrint } from "@/lib/print";
 import { effectivePrice, quoteSale } from "@/lib/quote";
+import { postDisplay } from "@/lib/display";
+import { readScaleKg, scaleSupported } from "@/lib/scale";
+import { SerialPrompt } from "@/components/pos/SerialPrompt";
+import { UpiQr } from "@/components/pos/UpiQr";
+import { TerminalCharge } from "@/components/pos/TerminalCharge";
+import { ShareActions } from "@/components/pos/ShareActions";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
+
+const FRACTIONAL_UNITS = ["KGS", "GMS", "LTR", "MLT", "MTR", "CMS", "SQM", "CBM"];
+const isFractional = (p: Product) => !p.trackSerial && !!p.unit && FRACTIONAL_UNITS.includes(p.unit.toUpperCase());
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
 export default function PosPage() {
   const { data: shop } = useShopSettings();
@@ -44,6 +55,14 @@ export default function PosPage() {
     null
   );
   const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
+  const [serialFor, setSerialFor] = useState<Product | null>(null);
+  const [gstin, setGstin] = useState("");
+  const [payCurrency, setPayCurrency] = useState("");
+  const [terminalPaymentId, setTerminalPaymentId] = useState<string | null>(null);
+  const [scaleBusy, setScaleBusy] = useState<number | null>(null);
+  const { data: fx } = useQuery({ queryKey: ["fx"], queryFn: () => api.get<{ base: string; rates: Record<string, number> }>("/payments/fx"), staleTime: 60_000 });
+  const fxCodes = Object.keys(fx?.rates ?? {});
+  const fxRate = payCurrency && fx?.rates[payCurrency] ? fx.rates[payCurrency] : 0;
 
   // Manual add — the fallback for when the barcode scanner isn't working: type
   // a product name or barcode and pick from the matches. Debounced so we don't
@@ -106,31 +125,61 @@ export default function PosPage() {
       : 0;
 
   const addToCart = useCallback(
-    (product: Product) => {
+    (product: Product, serial?: string) => {
       setCompletedSale(null);
+      // Serial/IMEI-tracked products are added by unit: scanning an IMEI adds
+      // that exact unit; scanning the model's barcode asks for the IMEI(s).
+      if (product.trackSerial && !serial) {
+        setSerialFor(product);
+        return;
+      }
       setCart((prev) => {
         const existing = prev.find((item) => item.product.id === product.id);
+        if (product.trackSerial && serial) {
+          if (existing?.serials?.includes(serial)) {
+            show(`${serial} is already on this bill`, "error");
+            return prev;
+          }
+          if (!existing) return [...prev, { product, quantity: 1, serials: [serial] }];
+          return prev.map((i) => (i.product.id === product.id ? { ...i, quantity: i.quantity + 1, serials: [...(i.serials ?? []), serial] } : i));
+        }
         if (!existing) return [...prev, { product, quantity: 1 }];
-        if (existing.quantity >= product.stock) {
-          show(`Only ${product.stock} in stock for "${product.name}"`, "error");
+        if (!shop?.allowNegativeStock && existing.quantity + 1 > product.stock + 1e-9) {
+          show(`Only ${r3(product.stock)} in stock for "${product.name}"`, "error");
           return prev;
         }
-        return prev.map((item) =>
-          item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
+        return prev.map((item) => (item.product.id === product.id ? { ...item, quantity: r3(item.quantity + 1) } : item));
       });
     },
-    [show]
+    [show, shop?.allowNegativeStock]
   );
 
   const handleScan = useCallback(
     async (code: string) => {
       try {
-        const product = await api.get<Product>(`/products/barcode/${encodeURIComponent(code)}`);
-        addToCart(product);
+        // One lookup resolves a barcode, an external SKU or an IMEI/serial.
+        const r = await api.get<{ type: "product" | "serial"; product: Product; serial?: { serial: string; status: string } }>(`/products/scan/${encodeURIComponent(code)}`);
+        if (r.type === "serial") {
+          if (r.serial?.status !== "IN_STOCK") return show(`That unit is not in stock (${r.serial?.status})`, "error");
+          addToCart(r.product, r.serial.serial);
+        } else {
+          addToCart(r.product);
+        }
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) show("Product not found. Please add to inventory.", "error");
-        else show("Barcode lookup failed", "error");
+        if (err instanceof ApiError && err.status === 404) {
+          // Not a product: an NFC loyalty card tap types its UID like a scanner.
+          try {
+            const c = await api.get<Customer>(`/customers/by-card/${encodeURIComponent(code)}`);
+            setCustomer(c);
+            setCustomerName(c.name);
+            setCustomerPhone(c.phone);
+            show(`${c.name} — ${c.loyaltyPoints} points`, "success");
+            return;
+          } catch {
+            /* fall through */
+          }
+          show("Nothing matches that code. Add it to inventory first.", "error");
+        } else show("Lookup failed", "error");
       }
     },
     [addToCart, show]
@@ -180,6 +229,9 @@ export default function PosPage() {
     setPointsRedeemed(0);
     setPaymentMethod("CASH");
     setAmountPaid("");
+    setGstin("");
+    setPayCurrency("");
+    setTerminalPaymentId(null);
   };
 
   // A bill is submittable if it sells something, returns something, or
@@ -210,12 +262,15 @@ export default function PosPage() {
         api.post<Invoice>("/invoices", {
           customerName,
           customerPhone,
-          items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+          items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity, ...(item.serials?.length ? { serials: item.serials } : {}) })),
           discountType,
           discountValue: Number(discountValue) || 0,
           pointsRedeemed: Number(pointsRedeemed) || 0,
           paymentMethod,
-          amountPaid: paymentMethod === "CASH" ? Number(amountPaid) || 0 : 0,
+          amountPaid: paymentMethod === "CASH" ? (payCurrency && fxRate ? round2((Number(amountPaid) || 0) * fxRate) : Number(amountPaid) || 0) : 0,
+          ...(gstin.trim() ? { customerGstin: gstin.trim().toUpperCase() } : {}),
+          ...(payCurrency && fxRate ? { payCurrency } : {}),
+          ...(terminalPaymentId ? { terminalPaymentId } : {}),
           duePaid: dueToClear,
           returns: returnsPayload,
           refundMode,
@@ -241,7 +296,10 @@ export default function PosPage() {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
+      const paidCash = invoice.paymentMethod === "CASH";
       resetSale();
+      // Cash sale + a drawer on the receipt printer: kick it open (best effort).
+      if (paidCash && shop?.cashDrawer && shop.autoPrintMethod !== "usb") api.post("/print/drawer").catch(() => {});
       if (shop?.autoPrintReceipt) {
         if (shop.autoPrintMethod === "usb") {
           // Send straight to the USB thermal printer — a plain async request,
@@ -269,7 +327,7 @@ export default function PosPage() {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, withPasswordConfirm, shop?.autoPrintReceipt, shop?.autoPrintMethod]);
+  }, [gstin, payCurrency, fxRate, terminalPaymentId, shop?.cashDrawer, cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, withPasswordConfirm, shop?.autoPrintReceipt, shop?.autoPrintMethod]);
 
   useBarcodeScanner({
     onScan: handleScan,
@@ -281,21 +339,51 @@ export default function PosPage() {
     },
   });
 
-  function updateQuantity(productId: number, delta: number) {
+  function setQuantity(productId: number, qty: number) {
     setCart((prev) =>
       prev
         .map((item) => {
-          if (item.product.id !== productId) return item;
-          const nextQty = item.quantity + delta;
-          if (nextQty > item.product.stock) {
-            show(`Only ${item.product.stock} in stock for "${item.product.name}"`, "error");
+          if (item.product.id !== productId || item.product.trackSerial) return item;
+          const q = r3(qty);
+          if (q > 0 && !shop?.allowNegativeStock && q > item.product.stock + 1e-9) {
+            show(`Only ${r3(item.product.stock)} in stock for "${item.product.name}"`, "error");
             return item;
           }
-          return { ...item, quantity: nextQty };
+          return { ...item, quantity: q };
         })
         .filter((item) => item.quantity > 0)
     );
   }
+  const updateQuantity = (productId: number, delta: number) => {
+    const cur = cart.find((i) => i.product.id === productId);
+    if (cur) setQuantity(productId, cur.quantity + delta);
+  };
+
+  async function weigh(productId: number) {
+    setScaleBusy(productId);
+    try {
+      setQuantity(productId, await readScaleKg());
+    } catch (e) {
+      show(e instanceof Error ? e.message : "Could not read the scale", "error");
+    } finally {
+      setScaleBusy(null);
+    }
+  }
+
+  // Mirror the cart to the customer-facing display window (if one is open).
+  useEffect(() => {
+    postDisplay({
+      shopName: shop?.shopName ?? "",
+      symbol: sym,
+      lines: cart.map((i) => ({ name: i.product.name, qty: i.quantity, unit: i.product.unit, price: effectivePrice(i.product), total: round2(effectivePrice(i.product) * i.quantity) })),
+      subtotal: quote.subtotal,
+      discount: quote.discountAmount,
+      tax: quote.taxAmount,
+      total: quote.total,
+      upiUri: null,
+      thankYou: cart.length === 0 && !!completedSale,
+    });
+  }, [cart, quote, shop?.shopName, sym, completedSale]);
 
   const maxRedeemable = customer && shop?.loyaltyEnabled ? customer.loyaltyPoints : 0;
 
@@ -309,10 +397,16 @@ export default function PosPage() {
             Scan a barcode to add items. Press Enter to finalize.
           </p>
         </div>
-        <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)} className="shrink-0">
-          <Camera className="h-4 w-4" aria-hidden="true" />
-          Scan with camera
-        </Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={() => window.open("/display", "nodedr-display", "popup,width=900,height=600")}>
+            <Monitor className="h-4 w-4" aria-hidden="true" />
+            Customer display
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)}>
+            <Camera className="h-4 w-4" aria-hidden="true" />
+            Scan with camera
+          </Button>
+        </div>
       </div>
 
       {cameraScannerOpen && (
@@ -325,6 +419,21 @@ export default function PosPage() {
         />
       )}
 
+      {serialFor && (
+        <SerialPrompt
+          product={serialFor}
+          existing={cart.find((i) => i.product.id === serialFor.id)?.serials ?? []}
+          onClose={() => setSerialFor(null)}
+          onDone={(serials) => {
+            const product = serialFor;
+            setCart((prev) => {
+              const rest = prev.filter((i) => i.product.id !== product.id);
+              return serials.length ? [...rest, { product, quantity: serials.length, serials }] : rest;
+            });
+            setSerialFor(null);
+          }}
+        />
+      )}
       {completedSale && (
         <Card className="flex flex-wrap items-center justify-between gap-4 border-brand/30 bg-brand/5 p-5">
           <div className="flex items-center gap-3">
@@ -340,6 +449,7 @@ export default function PosPage() {
           </div>
           <div className="flex items-center gap-2">
             <ReceiptActions invoiceId={completedSale.id} />
+            <ShareActions invoiceId={completedSale.id} />
             <Button type="button" variant="ghost" onClick={() => setCompletedSale(null)}>
               Dismiss
             </Button>
@@ -404,7 +514,7 @@ export default function PosPage() {
                         </span>
                         <span className="shrink-0 text-foreground/70">{money(effectivePrice(p))}</span>
                         <span className={`shrink-0 text-xs ${outOfStock ? "text-danger" : "text-foreground/40"}`}>
-                          {outOfStock ? "Out of stock" : `${p.stock} in stock`}
+                          {outOfStock ? "Out of stock" : `${r3(p.stock)} in stock`}
                         </span>
                       </button>
                     );
@@ -435,27 +545,60 @@ export default function PosPage() {
                       <td className="py-2.5 pr-4 font-medium text-foreground">
                         {item.product.name}
                         {item.product.unit && <span className="ml-1.5 font-normal text-foreground/40">({item.product.unit})</span>}
+                        {item.serials && item.serials.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {item.serials.map((sn) => (
+                              <span key={sn} className="inline-flex items-center gap-0.5 rounded-full bg-brand-soft px-2 py-0.5 font-mono text-[11px] font-normal text-brand">
+                                <Hash className="h-3 w-3" aria-hidden="true" />
+                                {sn}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 pr-4">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            aria-label={`Decrease ${item.product.name}`}
-                            onClick={() => updateQuantity(item.product.id, -1)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
-                          >
-                            <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                        {item.product.trackSerial ? (
+                          <button type="button" onClick={() => setSerialFor(item.product)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-muted">
+                            {item.quantity} unit{item.quantity === 1 ? "" : "s"} · edit
                           </button>
-                          <span className="w-6 text-center">{item.quantity}</span>
-                          <button
-                            type="button"
-                            aria-label={`Increase ${item.product.name}`}
-                            onClick={() => updateQuantity(item.product.id, 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
-                          >
-                            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                          </button>
-                        </div>
+                        ) : isFractional(item.product) ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.001"
+                              aria-label={`Quantity of ${item.product.name}`}
+                              value={item.quantity}
+                              onChange={(e) => setQuantity(item.product.id, Number(e.target.value) || 0)}
+                              className="tabular w-24 rounded-md border border-border bg-surface px-2 py-1 text-sm"
+                            />
+                            {scaleSupported() && (
+                              <button type="button" aria-label={`Read weight for ${item.product.name} from scale`} disabled={scaleBusy === item.product.id} onClick={() => weigh(item.product.id)} className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted">
+                                <Scale className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              aria-label={`Decrease ${item.product.name}`}
+                              onClick={() => updateQuantity(item.product.id, -1)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
+                            >
+                              <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                            </button>
+                            <span className="tabular w-6 text-center">{item.quantity}</span>
+                            <button
+                              type="button"
+                              aria-label={`Increase ${item.product.name}`}
+                              onClick={() => updateQuantity(item.product.id, 1)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
+                            >
+                              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 pr-4 text-right text-foreground/70">
                         {money(effectivePrice(item.product))}
@@ -517,76 +660,8 @@ export default function PosPage() {
               onChange={(e) => setCustomerName(e.target.value)}
               placeholder="Walk-in Customer"
             />
-            {customer && customer.totalDue >= 0.01 && (
-              <div className="rounded-lg bg-danger/10 p-3">
-                <p className="text-sm font-medium text-danger">Owes {money(customer.totalDue)} from before</p>
-                <p className="mt-0.5 text-xs text-foreground/60">
-                  Add any amount to this bill to clear it — the customer pays it together with the sale.
-                </p>
-                <div className="mt-2 flex items-end gap-2">
-                  <div className="flex-1">
-                    <Field
-                      label="Clear previous due (adds to bill)"
-                      type="number"
-                      min={0}
-                      max={customer.totalDue}
-                      step="0.01"
-                      value={duePaid}
-                      onChange={(e) =>
-                        setDuePaid(
-                          e.target.value === ""
-                            ? ""
-                            : String(Math.min(Math.max(0, Number(e.target.value) || 0), customer.totalDue))
-                        )
-                      }
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <Button type="button" variant="secondary" onClick={() => setDuePaid(String(customer.totalDue))}>
-                    Full due
-                  </Button>
-                </div>
-              </div>
-            )}
-            {customer && creditAvail >= 0.01 && (
-              <label className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-sm">
-                <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)} />
-                <span className="font-medium text-success">Use store credit ({money(creditAvail)})</span>
-              </label>
-            )}
-            {customer && shop?.loyaltyEnabled && (
-              <div className="rounded-lg bg-brand/5 p-3">
-                <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                  <Star className="h-4 w-4 text-warning" aria-hidden="true" />
-                  {customer.loyaltyPoints} points available
-                </p>
-                {maxRedeemable > 0 ? (
-                  <>
-                    <div className="mt-2 flex items-end gap-2">
-                      <div className="flex-1">
-                        <Field
-                          label={`Redeem points (1 pt = ${money(shop.pointValue).replace(sym + " ", sym)})`}
-                          type="number"
-                          min={0}
-                          max={maxRedeemable}
-                          value={pointsRedeemed || ""}
-                          onChange={(e) => setPointsRedeemed(Math.min(Number(e.target.value) || 0, maxRedeemable))}
-                        />
-                      </div>
-                      <Button type="button" variant="secondary" onClick={() => setPointsRedeemed(maxRedeemable)}>
-                        Use all
-                      </Button>
-                    </div>
-                    {pointsRedeemed > 0 && (
-                      <p className="mt-1.5 text-xs text-success">
-                        {pointsRedeemed} pts = {money(pointsRedeemed * shop.pointValue)} off this sale
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="mt-1 text-xs text-foreground/50">Not enough points to redeem yet.</p>
-                )}
-              </div>
+            {shop?.gstEnabled && (
+              <Field label="Customer GSTIN (B2B, optional)" value={gstin} maxLength={15} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="22AAAAA0000A1Z5" />
             )}
           </Card>
 
@@ -687,7 +762,10 @@ export default function PosPage() {
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setPaymentMethod(m)}
+                  onClick={() => {
+                    setPaymentMethod(m);
+                    if (m !== "CARD") setTerminalPaymentId(null);
+                  }}
                   className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                     paymentMethod === m
                       ? "border-brand bg-brand text-brand-foreground"
@@ -698,11 +776,32 @@ export default function PosPage() {
                 </button>
               ))}
             </div>
+            {paymentMethod === "UPI" && shop?.upiId && collectTotal > 0 && <UpiQr amount={collectTotal} />}
+            {paymentMethod === "CARD" && shop?.terminalProvider && shop.terminalProvider !== "none" && collectTotal > 0 && (
+              <TerminalCharge amount={collectTotal} reference="POS" paymentId={terminalPaymentId} onPaid={setTerminalPaymentId} />
+            )}
+            {paymentMethod === "CASH" && fxCodes.length > 0 && (
+              <label className="flex items-center gap-2 text-sm">
+                <Smartphone className="h-4 w-4 text-foreground-muted" aria-hidden="true" />
+                <span className="text-foreground-muted">Customer pays in</span>
+                <select aria-label="Payment currency" value={payCurrency} onChange={(e) => { setPayCurrency(e.target.value); setAmountPaid(""); }} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm">
+                  <option value="">{fx?.base}</option>
+                  {fxCodes.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {paymentMethod === "CASH" && payCurrency && fxRate > 0 && (
+              <p className="rounded-lg bg-brand-soft px-3 py-2 text-xs text-brand">
+                1 {payCurrency} = {formatMoney(fxRate, sym)} · {formatMoney(collectTotal, sym)} = <b className="tabular">{round2(collectTotal / fxRate).toFixed(2)} {payCurrency}</b>
+              </p>
+            )}
             {paymentMethod === "CASH" && (
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <Field
-                    label="Amount received"
+                    label={payCurrency && fxRate ? `Amount received (${payCurrency})` : "Amount received"}
                     type="number"
                     min={0}
                     step="0.01"
@@ -714,7 +813,7 @@ export default function PosPage() {
                   type="button"
                   variant="secondary"
                   className="whitespace-nowrap"
-                  onClick={() => setAmountPaid(String(collectTotal))}
+                  onClick={() => setAmountPaid(String(payCurrency && fxRate ? round2(collectTotal / fxRate) : collectTotal))}
                   disabled={collectTotal === 0}
                 >
                   Paid in full

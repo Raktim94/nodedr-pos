@@ -5,6 +5,7 @@ import { Search, Undo2, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ReceiptActions } from "@/components/ReceiptActions";
+import { ShareActions } from "@/components/pos/ShareActions";
 import { useInvoices, useInvoice } from "@/hooks/useInvoices";
 import { useCreateReturn, useReturnsForInvoice } from "@/hooks/useReturns";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -202,6 +203,7 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
             </div>
 
             <ReceiptActions invoiceId={id} />
+            <ShareActions invoiceId={id} />
 
             <div className="rounded-lg border border-border p-4">
               <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">

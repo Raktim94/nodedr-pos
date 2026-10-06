@@ -49,7 +49,6 @@ async function buildInvoicePdf({ shop, invoice }) {
     );
   }
   const shopSig = readSignature(shop.signatureFile);
-  const custSig = readSignature(invoice.customerSignature);
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: `Invoice ${invoice.invoiceNumber}`, Author: shop.shopName } });
@@ -226,7 +225,6 @@ async function buildInvoicePdf({ shop, invoice }) {
       doc.moveTo(x, sigY + 40).lineTo(x + sigW, sigY + 40).lineWidth(0.75).strokeColor(MUTED).stroke();
       doc.font('Helvetica').fontSize(8).fillColor(MUTED).text(label, x, sigY + 44, { width: sigW, align: 'center' });
     };
-    drawSig(custSig, L + W * 0.56, 'Customer signature');
     drawSig(shopSig, R - sigW, shop.signatoryName ? `Authorised signatory — ${shop.signatoryName}` : 'Authorised signatory');
 
     doc.end();

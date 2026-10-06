@@ -17,9 +17,15 @@ import type { PinCodeRecord } from "@/hooks/useMasters";
 import type { ShopSettings } from "@/lib/types";
 import { UsersPanel } from "./UsersPanel";
 import { ReferenceDataTab } from "./ReferenceDataTab";
+import { useSaver } from "./useSaver";
+import { PaymentsTab } from "./PaymentsTab";
+import { InvoiceTab } from "./InvoiceTab";
+import { OnlineTab } from "./OnlineTab";
+import { EmailTab } from "./EmailTab";
+import { SyncTab } from "./SyncTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 
-const TABS = ["Company", "Tax & Loyalty", "Receipt", "Reference Data", "Integrations", "Password", "Staff"] as const;
+const TABS = ["Company", "Tax & Loyalty", "Receipt", "Invoice & signature", "Payments", "Online & menu", "E-mail reports", "Branches", "Reference Data", "Integrations", "Password", "Staff"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
@@ -79,24 +85,17 @@ export default function SettingsPage() {
       {tab === "Company" && <CompanyTab settings={settings} />}
       {tab === "Tax & Loyalty" && <TaxLoyaltyTab settings={settings} />}
       {tab === "Receipt" && <ReceiptTab settings={settings} />}
+      {tab === "Invoice & signature" && <InvoiceTab settings={settings} />}
+      {tab === "Payments" && <PaymentsTab settings={settings} />}
+      {tab === "Online & menu" && <OnlineTab />}
+      {tab === "E-mail reports" && <EmailTab />}
+      {tab === "Branches" && <SyncTab />}
       {tab === "Reference Data" && <ReferenceDataTab />}
       {tab === "Integrations" && <IntegrationsTab />}
       {tab === "Password" && <PasswordTab />}
       {tab === "Staff" && <UsersPanel />}
     </div>
   );
-}
-
-function useSaver() {
-  const update = useUpdateSettings();
-  const { show } = useToast();
-  const { withPasswordConfirm } = usePasswordConfirm();
-  return async (patch: Partial<ShopSettings>) => {
-    const result = await withPasswordConfirm("save these settings", (confirmPassword) =>
-      update.mutateAsync({ ...patch, confirmPassword })
-    );
-    if (result) show("Settings saved", "success");
-  };
 }
 
 function CompanyTab({ settings }: { settings: ShopSettings }) {

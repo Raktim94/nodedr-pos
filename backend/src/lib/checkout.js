@@ -3,7 +3,6 @@ const prisma = require('./prisma');
 const { computeSale, round2 } = require('./pricing');
 const { notifyStockChange } = require('./webhooks');
 const { validateSerial, normalizeSerial, addMonths } = require('./serials');
-const { saveSignature } = require('./signatures');
 const { qtySchema } = require('./qty');
 const { hasPerm } = require('../middleware/auth');
 const { parseRates } = require('./fx');
@@ -58,8 +57,6 @@ const checkoutSchema = z
     refundMode: z.enum(['CASH', 'CREDIT']).default('CASH'),
     // Existing store credit the customer spends on this bill.
     creditApplied: z.number().min(0).default(0),
-    // Customer signature captured at the till (PNG/JPEG data URL).
-    customerSignature: z.string().max(450000).optional(),
     // Idempotency key for API/webhook bills — the same ref never bills twice.
     externalRef: z.string().trim().min(1).max(120).optional(),
     customerGstin: z.string().trim().toUpperCase().regex(/^[0-9A-Z]{15}$/, 'GSTIN must be 15 characters').optional().or(z.literal('')),
@@ -98,8 +95,6 @@ async function performCheckout(body, ctx = {}) {
     });
     if (prior) return { invoice: prior, deduplicated: true };
   }
-
-  const signatureFile = body.customerSignature ? saveSignature(body.customerSignature) : null;
 
   // Card terminal payment: confirmed with the provider BEFORE the DB
   // transaction (a network call must never run while holding SQLite's write
@@ -370,7 +365,6 @@ async function performCheckout(body, ctx = {}) {
           externalRef: body.externalRef ?? null,
           apiKeyId: ctx.apiKeyId ?? null,
           cashierName: ctx.cashierName ?? null,
-          customerSignature: signatureFile,
           shiftId: openShift?.id ?? null,
           items: { create: computed.items.map((it, i) => ({ ...it, warrantyMonths: lines[i].product.warrantyMonths || 0, costPrice: lines[i].product.purchasePrice || 0 })) },
         },

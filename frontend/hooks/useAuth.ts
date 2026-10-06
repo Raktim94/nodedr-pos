@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { AuthUser, Role } from "@/lib/types";
+import type { AuthUser, Permission, Role } from "@/lib/types";
 
 export function useMe() {
   return useQuery({
@@ -24,6 +24,8 @@ export interface CreateUserInput {
   email: string;
   password: string;
   role: Role;
+  permissions?: Permission[];
+  maxDiscountPercent?: number | null;
   // Step-up re-auth: the currently signed-in admin's own password,
   // re-confirmed for this specific action — see backend's requirePasswordConfirm.
   confirmPassword?: string;
@@ -40,7 +42,7 @@ export function useCreateUser() {
 export function useUpdateUser() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<CreateUserInput> & { active?: boolean } }) =>
+    mutationFn: ({ id, data }: { id: number; data: Partial<CreateUserInput> & { active?: boolean; permissions?: Permission[]; maxDiscountPercent?: number | null } }) =>
       api.put<AuthUser>(`/auth/users/${id}`, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
   });

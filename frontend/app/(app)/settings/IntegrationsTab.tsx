@@ -1,16 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Copy, Check, Plus, KeyRound } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
-import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useApiKeys, useCreateApiKey, useUpdateApiKey, useDeleteApiKey } from "@/hooks/useApiKeys";
 import { describeApiError } from "@/lib/api";
 import type { ApiKey, ApiKeyWithSecrets } from "@/lib/types";
+
+const SCOPE_INFO: { key: string; label: string; hint: string }[] = [
+  { key: "products:read", label: "Read products & stock", hint: "List SKU-linked products with live stock and price" },
+  { key: "stock:write", label: "Adjust stock", hint: "Report a sale or correction against a SKU" },
+  { key: "bills:write", label: "Take bills", hint: "Create bills (invoices) from the store — POS computes price, GST and stock" },
+  { key: "bills:read", label: "Read bills & PDFs", hint: "Only bills created through this same key" },
+  { key: "orders:write", label: "Click-and-collect orders", hint: "Create / read / cancel orders that reserve stock" },
+  { key: "warranty:read", label: "Warranty lookup", hint: "Check warranty from an IMEI / serial number" },
+];
+
+function ApiGuide() {
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
+  return (
+    <Card className="p-6">
+      <h2 className="text-base font-semibold text-foreground">Connect a store or an AI agent</h2>
+      <p className="mt-1 text-sm text-foreground-muted">Create a key above, then call the REST API or point an MCP client (Claude, etc.) at the MCP endpoint. Both use the same key and only expose what its permissions allow.</p>
+      <pre className="mt-3 overflow-x-auto rounded-lg bg-surface-muted p-3 text-xs leading-relaxed">{`# take a bill from your store (idempotent on externalRef)
+curl -X POST ${origin}/api/external/bills \
+  -H "Authorization: Bearer nk_live_…" -H "Content-Type: application/json" \
+  -d '{"externalRef":"order-1001","customer":{"name":"Asha","phone":"9999900000"},
+       "items":[{"sku":"PHONE-1","quantity":1,"serials":["490154203237518"]}],
+       "paymentMethod":"UPI"}'
+
+# download the PDF bill      GET /api/external/bills/order-1001/pdf?layout=a4
+# live stock (incremental)   GET /api/external/products?updatedSince=2026-01-01T00:00:00Z
+# warranty from IMEI         GET /api/external/warranty/490154203237518`}</pre>
+      <p className="mt-3 text-sm font-medium">MCP</p>
+      <pre className="mt-1 overflow-x-auto rounded-lg bg-surface-muted p-3 text-xs leading-relaxed">{`# Remote (Streamable HTTP):  POST ${origin}/mcp   (Authorization: Bearer nk_live_…)
+# Local desktop client (stdio), run on the POS machine:
+{ "mcpServers": { "nodedr-pos": {
+    "command": "node", "args": ["backend/src/mcp/stdio.js"],
+    "env": { "NODEDR_API_KEY": "nk_live_…", "DATABASE_URL": "file:./data/pos.db" } } } }`}</pre>
+      <p className="mt-2 text-xs text-foreground-muted">Tools appear per permission: search_products, get_stock, adjust_stock, create_bill, get_bill, create_order, get_order, check_warranty.</p>
+    </Card>
+  );
+}
 
 export function IntegrationsTab() {
   const { data: keys, isLoading } = useApiKeys();
@@ -65,6 +101,8 @@ export function IntegrationsTab() {
         )}
       </Card>
 
+      <ApiGuide />
+
       {formOpen && (
         <ApiKeyFormModal
           editing={editing}
@@ -116,12 +154,8 @@ function ApiKeyRow({
       <div>
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-foreground">{apiKey.name}</p>
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-              apiKey.canWrite ? "bg-brand/10 text-brand" : "bg-surface-muted text-foreground/60"
-            }`}
-          >
-            {apiKey.canWrite ? "Read + write" : "Read-only"}
+          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand" title={apiKey.scopes.join(", ")}>
+            {apiKey.scopes.length} permission{apiKey.scopes.length === 1 ? "" : "s"}
           </span>
           {apiKey.revoked && (
             <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger">Revoked</span>
@@ -165,7 +199,7 @@ function ApiKeyFormModal({
   const create = useCreateApiKey();
   const update = useUpdateApiKey();
   const [name, setName] = useState(editing?.name ?? "");
-  const [canWrite, setCanWrite] = useState(editing?.canWrite ?? false);
+  const [scopes, setScopes] = useState<string[]>(editing?.scopes ?? ["products:read"]);
   const [webhookUrl, setWebhookUrl] = useState(editing?.webhookUrl ?? "");
   const [error, setError] = useState<string | null>(null);
   const busy = create.isPending || update.isPending;
@@ -184,7 +218,7 @@ function ApiKeyFormModal({
           update.mutateAsync({
             id: editing.id,
             name,
-            canWrite,
+            scopes,
             confirmPassword,
             ...(webhookChanged ? { webhookUrl } : {}),
           })
@@ -199,7 +233,7 @@ function ApiKeyFormModal({
         }
       } else {
         const result = await withPasswordConfirm("create this API key", (confirmPassword) =>
-          create.mutateAsync({ name, canWrite, webhookUrl, confirmPassword })
+          create.mutateAsync({ name, scopes, webhookUrl, confirmPassword })
         );
         if (result) onCreated(result);
       }
@@ -209,8 +243,8 @@ function ApiKeyFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4" role="dialog" aria-modal="true">
-      <Card className="w-full max-w-md p-6">
+    <div className="backdrop-in fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-[rgb(8_28_18/0.32)] px-4 py-6" role="dialog" aria-modal="true">
+      <Card className="dialog-in w-full max-w-md p-6">
         <h2 className="text-base font-semibold text-foreground">{editing ? "Edit API key" : "New API key"}</h2>
         <form onSubmit={submit} className="mt-4 flex flex-col gap-4">
           <Field
@@ -220,12 +254,15 @@ function ApiKeyFormModal({
             onChange={(e) => setName(e.target.value)}
             required
           />
-          <Toggle
-            label="Allow write access"
-            description="Lets this key adjust stock (e.g. report a sale). Off = read-only stock lookups."
-            checked={canWrite}
-            onChange={setCanWrite}
-          />
+          <fieldset className="flex flex-col gap-2 rounded-xl border border-border p-3">
+            <legend className="px-1 text-sm font-medium text-foreground">Permissions (least privilege — tick only what this system needs)</legend>
+            {SCOPE_INFO.map((sc) => (
+              <label key={sc.key} className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--brand)]" checked={scopes.includes(sc.key)} onChange={(e) => setScopes((cur) => (e.target.checked ? [...cur, sc.key] : cur.filter((x) => x !== sc.key)))} />
+                <span><span className="font-medium">{sc.label}</span><span className="block text-xs text-foreground/50">{sc.hint}</span></span>
+              </label>
+            ))}
+          </fieldset>
           <div>
             <Field
               label="Webhook URL (optional)"
@@ -244,7 +281,7 @@ function ApiKeyFormModal({
             <Button type="button" variant="secondary" className="flex-1" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={busy || !name}>
+            <Button type="submit" className="flex-1" disabled={busy || !name || scopes.length === 0}>
               {busy ? "Saving…" : editing ? "Save changes" : "Create key"}
             </Button>
           </div>

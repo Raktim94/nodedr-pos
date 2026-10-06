@@ -1,0 +1,9 @@
+{
+  "name": "Loyalty & receipts",
+  "short_name": "My receipts",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f9f6",
+  "theme_color": "#176c45",
+  "icons": [{ "src": "/logo.png", "sizes": "512x512", "type": "image/png" }]
+}

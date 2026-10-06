@@ -30,7 +30,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // the caller `await`-ing forever — the button just stays on
       // "Processing…" indefinitely, which reads as the app having frozen.
       // 20s is generous for anything this app does (checkout, reports).
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(init?.body instanceof File ? 120_000 : 20_000),
       headers: isFormData
         ? { ...(init?.headers || {}) }
         : { "Content-Type": "application/json", ...(init?.headers || {}) },
@@ -73,6 +73,10 @@ export const api = {
   post: <T>(path: string, data?: unknown) =>
     request<T>(path, { method: "POST", body: data !== undefined ? JSON.stringify(data) : undefined }),
   put: <T>(path: string, data?: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(data) }),
+  patch: <T>(path: string, data?: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(data) }),
+  // Raw file body (CSV/XLSX bulk import) — sent as-is, not JSON.
+  uploadRaw: <T>(path: string, file: File) =>
+    request<T>(path, { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } }),
   delete: <T>(path: string, data?: unknown) =>
     request<T>(path, { method: "DELETE", body: data !== undefined ? JSON.stringify(data) : undefined }),
   upload: <T>(path: string, formData: FormData) => request<T>(path, { method: "POST", body: formData }),

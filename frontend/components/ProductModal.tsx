@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import { Barcode as BarcodeIcon, Camera, X } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Select } from "@/components/ui/Select";
@@ -31,7 +32,12 @@ const productSchema = z.object({
   taxRate: z.number().min(0).max(100),
   discountType: z.enum(["percent", "amount"]).nullable(),
   discountValue: z.number().min(0, "Must be 0 or more"),
-  stock: z.number().int().min(0, "Must be 0 or more"),
+  stock: z.number().min(0, "Must be 0 or more"),
+  trackSerial: z.boolean(),
+  warrantyMonths: z.number().int().min(0).max(240),
+  reorderPoint: z.number().min(0),
+  supplierId: z.number().int().positive().nullable(),
+  showInMenu: z.boolean(),
 });
 type ProductForm = z.infer<typeof productSchema>;
 
@@ -77,6 +83,11 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
       discountType: product?.discountType ?? null,
       discountValue: product?.discountValue ?? 0,
       stock: product?.stock ?? 0,
+      trackSerial: product?.trackSerial ?? false,
+      warrantyMonths: product?.warrantyMonths ?? 0,
+      reorderPoint: product?.reorderPoint ?? 0,
+      supplierId: product?.supplierId ?? null,
+      showInMenu: product?.showInMenu ?? false,
     },
   });
 
@@ -90,11 +101,16 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
 
   async function onSubmit(values: ProductForm) {
     try {
+      // A serial/IMEI-tracked product's stock is the count of its registered
+      // units — the server refuses a manual stock edit, so don't send one.
+      const { stock, ...rest } = values;
+      const payload = values.trackSerial ? { ...rest, stock: mode === "add" ? 0 : undefined } : values;
+      void stock;
       if (mode === "edit" && product) {
-        await updateProduct.mutateAsync({ id: product.id, data: values });
+        await updateProduct.mutateAsync({ id: product.id, data: payload });
         show("Product updated", "success");
       } else {
-        await createProduct.mutateAsync(values);
+        await createProduct.mutateAsync({ ...payload, stock: payload.stock ?? 0 });
         show("Product added", "success");
       }
       onClose();
@@ -111,6 +127,8 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   const discountType = useWatch({ control, name: "discountType" });
   const discountValue = useWatch({ control, name: "discountValue" });
   const sym = shop?.currencySymbol ?? "Rs.";
+  const trackSerial = useWatch({ control, name: "trackSerial" });
+  const { data: suppliers } = useQuery({ queryKey: ["suppliers"], queryFn: () => api.get<{ id: number; name: string }[]>("/purchasing/suppliers").catch(() => []) });
   const discountedPrice = (() => {
     if (!discountType || !discountValue) return sellingPrice;
     if (discountType === "percent") {
@@ -151,7 +169,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      className="backdrop-in fixed inset-0 z-40 flex items-center justify-center bg-[rgb(8_28_18/0.32)] p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -160,7 +178,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-modal-title"
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface p-6 shadow-xl"
+        className="dialog-in max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-[var(--shadow-float)]"
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 id="product-modal-title" className="text-lg font-semibold text-foreground">
@@ -290,9 +308,11 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Field
-              label="Stock quantity"
+              label={trackSerial ? "Stock (= units registered)" : "Stock quantity"}
               type="number"
               min={0}
+              step="0.001"
+              disabled={trackSerial}
               autoFocus={mode === "edit"}
               error={errors.stock?.message}
               {...register("stock", { valueAsNumber: true })}
@@ -326,6 +346,29 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
               ))}
             </div>
           )}
+
+          <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
+            <legend className="px-1 text-sm font-semibold">Serial / IMEI &amp; warranty</legend>
+            <label className="flex items-start gap-2.5 text-sm">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--brand)]" {...register("trackSerial")} />
+              <span><span className="font-medium">Track each unit by IMEI / serial number</span><span className="block text-xs text-foreground-muted">For phones, laptops, appliances. Each sale scans the exact unit; warranty starts at sale.</span></span>
+            </label>
+            {trackSerial && <Field label="Warranty (months)" type="number" min={0} max={240} error={errors.warrantyMonths?.message} {...register("warrantyMonths", { valueAsNumber: true })} />}
+            {trackSerial && mode === "add" && <p className="text-xs text-foreground-muted">Save the product first, then add its IMEIs from the product&apos;s <b>Units</b> button.</p>}
+          </fieldset>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Reorder at (stock)" type="number" min={0} step="0.001" error={errors.reorderPoint?.message} {...register("reorderPoint", { valueAsNumber: true })} />
+            <label className="flex flex-col gap-1.5 text-sm font-medium">Supplier
+              <select className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm" {...register("supplierId", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })}>
+                <option value="">None</option>
+                {(suppliers ?? []).map((sp) => (<option key={sp.id} value={sp.id}>{sp.name}</option>))}
+              </select>
+            </label>
+          </div>
+          <label className="flex items-center gap-2.5 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" disabled={trackSerial} {...register("showInMenu")} />
+            <span className="font-medium">Show on the public QR menu</span>
+          </label>
 
           <div className="mt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose}>

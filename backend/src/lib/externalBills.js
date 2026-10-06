@@ -29,7 +29,6 @@ const billSchema = z.object({
   paymentMethod: z.enum(['CASH', 'UPI', 'CARD']).default('UPI'),
   // CASH only: amount received. UPI/CARD are treated as paid in full.
   amountPaid: z.number().min(0).default(0),
-  customerSignature: z.string().max(450000).optional(),
 });
 
 function publicInvoice(inv) {
@@ -89,7 +88,6 @@ async function createExternalBill(input, apiKey, baseUrl) {
     discountValue: b.discountValue,
     paymentMethod: b.paymentMethod,
     amountPaid: b.amountPaid,
-    customerSignature: b.customerSignature,
     externalRef: b.externalRef,
   });
   const { invoice, deduplicated } = await performCheckout(body, {

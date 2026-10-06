@@ -14,7 +14,7 @@ export function useApiKeys() {
 export function useCreateApiKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; canWrite: boolean; webhookUrl?: string; confirmPassword: string }) =>
+    mutationFn: (data: { name: string; canWrite?: boolean; scopes?: string[]; webhookUrl?: string; confirmPassword: string }) =>
       api.post<ApiKeyWithSecrets>("/api-keys", data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
   });
@@ -32,6 +32,7 @@ export function useUpdateApiKey() {
       confirmPassword: string;
       name?: string;
       canWrite?: boolean;
+      scopes?: string[];
       webhookUrl?: string;
       revoked?: boolean;
     }) => api.put<ApiKeyWithSecrets>(`/api-keys/${id}`, { ...patch, confirmPassword }),

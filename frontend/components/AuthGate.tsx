@@ -5,6 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/types";
 
+// Customer-facing pages (QR menu, loyalty portal) are opened by people who
+// have no account — they must never be bounced to the staff login.
+const PUBLIC_PREFIXES = ["/menu", "/me/"];
+const isPublic = (p: string) => PUBLIC_PREFIXES.some((x) => p === x || p.startsWith(x.endsWith("/") ? x : x + "/") || p === x.replace(/\/$/, ""));
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -19,6 +24,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     // re-verify in the background without flashing the spinner, redirecting
     // if the check turns out to require it.
     async function check() {
+      if (isPublic(pathname)) {
+        setReady(true);
+        return;
+      }
       try {
         const status = await api.get<{ onboarded: boolean }>("/auth/status");
         if (cancelled) return;

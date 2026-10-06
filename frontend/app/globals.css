@@ -1,71 +1,83 @@
 @import "tailwindcss";
 
 /*
- * Premium theme, light + dark. Neutrals (background/surface/border/
- * foreground) swap per [data-theme] on <html>, set by the inline script in
- * app/layout.tsx (localStorage → prefers-color-scheme → "dark" default,
- * see lib/theme.ts) before first paint, and toggled at runtime by
- * ThemeToggle/ThemeProvider. Brand/danger/success/warning stay constant
- * across both themes — deltas: success = gains, danger = a muted (not
- * alarming) red for losses, matching the spec's ask for "-2.1% ↓ in muted
- * red" rather than a harsh error red.
+ * Premium productivity theme: a calm light canvas with forest-green accents
+ * (default), plus an evergreen dark variant. Neutrals swap per [data-theme]
+ * on <html> (set before first paint by the inline script in app/layout.tsx,
+ * see lib/theme.ts). Tokens drive every component, so restyling here
+ * restyles the whole app. Contrast is checked for AA: muted text on white
+ * is ~5:1, white on --brand is ~6:1.
  */
-[data-theme="dark"] {
-  color-scheme: dark;
-
-  --background: #10141c;
-  --surface: #151a24;
-  --surface-elevated: #1a2029;
-  --surface-muted: #1b212c;
-  --surface-glass: rgba(255, 255, 255, 0.04);
-
-  --border: #ffffff14;
-  --border-subtle: #ffffff08;
-
-  --foreground: #e7e9ee;
-  --foreground-muted: rgba(231, 233, 238, 0.6);
-
-  /* Soft/light on a near-black background — a muted, non-alarming read. */
-  --danger: #f37171;
-  --danger-soft: rgba(243, 113, 113, 0.14);
-  --success: #34d399;
-  --success-soft: rgba(52, 211, 153, 0.14);
-  --warning: #fbbf24;
-  --warning-soft: rgba(251, 191, 36, 0.14);
-}
-
 [data-theme="light"] {
   color-scheme: light;
 
-  --background: #f6f7f9;
+  --background: #f7f9f6;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
-  --surface-muted: #eef0f3;
-  --surface-glass: rgba(255, 255, 255, 0.6);
+  --surface-muted: #f1f5f0;
+  --surface-glass: rgba(255, 255, 255, 0.82);
 
-  --border: #00000014;
-  --border-subtle: #0000000a;
+  --border: #e4ebe4;
+  --border-subtle: #edf2ed;
 
-  --foreground: #14171f;
-  --foreground-muted: rgba(20, 23, 31, 0.6);
+  --foreground: #17251d;
+  --foreground-muted: #5b6a60;
 
-  /* Darkened from the dark-theme hues — the soft/light shades above drop
-     under 3:1 against a white surface used as text (verified: original
-     --danger #f37171 is ~2.9:1 on white). Same hue family, darkened until
-     they clear 4.5:1 as text AND as a white-text button fill. */
-  --danger: #dc2626;
-  --danger-soft: rgba(220, 38, 38, 0.12);
-  --success: #047857;
-  --success-soft: rgba(4, 120, 87, 0.12);
-  --warning: #b45309;
-  --warning-soft: rgba(180, 83, 9, 0.12);
+  --danger: #c13c3c;
+  --danger-soft: rgba(193, 60, 60, 0.1);
+  --success: #176c45;
+  --success-soft: #e8f3ea;
+  --warning: #9a5b0d;
+  --warning-soft: rgba(216, 154, 67, 0.16);
+
+  --brand: #176c45;
+  --brand-foreground: #ffffff;
+  --brand-soft: #e8f3ea;
+  --brand-glow: rgba(23, 108, 69, 0.3);
+
+  --shadow-card: 0 2px 8px rgb(14 45 27 / 4%), 0 14px 36px rgb(14 45 27 / 4%);
+  --shadow-float: 0 18px 56px rgb(11 38 24 / 16%);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #0b1410;
+  --surface: #101c16;
+  --surface-elevated: #14231b;
+  --surface-muted: #16251d;
+  --surface-glass: rgba(16, 28, 22, 0.8);
+
+  --border: #ffffff14;
+  --border-subtle: #ffffff0a;
+
+  --foreground: #e6efe9;
+  --foreground-muted: rgba(230, 239, 233, 0.62);
+
+  --danger: #f08080;
+  --danger-soft: rgba(240, 128, 128, 0.14);
+  --success: #5cc592;
+  --success-soft: rgba(92, 197, 146, 0.14);
+  --warning: #e8b45a;
+  --warning-soft: rgba(232, 180, 90, 0.14);
+
+  --brand: #4fb583;
+  --brand-foreground: #062014;
+  --brand-soft: rgba(79, 181, 131, 0.14);
+  --brand-glow: rgba(79, 181, 131, 0.4);
+
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 3%) inset, 0 10px 30px rgb(0 0 0 / 25%);
+  --shadow-float: 0 18px 56px rgb(0 0 0 / 55%);
 }
 
 :root {
-  --brand: #5a3ae8;
-  --brand-foreground: #ffffff;
-  --brand-soft: rgba(90, 58, 232, 0.14);
-  --brand-glow: rgba(90, 58, 232, 0.45);
+  --green-950: #082c1d;
+  --green-900: #0d3b28;
+  --green-700: #176c45;
+  --green-500: #3d9a69;
+  --mint: #bfe8ce;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
 @theme inline {
@@ -161,6 +173,61 @@ svg.lucide {
   background: var(--brand-soft);
 }
 
+
+/* ---- Motion: short, transform/opacity only, one stable end state ---- */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+/* Page + card entrance. Stagger a group by setting style={{"--i": index}}. */
+.page-enter { animation: rise-in 320ms var(--ease-out) both; }
+.rise { animation: rise-in 340ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.drawer-in { animation: slide-in-right 300ms var(--ease-out) both; }
+.dialog-in { animation: pop-in 280ms var(--ease-out) both; }
+.backdrop-in { animation: fade-in 220ms ease-out both; }
+.bar-grow { transform-origin: bottom; animation: grow-y 700ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms + 200ms); }
+
+/* Cards: borders + soft shadow, a 1px lift on actionable ones. */
+.card-surface { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); border-radius: 16px; }
+.card-lift { transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out), border-color 160ms; }
+.card-lift:hover { transform: translateY(-2px); border-color: var(--brand-glow); }
+.press:active { transform: scale(0.98); }
+
+/* The one heavy tile: deep green with a barely-there diagonal motif. */
+.tile-dark {
+  background:
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 3.5%) 0 2px, transparent 2px 12px),
+    linear-gradient(160deg, var(--green-900), var(--green-950));
+  color: #eaf6ee;
+}
+
+.tabular { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.num-xl { font-size: 2rem; line-height: 1.05; letter-spacing: -0.04em; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Respect reduced motion: no scale/translate/stagger, near-instant fades. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Homepage hero signature: a mocked-up thermal receipt ("this is what we'd
    bill you — nothing"). Fixed cream/ink colors regardless of [data-theme]:
    real receipt paper doesn't switch to dark mode, and the contrast against
@@ -227,3 +294,7 @@ svg.lucide {
 .faq-row > summary::-webkit-details-marker {
   display: none;
 }
+
+/* Progress ring: the arc draws once from empty to its value, then stops. */
+@keyframes ring-draw { from { stroke-dashoffset: var(--len); } }
+.ring-arc { animation: ring-draw 800ms var(--ease-out) 250ms both; }

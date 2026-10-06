@@ -4,7 +4,10 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Plus, Search, Star, X } from "lucide-react";
+import { Check, CreditCard, MessageCircle, Plus, Search, Star, X } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { api, describeApiError } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -14,12 +17,15 @@ import { useCustomers, useCreateCustomer, useSettleDue } from "@/hooks/useCustom
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { formatMoney } from "@/lib/format";
 import { ApiError } from "@/lib/api";
+import { can } from "@/lib/perm";
+import { useMe } from "@/hooks/useAuth";
 import type { Customer } from "@/lib/types";
 
 const schema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   phone: z.string().trim().min(3, "Phone is required"),
   email: z.string().trim().optional(),
+  gstin: z.string().trim().toUpperCase().optional(),
 });
 type Form = z.infer<typeof schema>;
 
@@ -33,6 +39,31 @@ export default function CustomersPage() {
   const settleDue = useSettleDue();
   const { show } = useToast();
   const sym = shop?.currencySymbol || "Rs.";
+  const { data: me } = useMe();
+  const canEdit = can(me, "customers");
+  const qc = useQueryClient();
+  const [cardTarget, setCardTarget] = useState<Customer | null>(null);
+
+  async function shareLink(c: Customer) {
+    try {
+      const r = await api.get<{ whatsappUrl: string }>(`/customers/${c.id}/portal-link`);
+      window.open(r.whatsappUrl, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      show(describeApiError(err, "Could not create the link"), "error");
+    }
+  }
+
+  async function linkCard(uid: string) {
+    if (!cardTarget) return;
+    try {
+      await api.put(`/customers/${cardTarget.id}/card`, { cardUid: uid || null });
+      show(uid ? "Card linked" : "Card unlinked", "success");
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      setCardTarget(null);
+    } catch (err) {
+      show(describeApiError(err, "Could not link the card"), "error");
+    }
+  }
 
   async function clearDue(c: Customer) {
     if (!window.confirm(`Clear ${formatMoney(c.totalDue, sym)} due for ${c.name}? This marks it fully paid.`)) return;
@@ -83,6 +114,7 @@ export default function CustomersPage() {
             <Field label="Name" error={errors.name?.message} {...register("name")} />
             <Field label="Phone" error={errors.phone?.message} {...register("phone")} />
             <Field label="Email (optional)" {...register("email")} />
+            {shop?.gstEnabled && <Field label="GSTIN (B2B, optional)" {...register("gstin")} />}
             <div className="flex items-end gap-2 sm:col-span-3">
               <Button type="submit" disabled={isSubmitting}>Save customer</Button>
               <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
@@ -121,7 +153,8 @@ export default function CustomersPage() {
                   <th className="py-2 pr-4 text-right">Total spent</th>
                   <th className="py-2 pr-4 text-right">Due</th>
                   <th className="py-2 pr-4 text-right">Store credit</th>
-                  {shop?.loyaltyEnabled && <th className="py-2 text-right">Points</th>}
+                  {shop?.loyaltyEnabled && <th className="py-2 pr-4 text-right">Points</th>}
+                  <th className="py-2 text-right"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -166,13 +199,25 @@ export default function CustomersPage() {
                       )}
                     </td>
                     {shop?.loyaltyEnabled && (
-                      <td className="py-2.5 text-right">
+                      <td className="py-2.5 pr-4 text-right">
                         <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
                           <Star className="h-3 w-3" aria-hidden="true" />
                           {c.loyaltyPoints}
                         </span>
                       </td>
                     )}
+                    <td className="py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button type="button" aria-label={`Send ${c.name} their loyalty page on WhatsApp`} title="Share loyalty & receipts page" onClick={() => shareLink(c)} className="text-foreground/40 hover:text-brand">
+                          <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        {canEdit && (
+                          <button type="button" aria-label={`Link an NFC card to ${c.name}`} title={c.cardUid ? "NFC card linked" : "Link NFC card"} onClick={() => setCardTarget(c)} className={c.cardUid ? "text-brand" : "text-foreground/40 hover:text-brand"}>
+                            <CreditCard className="h-4 w-4" aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -181,6 +226,18 @@ export default function CustomersPage() {
         )}
       </Card>
 
+      {cardTarget && (
+        <Modal title={`NFC card · ${cardTarget.name}`} onClose={() => setCardTarget(null)} size="sm">
+          <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); linkCard(String(new FormData(e.currentTarget).get("uid") || "").trim()); }}>
+            <p className="text-sm text-foreground-muted">Tap the card on your USB NFC reader — it types the card&apos;s id here. At checkout, tapping the same card selects this customer.</p>
+            <input name="uid" autoFocus autoComplete="off" aria-label="Card id" defaultValue={cardTarget.cardUid ?? ""} placeholder="Tap card…" className="rounded-lg border border-border bg-surface px-3 py-2.5 font-mono text-sm" />
+            <div className="flex gap-2">
+              <Button type="submit">Save</Button>
+              {cardTarget.cardUid && <Button type="button" variant="secondary" onClick={() => linkCard("")}>Unlink</Button>}
+            </div>
+          </form>
+        </Modal>
+      )}
       {settleTarget && <SettleDueModal customer={settleTarget} sym={sym} onClose={() => setSettleTarget(null)} />}
     </div>
   );
