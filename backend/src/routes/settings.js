@@ -86,14 +86,24 @@ router.get('/currencies', (req, res) => {
 // onboarding screens), so this stays public. But the full row carries tax
 // identifiers (GSTIN, PAN) that anonymous callers on the shop LAN have no
 // reason to see, so those are stripped unless the request is authenticated.
+// Columns that hold encrypted third-party credentials or sync secrets are
+// NEVER sent to any client — not even an admin's browser needs them back
+// (the Settings tabs show "stored" instead).
+const SECRET_COLUMNS = ['terminalConfigEnc', 'smtpConfigEnc', 'syncSecretEnc'];
+// What an anonymous caller (login / onboarding / QR-menu screens) may see.
+const PUBLIC_COLUMNS = ['id', 'shopName', 'legalName', 'address1', 'address2', 'city', 'state', 'phone', 'currencyCode', 'currencySymbol', 'receiptFooter', 'loyaltyEnabled', 'invoiceLayout', 'gstEnabled', 'showGst'];
+
+function clientView(settings, authed) {
+  if (!authed) return Object.fromEntries(PUBLIC_COLUMNS.map((k) => [k, settings[k]]));
+  const out = { ...settings };
+  for (const k of SECRET_COLUMNS) delete out[k];
+  return out;
+}
+
 router.get('/', async (req, res) => {
   const settings = await prisma.shopSettings.findFirst();
   if (!settings) return res.json(null);
-  if (readSession(req)) return res.json(settings);
-  const { gstNumber, panNumber, ...publicSettings } = settings;
-  void gstNumber;
-  void panNumber;
-  res.json(publicSettings);
+  res.json(clientView(settings, Boolean(readSession(req))));
 });
 
 // POST /api/settings — onboarding step 2, only once
@@ -107,7 +117,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
   }
   const created = await prisma.shopSettings.create({ data: withSymbol(parsed.data) });
-  res.status(201).json(created);
+  res.status(201).json(clientView(created, true));
 });
 
 // PUT /api/settings — admins edit company/currency/tax/loyalty/receipt config
@@ -123,7 +133,7 @@ router.put('/', requireAuth, requireAdmin, requirePasswordConfirm, async (req, r
   if (data.currencyCode) data.currencySymbol = symbolFor(data.currencyCode);
 
   const updated = await prisma.shopSettings.update({ where: { id: existing.id }, data });
-  res.json(updated);
+  res.json(clientView(updated, true));
 });
 
 // PUT /api/settings/signature — upload the authorised signatory's signature

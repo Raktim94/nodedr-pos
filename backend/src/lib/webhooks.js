@@ -63,10 +63,13 @@ async function sendOne(url, secret, payload) {
 
 // Generic signed event delivery to every integration webhook (orders etc.).
 // Same fire-and-forget + per-integration HMAC rules as notifyStockChange.
-async function notifyEvent(event, data) {
+// Order events carry customer details, so they go ONLY to the integration that
+// owns the order (`apiKeyId`) — never broadcast to every webhook target.
+async function notifyEvent(event, data, { apiKeyId } = {}) {
+  if (!apiKeyId) return;
   let targets;
   try {
-    targets = await prisma.apiKey.findMany({ where: { revoked: false, webhookUrl: { not: null } } });
+    targets = await prisma.apiKey.findMany({ where: { id: apiKeyId, revoked: false, webhookUrl: { not: null } } });
   } catch (err) {
     console.error('notifyEvent: could not load webhook targets', err);
     return;

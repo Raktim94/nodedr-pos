@@ -44,7 +44,8 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
       wrap(async ({ query, limit }) => {
         const q = query?.trim();
         const rows = await prisma.product.findMany({
-          where: q ? { OR: [{ name: { contains: q } }, { category: { contains: q } }, { sku: q }, { barcode: q }] } : undefined,
+          // SKU-linked products only — same exposure rule as the REST API.
+          where: { sku: { not: null }, ...(q ? { OR: [{ name: { contains: q } }, { category: { contains: q } }, { sku: q }, { barcode: q }] } : {}) },
           orderBy: { name: 'asc' },
           take: limit,
         });
@@ -60,7 +61,7 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
         inputSchema: { code: z.string().min(1).max(64) },
       },
       wrap(async ({ code }) => {
-        const p = (await prisma.product.findUnique({ where: { sku: code } })) || (await prisma.product.findUnique({ where: { barcode: code } }));
+        const p = await prisma.product.findFirst({ where: { sku: { not: null }, OR: [{ sku: code }, { barcode: code }] } });
         return p ? text(product(p)) : fail('No product with that SKU/barcode');
       })
     );

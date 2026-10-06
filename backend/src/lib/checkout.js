@@ -86,6 +86,28 @@ async function nextInvoiceNumber(tx) {
  * Throws errors carrying `.status`.
  */
 async function performCheckout(body, ctx = {}) {
+  // Concurrent checkouts can compute the same invoice number (count + 1) or
+  // race on the same externalRef: both end in a unique-constraint error with
+  // the loser fully rolled back. Retry the number clash; answer an
+  // externalRef clash with the bill that won.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await performCheckoutOnce(body, ctx);
+    } catch (e) {
+      if (e?.code !== 'P2002') throw e;
+      if (ctx.apiKeyId && body.externalRef && /externalRef/.test(JSON.stringify(e.meta ?? {}))) {
+        const prior = await prisma.invoice.findUnique({
+          where: { apiKeyId_externalRef: { apiKeyId: ctx.apiKeyId, externalRef: body.externalRef } },
+          include: { items: true },
+        });
+        if (prior) return { invoice: prior, deduplicated: true };
+      }
+      if (attempt >= 3) throw e;
+    }
+  }
+}
+
+async function performCheckoutOnce(body, ctx = {}) {
   // Idempotent API bills: a retry with the same (apiKey, externalRef)
   // returns the invoice already created instead of billing twice.
   if (ctx.apiKeyId && body.externalRef) {

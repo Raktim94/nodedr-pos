@@ -68,7 +68,7 @@ async function createOrder(input) {
     });
     return { order, deduplicated: false };
   }).then((out) => {
-    if (!out.deduplicated) notifyEvent('order.created', publicOrder(out.order));
+    if (!out.deduplicated) notifyEvent('order.created', publicOrder(out.order), { apiKeyId: out.order.apiKeyId });
     return out;
   });
 }
@@ -87,7 +87,7 @@ async function setStatus(id, status) {
   if (!o) throw err('Order not found', 404);
   if (!(NEXT[o.status] || []).includes(status)) throw err(`Cannot move an order from ${o.status} to ${status}`, 409);
   const updated = await prisma.order.update({ where: { id }, data: { status }, include: { items: true } });
-  notifyEvent('order.updated', publicOrder(updated));
+  notifyEvent('order.updated', publicOrder(updated), { apiKeyId: updated.apiKeyId });
   return updated;
 }
 
@@ -102,6 +102,22 @@ async function collect(id, { paymentMethod, amountPaid = 0, serials = {}, user }
   if (o.status === 'COLLECTED') throw err('Order was already collected', 409);
   if (o.status === 'CANCELLED') throw err('Order is cancelled', 409);
 
+  // Claim the order atomically BEFORE billing: two concurrent hand-overs (a
+  // double click, two tills) would otherwise both pass the status check and
+  // bill — and decrement stock — twice. Only the caller whose conditional
+  // update flips the row proceeds; a failed bill releases the claim.
+  const claimed = await prisma.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
+  if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
+  try {
+    return await billClaimedOrder(o, { paymentMethod, amountPaid, serials, user });
+  } catch (e) {
+    await prisma.order.updateMany({ where: { id, status: 'COLLECTED', invoiceId: null }, data: { status: o.status } });
+    throw e;
+  }
+}
+
+async function billClaimedOrder(o, { paymentMethod, amountPaid, serials, user }) {
+  const id = o.id;
   const body = checkoutSchema.parse({
     customerName: o.customerName,
     customerPhone: o.customerPhone || '',
@@ -113,7 +129,7 @@ async function collect(id, { paymentMethod, amountPaid = 0, serials = {}, user }
   // Idempotent per order: a double-click can't bill twice.
   const { invoice } = await performCheckout(body, { source: 'ORDER', cashierName: user?.name, user, apiKeyId: null });
   const updated = await prisma.order.update({ where: { id }, data: { status: 'COLLECTED', invoiceId: invoice.id }, include: { items: true } });
-  notifyEvent('order.updated', publicOrder(updated));
+  notifyEvent('order.updated', publicOrder(updated), { apiKeyId: updated.apiKeyId });
   return { order: updated, invoice };
 }
 

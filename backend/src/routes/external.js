@@ -74,9 +74,8 @@ router.get('/products', requireApiKey({ scope: 'products:read' }), async (req, r
 // wants live stock for one product page rather than pulling the whole list.
 router.get('/products/:sku', requireApiKey({ scope: 'products:read' }), async (req, res) => {
   // SKU first, then barcode — a storefront may only know one of them.
-  const product =
-    (await prisma.product.findUnique({ where: { sku: req.params.sku } })) ||
-    (await prisma.product.findUnique({ where: { barcode: req.params.sku } }));
+  // Only SKU-linked products are ever exposed: a product with no SKU stays invisible.
+  const product = await prisma.product.findFirst({ where: { sku: { not: null }, OR: [{ sku: req.params.sku }, { barcode: req.params.sku }] } });
   if (!product) return res.status(404).json({ error: 'No product linked to that SKU' });
   res.json(publicProduct(product));
 });
@@ -233,7 +232,7 @@ router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res
   if (!p.success) return res.status(400).json({ error: 'Invalid input', details: p.error.flatten() });
   try {
     const codes = [...new Set(p.data.items.flatMap((i) => [i.sku, i.barcode].filter(Boolean)))];
-    const products = await prisma.product.findMany({ where: { OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] } });
+    const products = await prisma.product.findMany({ where: { sku: { not: null }, OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] } });
     const items = p.data.items.map((i) => {
       const pr = products.find((x) => (i.sku && x.sku === i.sku) || (i.barcode && x.barcode === i.barcode));
       if (!pr) throw Object.assign(new Error(`No product found for ${i.sku || i.barcode}`), { status: 404 });

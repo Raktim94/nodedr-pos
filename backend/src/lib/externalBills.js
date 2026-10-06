@@ -70,7 +70,8 @@ async function createExternalBill(input, apiKey, baseUrl) {
 
   const codes = [...new Set(b.items.flatMap((i) => [i.sku, i.barcode].filter(Boolean)))];
   const products = await prisma.product.findMany({
-    where: { OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] },
+    // Only SKU-linked products are reachable through the API (see routes/external.js).
+    where: { sku: { not: null }, OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] },
   });
   const bySku = new Map(products.filter((p) => p.sku).map((p) => [p.sku, p]));
   const byBarcode = new Map(products.map((p) => [p.barcode, p]));

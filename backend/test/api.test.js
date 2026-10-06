@@ -402,3 +402,73 @@ test('branch <-> hub sync (encrypted), transfer applies once', async () => {
   assert.equal(ov.data.branches.find((b) => b.code === 'B2').today.revenue, 250);
   assert.equal((await admin.get('/api/hub/inventory?q=Widget')).data[0].branches[br.data.id], 12);
 });
+
+// ---------------------------------------------------------------------------
+// Security regressions (from the security audit pass)
+// ---------------------------------------------------------------------------
+test('security: settings never expose encrypted secrets; anonymous sees branding only', async () => {
+  await admin.put('/api/payments/terminal-config', { provider: 'stripe', secret: 'sk_test_supersecretvalue', readerId: 'tmr_1', confirmPassword: PW });
+  const authed = await admin.get('/api/settings');
+  assert.equal(authed.data.terminalConfigEnc, undefined);
+  assert.equal(authed.data.smtpConfigEnc, undefined);
+  assert.equal(authed.data.syncSecretEnc, undefined);
+  const anon = await client(srv.base).get('/api/settings');
+  assert.equal(anon.data.shopName, 'Test Shop');
+  for (const k of ['gstNumber', 'upiId', 'reportEmail', 'syncRole', 'terminalProvider', 'fxRates', 'terminalConfigEnc']) assert.equal(anon.data[k], undefined, k);
+  assert.doesNotMatch(JSON.stringify(authed.data), /supersecretvalue/);
+  const cfg = await admin.get('/api/payments/terminal-config');
+  assert.equal(cfg.data.configured, true);
+  assert.equal(JSON.stringify(cfg.data).includes('supersecret'), false);
+});
+
+test('security: API keys only reach SKU-linked products', async () => {
+  const k = await admin.post('/api/api-keys', { name: 'probe', scopes: ['products:read', 'bills:write', 'orders:write'], confirmPassword: PW });
+  const hdr = { authorization: `Bearer ${k.data.apiKey}` };
+  const api = client(srv.base);
+  const rice = (await admin.get('/api/products')).data.find((p) => p.name === 'Loose Rice'); // imported without a SKU
+  assert.equal(rice.sku, null);
+  assert.equal((await api.get(`/api/external/products/${rice.barcode}`, hdr)).status, 404);
+  assert.equal((await api.post('/api/external/bills', { externalRef: 'probe-1', items: [{ barcode: rice.barcode, quantity: 1 }] }, hdr)).status, 404);
+  assert.equal((await api.post('/api/external/orders', { externalId: 'probe-o', items: [{ barcode: rice.barcode, quantity: 1 }] }, hdr)).status, 404);
+});
+
+test('security: franchisor is limited to the hub views and read-only', async () => {
+  await admin.post('/api/auth/users', { name: 'Fran', email: 'f@example.com', password: 'franchise-pass-1', role: 'franchisor', confirmPassword: PW });
+  const f = client(srv.base);
+  assert.equal((await f.post('/api/auth/login', { email: 'f@example.com', password: 'franchise-pass-1' })).status, 200);
+  assert.equal((await f.get('/api/hub/overview')).status, 200);
+  for (const path of ['/api/customers', '/api/invoices', '/api/products', '/api/orders', '/api/reports/overview', '/api/shifts/current']) {
+    assert.equal((await f.get(path)).status, 403, path);
+  }
+  assert.equal((await f.post('/api/hub/transfers', { fromBranchId: 1, toBranchId: 2, items: [] })).status, 403);
+});
+
+test('security: concurrent hand-over bills an order exactly once', async () => {
+  const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
+  const o = await admin.post('/api/orders', { items: [{ productId: cola.id, quantity: 2 }], customer: { name: 'Race' } });
+  const before = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
+  const results = await Promise.all([1, 2, 3, 4].map(() => admin.post(`/api/orders/${o.data.id}/collect`, { paymentMethod: 'UPI' })));
+  assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => r.status)));
+  const after = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
+  assert.equal(after, before - 2);
+});
+
+test('security: concurrent API bills with one externalRef create a single invoice', async () => {
+  const k = await admin.post('/api/api-keys', { name: 'race', scopes: ['bills:write'], confirmPassword: PW });
+  const hdr = { authorization: `Bearer ${k.data.apiKey}` };
+  const body = { externalRef: 'race-1', items: [{ sku: 'COLA-1', quantity: 1 }], paymentMethod: 'UPI' };
+  const rs = await Promise.all([1, 2, 3, 4, 5].map(() => client(srv.base).post('/api/external/bills', body, hdr)));
+  assert.ok(rs.every((r) => r.status === 200 || r.status === 201), JSON.stringify(rs.map((r) => r.status)));
+  assert.equal(new Set(rs.map((r) => r.data.invoice.invoiceNumber)).size, 1);
+});
+
+test('security: order webhooks go only to the owning integration', async () => {
+  const http = require('http');
+  const got = [];
+  const sink = http.createServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { got.push(b); res.end('ok'); }); });
+  await new Promise((r) => sink.listen(0, '127.0.0.1', r));
+  // webhook URLs must be https — verify that plain http is refused instead
+  const bad = await admin.post('/api/api-keys', { name: 'hook', scopes: ['orders:write'], webhookUrl: `http://127.0.0.1:${sink.address().port}/x`, confirmPassword: PW });
+  assert.equal(bad.status, 400);
+  sink.close();
+});

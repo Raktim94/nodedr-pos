@@ -55,8 +55,13 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Account not found or disabled' });
   }
 
-  if (user.role === 'franchisor' && !['GET', 'HEAD'].includes(req.method) && !req.path.startsWith('/logout')) {
-    return res.status(403).json({ error: 'Franchisor accounts are read-only' });
+  // A franchisor is a read-only hub viewer: only the consolidated hub views
+  // and their own session endpoints — never this shop's customers, bills or
+  // settings, and never any write.
+  if (user.role === 'franchisor') {
+    const allowed = req.baseUrl === '/api/hub' || req.baseUrl === '/api/auth';
+    const isRead = ['GET', 'HEAD'].includes(req.method) || req.path === '/logout';
+    if (!allowed || !isRead) return res.status(403).json({ error: 'Franchisor accounts are read-only and limited to the hub views' });
   }
 
   req.user = {
