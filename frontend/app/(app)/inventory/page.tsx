@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Barcode as BarcodeIcon, FileUp, Hash, PackagePlus, Pencil, Plus, ScanBarcode, Search, Tag, Trash2 } from "lucide-react";
+import { Barcode as BarcodeIcon, FileUp, PackagePlus, Pencil, Plus, ScanBarcode, Search, Tag, Trash2 } from "lucide-react";
 import { BulkImportPanel } from "@/components/BulkImportPanel";
-import { SerialsDrawer } from "@/components/SerialsDrawer";
 import { can } from "@/lib/perm";
 import { useMe } from "@/hooks/useAuth";
 import { Card } from "@/components/ui/Card";
@@ -27,7 +26,6 @@ export default function InventoryPage() {
   const [modal, setModal] = useState<ModalState>(null);
   const [stockTarget, setStockTarget] = useState<Product | null>(null);
   const [labelTarget, setLabelTarget] = useState<Product | null>(null);
-  const [serialsTarget, setSerialsTarget] = useState<Product | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const { data: me } = useMe();
   const canEdit = can(me, "inventory");
@@ -53,7 +51,7 @@ export default function InventoryPage() {
     [show]
   );
 
-  useBarcodeScanner({ onScan: handleScan, enabled: modal === null && stockTarget === null && serialsTarget === null && !importOpen });
+  useBarcodeScanner({ onScan: handleScan, enabled: modal === null && stockTarget === null && !importOpen });
 
   async function handleDelete(product: Product) {
     if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
@@ -138,8 +136,8 @@ export default function InventoryPage() {
                           {product.name}
                         </button>
                         {product.unit && <span className="ml-1.5 text-xs text-foreground/40">({product.unit})</span>}
-                        {product.trackSerial && (
-                          <span className="ml-1.5 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand" title={`Tracked by IMEI / serial · ${product.warrantyMonths} mo warranty`}>
+                        {shop?.serialTracking && product.trackSerial && (
+                          <span className="ml-1.5 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand" title={`IMEI asked at sale · ${product.warrantyMonths} mo warranty`}>
                             IMEI{product.warrantyMonths ? ` · ${product.warrantyMonths}m` : ""}
                           </span>
                         )}
@@ -171,7 +169,7 @@ export default function InventoryPage() {
                       <td className="py-2.5 pr-4 text-right">
                         <button
                           type="button"
-                          onClick={() => (product.trackSerial ? setSerialsTarget(product) : setStockTarget(product))}
+                          onClick={() => setStockTarget(product)}
                           title="Adjust stock"
                           className={
                             low
@@ -184,11 +182,6 @@ export default function InventoryPage() {
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="flex items-center justify-end gap-3">
-                          {product.trackSerial && (
-                            <button type="button" aria-label={`IMEI / serial units of ${product.name}`} title="IMEI / serial units" onClick={() => setSerialsTarget(product)} className="text-foreground/40 hover:text-brand">
-                              <Hash className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                          )}
                           <a href={`/api/print/label/${product.id}?language=zpl&copies=1`} download aria-label={`ZPL label for ${product.name}`} title="Zebra / ZPL label file" className="text-foreground/40 hover:text-brand">
                             <Tag className="h-4 w-4" aria-hidden="true" />
                           </a>
@@ -205,7 +198,7 @@ export default function InventoryPage() {
                             type="button"
                             aria-label={`Adjust stock for ${product.name}`}
                             title="Adjust stock"
-                            onClick={() => (product.trackSerial ? setSerialsTarget(product) : setStockTarget(product))}
+                            onClick={() => setStockTarget(product)}
                             className="text-foreground/40 hover:text-brand"
                           >
                             <PackagePlus className="h-4 w-4" aria-hidden="true" />
@@ -244,7 +237,6 @@ export default function InventoryPage() {
       )}
       {modal?.mode === "edit" && <ProductModal mode="edit" product={modal.product} onClose={() => setModal(null)} />}
       {stockTarget && <StockAdjustModal product={stockTarget} onClose={() => setStockTarget(null)} />}
-      {serialsTarget && <SerialsDrawer product={serialsTarget} onClose={() => setSerialsTarget(null)} />}
       {labelTarget && <BarcodeLabelModal product={labelTarget} onClose={() => setLabelTarget(null)} />}
     </div>
   );

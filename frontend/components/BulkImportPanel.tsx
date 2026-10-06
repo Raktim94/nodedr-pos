@@ -14,7 +14,7 @@ import { api, ApiError } from "@/lib/api";
 interface RowResult { row: number; name: string; outcome: "COMMITTED" | "VALID" | "ERROR" | "DUPLICATE"; message: string }
 interface Report { dryRun: boolean; total: number; committed: number; valid: number; errors: number; duplicates: number; results: RowResult[] }
 
-const COLUMNS = "name*, selling_price*, barcode, sku, category, hsn, unit, purchase_price, tax_rate, stock, reorder_point, discount_type, discount_value, track_serial, warranty_months, serials, supplier";
+const COLUMNS = "name*, selling_price*, barcode, sku, category, hsn, unit, purchase_price, tax_rate, stock, reorder_point, discount_type, discount_value, track_serial, warranty_months, supplier";
 
 export function BulkImportPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -47,7 +47,7 @@ export function BulkImportPanel({ onClose }: { onClose: () => void }) {
         <Button variant="ghost" onClick={onClose}>Hide</Button>
       </div>
       <p className="mb-3 text-sm text-foreground-muted">
-        First row is the header. Columns: <code className="break-words text-xs">{COLUMNS}</code>. Leave <code>barcode</code> blank to auto-generate one; for phones etc. set <code>track_serial</code> to yes and list IMEIs in <code>serials</code> (separated by ; ).{" "}
+        First row is the header. Columns: <code className="break-words text-xs">{COLUMNS}</code>. Leave <code>barcode</code> blank to auto-generate one; if you use IMEI tracking, set <code>track_serial</code> to yes (the IMEIs themselves are entered when you sell).{" "}
         <a href="/api/products/import/sample.csv" download className="inline-flex items-center gap-1 font-medium text-brand underline-offset-2 hover:underline"><Download className="h-3.5 w-3.5" aria-hidden="true" />Download a sample CSV</a>
       </p>
       <div className="flex flex-wrap items-center gap-2">

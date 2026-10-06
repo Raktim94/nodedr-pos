@@ -29,51 +29,147 @@ label, right from the app.
 Access it at **`http://<machine>:1994`** — from the shop's own machine or any
 tablet/phone on the same network.
 
-## Get NodeDR POS
+## Install
 
-Four ways to install, all built from the same code and pointed at the same
-`http://<machine>:1994` register — pick whichever fits your till.
+NodeDR POS is a web app that runs on **one machine in your shop** (the "till"
+or a small server). Every phone, tablet or PC on the same Wi-Fi then opens it in
+a browser at `http://<that-machine>:1994`. Pick the option that matches that
+machine:
 
-| Platform | Status | Install | What it needs |
-| --- | --- | --- | --- |
-| 🪟 **Windows 10/11** (64-bit) | ✅ Done — built & smoke-tested on CI | [Download the installer](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe), run it, done | Nothing — no Docker, no Node.js. Installs as two Windows services (auto-start, no login required) |
-| 🐧 **Debian / Ubuntu** | ✅ Done — built & tested on Debian 13 / Ubuntu 24.04 | `sudo apt install ./`[`nodedr-pos-latest-amd64.deb`](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-latest-amd64.deb) | Nothing — no Docker. Installs as a `systemd` service (`nodedr-pos doctor\|backup\|restore\|logs` CLI included) |
-| 🐳 **Docker Compose** (any OS) | ✅ Done — the original, most-used path | `git clone` + `./install.sh` (see [Quick start](#quick-start)) | Docker |
-| 🏠 **CasaOS / ZimaOS** | ✅ Ready to install now, official app store submission pending | Install from a compose URL — see [`casaos/README.md`](casaos/README.md) | Nothing — CasaOS/ZimaOS pulls pre-built images, no build step |
+| I have… | Best option | Needs |
+| --- | --- | --- |
+| 🪟 **Windows 10/11** | [**Windows installer**](#windows-1011--recommended-for-most-shops) | nothing else |
+| 🐧 **Ubuntu / Debian** | [**.deb package**](#ubuntu--debian) | nothing else |
+| 🍎 **Mac** | [**macOS app (.dmg)**](#macos) or [Docker](#any-os-with-docker-windows-mac-linux-nas-vps) | — / Docker |
+| 🖥️ **Anything else, a NAS or a VPS** | [**Docker Compose**](#any-os-with-docker-windows-mac-linux-nas-vps) | Docker |
+| 🏠 **CasaOS / ZimaOS box** | [**CasaOS app**](casaos/README.md) | nothing else |
 
-All four set up USB thermal-printer support out of the box on Linux (kernel
-`usblp` transport, no driver install) and honor the same GST-inclusive
-pricing, dues, loyalty, and returns logic — see [Features](#features) for the
-full list. Full installer docs live in
-[`packaging/README.md`](packaging/README.md) (`.deb`),
-[`packaging/windows/README.md`](packaging/windows/README.md) (`.exe`), and
-[`casaos/README.md`](casaos/README.md) (CasaOS/ZimaOS),
-including build-from-source steps, what gets installed where, and
-troubleshooting.
+### Windows 10/11 — recommended for most shops
+
+1. **Download** the installer:
+   **[nodedr-pos-setup-latest-x64.exe](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe)**
+   (all versions: [GitHub Releases](https://github.com/Raktim94/nodedr-pos/releases)).
+2. **Run it.** Windows may show *"Windows protected your PC"* (Microsoft
+   [SmartScreen](https://learn.microsoft.com/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/))
+   because the installer isn't code-signed yet — click **More info → Run anyway**.
+   It needs administrator permission to install two background services.
+3. **Wait about a minute.** The installer sets up *NodeDR POS Backend* and
+   *NodeDR POS Web Interface* as Windows services that start by themselves
+   when the PC boots — nobody has to be logged in.
+4. **Open the register:** double-click the **NodeDR POS** desktop shortcut, or
+   go to <http://localhost:1994>. From a phone/tablet on the same Wi-Fi use
+   `http://<this-pc's-IP>:1994` (find the IP with `ipconfig` → *IPv4 Address*;
+   the installer already opened the firewall for port 1994).
+5. **First-run setup** — see [First launch](#first-launch) below.
+
+Your data lives in `C:\ProgramData\NodeDRPOS`, outside the program folder, so
+updating (run a newer installer over the old one) or uninstalling never
+deletes it. More detail: [`packaging/windows/README.md`](packaging/windows/README.md).
+
+> **Microsoft Store:** the project can build an MSIX package
+> ([`build-msix.ps1`](packaging/windows/build-msix.ps1)), but there is **no
+> Microsoft Store listing yet** — use the installer above.
+
+### Ubuntu / Debian
+
+```bash
+# 1. Download the package
+wget https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-latest-amd64.deb
+# 2. Install it (creates the service and database, and starts it)
+sudo apt install ./nodedr-pos-latest-amd64.deb
+# 3. Open it
+xdg-open http://localhost:1994      # or browse to http://<this-machine>:1994
+```
+
+Handy commands afterwards: `nodedr-pos doctor`, `nodedr-pos backup`,
+`nodedr-pos logs`. A small tray icon appears in your desktop session (status,
+open, restart). Details: [`packaging/README.md`](packaging/README.md).
+
+### macOS
+
+1. Download the `.dmg` for your Mac (**Apple silicon** = `arm64`, **Intel** = `x64`)
+   from the [Releases](https://github.com/Raktim94/nodedr-pos/releases) page
+   (or build it yourself: *Actions → "Build macOS app (.dmg)" → Run workflow*).
+2. Open the `.dmg` and drag **NodeDR POS** into **Applications**.
+3. First launch: **right-click → Open** (the app isn't notarised yet, so
+   Gatekeeper asks once). A small icon appears in the menu bar and your browser
+   opens <http://localhost:1994>.
+4. The app brings its own runtime — **no Docker needed**. Data is kept in
+   `~/Library/Application Support/NodeDR POS`. To start at login, copy
+   [`packaging/macos/com.nodedr.pos.plist`](packaging/macos/com.nodedr.pos.plist)
+   to `~/Library/LaunchAgents/`.
+
+> The macOS app is new and has not yet been run on a Mac by the project — if
+> anything misbehaves, use Docker below and please open an issue.
+
+### Any OS with Docker (Windows, Mac, Linux, NAS, VPS)
+
+1. **Install Docker**
+   - Windows: first enable WSL 2 — [Microsoft's guide](https://learn.microsoft.com/windows/wsl/install)
+     (`wsl --install` in an administrator PowerShell, then restart) — then
+     [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/).
+   - Mac: [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/).
+   - Linux: [Docker Engine](https://docs.docker.com/engine/install/) with the Compose plugin.
+2. **Get and start the app:**
+   ```bash
+   git clone https://github.com/Raktim94/nodedr-pos.git
+   cd nodedr-pos
+   ./install.sh          # no Git Bash on Windows? run: docker compose up -d --build
+   ```
+3. Open <http://localhost:1994>. Stop with `docker compose down` (data is kept in the
+   `nodedr-pos_data` volume). Update with `git pull && ./install.sh`.
+
+On a **VPS with a domain**, copy `.env.example` to `.env`, set
+`FRONTEND_ORIGIN=https://pos.yourdomain.com`, `COOKIE_SECURE=true` and
+`PUBLIC_BASE_URL=https://pos.yourdomain.com`, and put HTTPS in front
+(see [Where to run it](#where-to-run-it)). The step-by-step Docker commands are
+also listed under [Quick start](#quick-start).
+
+### First launch
+
+1. **Create the admin account** (name, e-mail, password — keep it safe).
+2. **Shop details:** name, address, currency, and your GST number if you charge GST.
+3. You land on the dashboard. Next, in this order:
+   - **Inventory → Add product** (or **Bulk import** a CSV/Excel file).
+   - **Settings → Invoice & signature** — pick the bill style and upload your authorised signature.
+   - **Settings → Payments** — add your UPI id to show a QR at checkout.
+   - **POS Checkout** — scan or search products and sell.
+4. *Optional:* **Settings → Features** — turn on **IMEI / serial numbers & warranty** if you sell phones, laptops or appliances.
+   It is **off by default**; when on, the IMEI is asked **when you sell** a product (nothing is entered into stock beforehand).
+5. *Optional:* connect your online store (**Settings → Online stores / Integrations**) — see [docs/API.md](docs/API.md).
+
+Printers, barcode scanners and other hardware: [Hardware setup](#hardware-setup).
+What is verified and what still needs real-device testing: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Screenshots
 
-| Dashboard | POS Checkout |
+| Dashboard | POS checkout (weighed item + UPI QR) |
 | --- | --- |
-| ![Dashboard with revenue trend, payment mix, and top-selling products](docs/screenshots/dashboard.png) | ![POS checkout with camera barcode/QR scanning](docs/screenshots/pos.png) |
+| ![Dashboard: today's revenue, 14-day chart, register timer, low stock, online orders](docs/screenshots/dashboard.png) | ![POS: cart with a weighed item and a dynamic UPI QR](docs/screenshots/pos.png) |
 
-| Inventory | Print or download a barcode label |
+| Online orders (from your e-commerce store) | Reports |
 | --- | --- |
-| ![Inventory list with barcode/edit/stock actions](docs/screenshots/inventory.png) | ![Barcode label modal with print and download options](docs/screenshots/barcode-label.png) |
+| ![Board: New, Packing, Ready, Collected](docs/screenshots/orders.png) | ![Revenue, margin, category split, hourly heatmap, week comparison](docs/screenshots/reports.png) |
 
-| Generate or scan a barcode for a new product | GSTIN / PAN validation |
+| Inventory | Optional IMEI setting per product |
 | --- | --- |
-| ![Generating or camera-scanning an EAN-13 barcode in the Add Product form](docs/screenshots/generate-barcode.png) | ![Live GSTIN and PAN format validation in Settings](docs/screenshots/settings-tax.png) |
+| ![Inventory list with bulk import and label actions](docs/screenshots/inventory.png) | ![Product editor with the IMEI and warranty option](docs/screenshots/product-imei.png) |
+
+| IMEI asked at the moment of sale | Warranty lookup |
+| --- | --- |
+| ![Checkout asking for the IMEI of the unit being sold](docs/screenshots/imei-sale.png) | ![Scan an IMEI to see sale date and warranty status](docs/screenshots/warranty.png) |
+
+| Settings → Features (IMEI tracking is opt-in) | A4 tax invoice with authorised signature |
+| --- | --- |
+| ![Features tab with the IMEI toggle](docs/screenshots/features.png) | ![A4 invoice with warranty table and signature](docs/screenshots/invoice-a4.png) |
 
 ## Contents
 
-- [Get NodeDR POS](#get-nodedr-pos)
+- [Install](#install)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
 - [Quick start (Docker Compose)](#quick-start)
-- [Native install — Windows 10/11](#native-install--windows-1011)
-- [Native install — Debian/Ubuntu](#native-install--debianubuntu)
 - [Where to run it](#where-to-run-it)
 - [Hardware setup](#hardware-setup)
 - [Reference data & validation](#reference-data--validation)
@@ -92,7 +188,7 @@ troubleshooting.
 
 ## What's new in 1.2
 
-IMEI / serial-number tracking with warranty lookup · bulk product import (CSV/XLSX) ·
+optional IMEI / serial-number tracking with warranty lookup (off by default, captured at sale) · bulk product import (CSV/XLSX) ·
 an e-commerce **REST API + MCP server** that can take bills, reserve click-and-collect
 orders and check warranty · A4 tax-invoice PDFs with your authorised signature and a
 UPI QR · UPI QR / multi-currency / card-terminal payments · profit, category and
@@ -231,7 +327,7 @@ single `docker compose up`.
 **The same two-process split runs natively, without Docker, on the `.deb` and
 `.exe` installers** — `systemd` units on Linux, Windows services on Windows —
 each process supervised, restarted, and firewalled the same way the two
-containers are here. See [Get NodeDR POS](#get-nodedr-pos) for which install
+containers are here. See [Install](#install) for which install
 method fits your till.
 
 ## Tech stack
@@ -308,57 +404,6 @@ Want the web UI on a different port, or to deploy somewhere other than
 `localhost`? Copy `.env.example` to `.env` and set values there —
 `docker compose` reads it automatically. **`docker-compose.yml` itself never
 needs editing**, on a shop LAN box or a VPS alike.
-
-## Native install — Windows 10/11
-
-For a shop till that shouldn't need Docker or a terminal at all:
-
-1. Download [`nodedr-pos-setup-latest-x64.exe`](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe)
-   and run it (needs admin — it's not code-signed yet, so Windows SmartScreen
-   shows "Windows protected your PC"; click **More info → Run anyway**).
-2. It installs two Windows services — **NodeDR POS Backend** and
-   **NodeDR POS Web Interface** — set to start automatically at boot, with no
-   one logged in. A desktop shortcut and Start Menu entry launch the register.
-3. Open `http://localhost:1994` (or `http://<till-ip>:1994` from another
-   device on the shop LAN — the installer opens the Windows Firewall for
-   port 1994 only, the internal API port stays blocked).
-
-The database lives outside `Program Files`, in `C:\ProgramData\NodeDRPOS`, so
-upgrading (installing a newer version over an older one) and uninstalling
-both leave your shop's data intact — a silent uninstall never deletes it.
-USB printing on Windows goes through the printer's own driver and the
-**Print** button (browser print dialog) rather than a raw-USB path — see
-[printing & receipts](#printing--receipts) for why direct-USB is Linux-only
-and how the two modes compare.
-
-Full details — service layout, firewall rules, upgrade/removal behavior, code
-signing status, and exactly what CI verifies before every release — are in
-[`packaging/windows/README.md`](packaging/windows/README.md).
-
-## Native install — Debian/Ubuntu
-
-For a shop till running Debian or Ubuntu, without Docker:
-
-```bash
-sudo apt install ./nodedr-pos_1.0.0_amd64.deb
-# or double-click the file in GNOME Software / Discover / GDebi
-```
-
-`postinst` creates a dedicated unprivileged service account, initializes the
-database, runs migrations, enables and starts `nodedr-pos.service`, waits for
-the port, and prints the URL — no manual step needed. Then:
-
-```bash
-nodedr-pos doctor                              # checks units, port, database, printer wiring
-curl -fsS http://localhost:1994/api/health     # {"status":"ok"}
-```
-
-USB thermal printing works out of the box via a bundled udev rule — plug in
-any ESC/POS printer and it's usable immediately, no driver install. `apt
-remove` keeps your data (`/var/lib/nodedr-pos`); `apt purge` deletes it (back
-up first with `nodedr-pos backup`). Full details — package layout, hardening,
-fleet/unattended deployment, RPM conversion — are in
-[`packaging/README.md`](packaging/README.md).
 
 ## Where to run it
 

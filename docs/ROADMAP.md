@@ -31,7 +31,7 @@ service from the development environment — pilot it before relying on it.
 | | Customer PWA | Verified API; installable page (service worker + manifest) |
 | **v2.1 Omni-channel** | Click-and-collect / delivery orders board for e-commerce orders (API, WooCommerce, Shopify). A food/restaurant QR menu was deliberately **not** included — this is a retail POS | Verified |
 | | WooCommerce / Shopify order webhooks (HMAC) | Verified inbound; outbound stock push **needs a live store** |
-| **Also added** | IMEI / serial numbers with warranty tracking and scan lookup | Verified |
+| **Also added** | Optional IMEI / serial numbers + warranty (Settings → Features, **off by default**): the IMEI is captured when a unit is **sold** — nothing is registered in stock — printed on the bill and looked up later by scan | Verified |
 | | Bulk product import (CSV/XLSX, preview → commit) | Verified |
 | | External REST API + MCP server (take bills, orders, stock, warranty) | Verified |
 | | Authorised-signature upload, A4 tax-invoice PDF | Verified |

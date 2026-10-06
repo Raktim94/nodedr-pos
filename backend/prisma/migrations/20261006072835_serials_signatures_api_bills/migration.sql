@@ -3,7 +3,7 @@ CREATE TABLE "SerialUnit" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "productId" INTEGER NOT NULL,
     "serial" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'IN_STOCK',
+    "status" TEXT NOT NULL DEFAULT 'SOLD',
     "invoiceItemId" INTEGER,
     "soldAt" DATETIME,
     "warrantyEndsAt" DATETIME,

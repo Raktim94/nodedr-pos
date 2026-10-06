@@ -20,42 +20,55 @@ test.after(() => srv?.stop());
 
 let phone, plain, key, writeKey;
 
-test('serial-tracked product: register IMEIs, validate, sell, warranty', async () => {
-  const p = await admin.post('/api/products', { barcode: 'PH-1', sku: 'PHONE-1', name: 'Phone X', purchasePrice: 8000, sellingPrice: 11800, taxRate: 18, trackSerial: true, warrantyMonths: 12 });
+test('IMEI / serial: off by default, captured only at sale, one sale per unit, return frees it', async () => {
+  // Feature is OFF by default: a flagged product sells like any other and serials are ignored.
+  assert.equal((await admin.get('/api/settings')).data.serialTracking, false);
+  const off = await admin.post('/api/products', { barcode: 'PH-0', name: 'Phone Off', purchasePrice: 1, sellingPrice: 10, taxRate: 0, trackSerial: true, warrantyMonths: 6, stock: 3 });
+  const offSale = await admin.post('/api/invoices', { items: [{ productId: off.data.id, quantity: 1 }], paymentMethod: 'UPI' });
+  assert.equal(offSale.status, 201, JSON.stringify(offSale.data));
+
+  assert.equal((await admin.put('/api/settings', { serialTracking: true, confirmPassword: PW })).status, 200);
+
+  // Stock is a plain quantity: no IMEIs are registered in advance.
+  const p = await admin.post('/api/products', { barcode: 'PH-1', sku: 'PHONE-1', name: 'Phone X', purchasePrice: 8000, sellingPrice: 11800, taxRate: 18, trackSerial: true, warrantyMonths: 12, stock: 5 });
   assert.equal(p.status, 201, JSON.stringify(p.data));
   phone = p.data;
+  assert.equal((await admin.get(`/api/products/${phone.id}/serials`)).status, 404, 'no stock-side serial registration endpoint');
+  assert.equal((await admin.get('/api/products/scan/490154203237518')).status, 404, 'an IMEI is not a stock lookup key');
 
-  // 490154203237518 is a Luhn-valid IMEI; ...519 is not.
-  const r = await admin.post(`/api/products/${phone.id}/serials`, { serials: ['490154203237518', '490154203237519', '490154203237518', 'SN-ABCD-0001'] });
-  assert.equal(r.status, 201, JSON.stringify(r.data));
-  assert.equal(r.data.added, 2);
-  assert.equal(r.data.rejected.length, 2);
-  assert.equal(r.data.stock, 2);
-
-  const scan = await admin.get('/api/products/scan/490154203237518');
-  assert.equal(scan.data.type, 'serial');
-  assert.equal(scan.data.product.id, phone.id);
-
-  // sale without serials is refused; with wrong count refused
-  const bad = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 1 }], paymentMethod: 'UPI' });
-  assert.equal(bad.status, 400);
+  // At sale: IMEI required, one per unit, checksum-validated.
+  const none = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 1 }], paymentMethod: 'UPI' });
+  assert.equal(none.status, 400);
+  const badLuhn = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 1, serials: ['490154203237519'] }], paymentMethod: 'UPI' });
+  assert.equal(badLuhn.status, 400);
+  const two = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 2, serials: ['490154203237518'] }], paymentMethod: 'UPI' });
+  assert.equal(two.status, 400);
 
   const sale = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 1, serials: ['490154203237518'] }], paymentMethod: 'UPI', customerName: 'Asha', customerPhone: '9999900000' });
   assert.equal(sale.status, 201, JSON.stringify(sale.data));
   assert.equal(sale.data.totalAmount, 11800);
+  assert.equal((await admin.get('/api/products')).data.find((x) => x.id === phone.id).stock, 4);
 
   const w = await admin.get('/api/warranty/490154203237518');
-  assert.equal(w.status, 200);
   assert.equal(w.data.warranty, 'ACTIVE');
   assert.equal(w.data.invoice.customerPhone, '9999900000');
   assert.ok(w.data.daysLeft > 360);
 
-  // same unit can't be sold twice
+  // The same unit cannot be sold twice...
   const dup = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 1, serials: ['490154203237518'] }], paymentMethod: 'UPI' });
   assert.equal(dup.status, 409);
-
-  const after = await admin.get('/api/products');
-  assert.equal(after.data.find((x) => x.id === phone.id).stock, 1);
+  assert.match(dup.data.error, /already sold/);
+  // ...a return must name the IMEI...
+  const lineId = (await admin.get(`/api/invoices/${sale.data.id}`)).data.items[0].id;
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }] })).status, 400);
+  const ret = await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1, serials: ['490154203237518'] }] });
+  assert.equal(ret.status, 201, JSON.stringify(ret.data));
+  assert.equal((await admin.get('/api/warranty/490154203237518')).data.warranty, 'RETURNED');
+  assert.equal((await admin.get('/api/products')).data.find((x) => x.id === phone.id).stock, 5);
+  // ...and then the unit can be sold again.
+  const again = await admin.post('/api/invoices', { items: [{ productId: phone.id, quantity: 1, serials: ['490154203237518'] }], paymentMethod: 'UPI' });
+  assert.equal(again.status, 201, JSON.stringify(again.data));
+  assert.equal((await admin.get('/api/warranty/490154203237518')).data.warranty, 'ACTIVE');
 });
 
 test('PDFs: receipt and A4 with serials', async () => {
@@ -168,8 +181,8 @@ test('bulk import: preview, errors, duplicates, serials, commit, xlsx', async ()
     ',,,,,,,10,,,,,,',                                               // missing name
     'Bad Price,,,,,,,abc,,,,,,',                                     // bad number
     'Loose Rice,,,Grocery,1006,KGS,70,95,5,40.5,,,,',                // no barcode -> generated, fractional stock
-    'Phone Z,PHZ-1,,Mobiles,8517,PCS,9000,12000,18,,yes,12,490154203237518; 356938035643809,Acme Dist',  // first IMEI already registered
-    'Phone Y,PHY-1,,Mobiles,8517,PCS,9000,12000,18,,yes,12,356938035643809; 352099001761481,Acme Dist',
+    'Phone Z,PHZ-1,,Mobiles,8517,PCS,9000,12000,18,,yes,12,490154203237518; 356938035643809,Acme Dist',  // IMEIs belong at the sale, not in the import
+    'Phone Y,PHY-1,,Mobiles,8517,PCS,9000,12000,18,2,yes,12,,Acme Dist',
   ].join('\n');
 
   const prev = await admin.raw('/api/products/import?format=csv&dry_run=1', csv, 'text/csv');
@@ -181,7 +194,7 @@ test('bulk import: preview, errors, duplicates, serials, commit, xlsx', async ()
   assert.equal(prev.data.errors, 3);
   const byRow = Object.fromEntries(prev.data.results.map((r) => [r.row, r]));
   assert.match(byRow[5].message, /barcode generated/);
-  assert.match(byRow[6].message, /already registered/);
+  assert.match(byRow[6].message, /moment of sale/);
   // nothing written by a preview
   assert.equal((await admin.get('/api/products')).data.filter((p) => p.name === 'Cola 1L').length, 0);
 

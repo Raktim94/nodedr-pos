@@ -153,15 +153,19 @@ async function performCheckoutOnce(body, ctx = {}) {
         lines.push({ product, quantity: item.quantity });
       }
 
-      // Serial / IMEI tracked lines: the sale must name exactly the units
-      // sold, every one in stock and belonging to that product.
-      const serialPlan = []; // [{ lineIndex, units }]
+      // IMEI / serial numbers are captured at the moment of SALE only (never
+      // pre-registered in stock), and only when the shop switched the feature
+      // on and the product is flagged. A unit can be sold once; it can be sold
+      // again only after it was returned.
+      const tracking = Boolean(settings.serialTracking);
+      const serialPlan = []; // [{ lineIndex, serials, existing: Map(serial -> unit) }]
       const seenSerials = new Set();
       for (let i = 0; i < body.items.length; i++) {
         const item = body.items[i];
         const product = lines[i].product;
+        if (!tracking) continue; // feature off: serials are ignored, the product sells like any other
         if (!product.trackSerial) {
-          if (item.serials?.length) throw Object.assign(new Error(`"${product.name}" is not serial-tracked`), { status: 400 });
+          if (item.serials?.length) throw Object.assign(new Error(`"${product.name}" does not use IMEI / serial numbers`), { status: 400 });
           continue;
         }
         const wanted = (item.serials || []).map((s) => {
@@ -170,20 +174,23 @@ async function performCheckoutOnce(body, ctx = {}) {
           return v.serial;
         });
         if (wanted.length !== item.quantity) {
-          throw Object.assign(new Error(`"${product.name}" needs ${item.quantity} serial/IMEI number(s), got ${wanted.length}`), { status: 400 });
+          throw Object.assign(new Error(`"${product.name}" needs ${item.quantity} IMEI / serial number(s), got ${wanted.length}`), { status: 400 });
         }
         for (const s of wanted) {
-          if (seenSerials.has(s)) throw Object.assign(new Error(`Serial ${s} appears twice on this bill`), { status: 400 });
+          if (seenSerials.has(s)) throw Object.assign(new Error(`IMEI / serial ${s} appears twice on this bill`), { status: 400 });
           seenSerials.add(s);
         }
-        const units = await tx.serialUnit.findMany({ where: { serial: { in: wanted }, productId: product.id } });
-        const byS = new Map(units.map((u) => [u.serial, u]));
+        const units = await tx.serialUnit.findMany({ where: { serial: { in: wanted } }, include: { invoiceItem: { select: { invoice: { select: { invoiceNumber: true } } } } } });
+        const existing = new Map(units.map((u) => [u.serial, u]));
         for (const s of wanted) {
-          const u = byS.get(s);
-          if (!u) throw Object.assign(new Error(`Serial ${s} is not registered for "${product.name}"`), { status: 404 });
-          if (u.status !== 'IN_STOCK') throw Object.assign(new Error(`Serial ${s} is not in stock (${u.status})`), { status: 409 });
+          const u = existing.get(s);
+          if (!u) continue;
+          if (u.status === 'SOLD') {
+            throw Object.assign(new Error(`IMEI / serial ${s} was already sold${u.invoiceItem ? ` on ${u.invoiceItem.invoice.invoiceNumber}` : ''} — return it first`), { status: 409 });
+          }
+          if (u.productId !== product.id) throw Object.assign(new Error(`IMEI / serial ${s} belongs to a different product`), { status: 409 });
         }
-        serialPlan.push({ lineIndex: i, units: wanted.map((s) => byS.get(s)) });
+        serialPlan.push({ lineIndex: i, serials: wanted, existing });
       }
 
       // Resolve customer (needed for loyalty). Match by phone; create if new
@@ -255,17 +262,15 @@ async function performCheckoutOnce(body, ctx = {}) {
           groupRefund = round2(groupRefund + refund);
           returnValue = round2(returnValue + refund);
           restock.set(invItem.productId, (restock.get(invItem.productId) || 0) + rl.quantity);
-          const prod = await tx.product.findUnique({ where: { id: invItem.productId }, select: { trackSerial: true } });
-          if (prod?.trackSerial) {
-            const sers = (rl.serials || []).map(normalizeSerial);
-            if (sers.length !== rl.quantity) {
-              throw Object.assign(new Error(`Returning "${invItem.name}" needs ${rl.quantity} serial/IMEI number(s)`), { status: 400 });
+          // If IMEIs were recorded on this line, the return must say which ones come back.
+          const soldUnits = await tx.serialUnit.findMany({ where: { invoiceItemId: invItem.id, status: 'SOLD' } });
+          if (soldUnits.length > 0) {
+            const sers = new Set((rl.serials || []).map(normalizeSerial));
+            const back = soldUnits.filter((u) => sers.has(u.serial));
+            if (sers.size !== rl.quantity || back.length !== sers.size) {
+              throw Object.assign(new Error(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
             }
-            const sold = await tx.serialUnit.findMany({ where: { serial: { in: sers }, invoiceItemId: invItem.id, status: 'SOLD' } });
-            if (sold.length !== sers.length) {
-              throw Object.assign(new Error(`Some serials were not sold on that invoice line for "${invItem.name}"`), { status: 409 });
-            }
-            returnSerials.push(...sold.map((u) => ({ id: u.id, invoiceId: original.id })));
+            returnSerials.push(...back.map((u) => ({ id: u.id, invoiceId: original.id })));
           }
           lines.push({
             invoiceItemId: invItem.id,
@@ -398,19 +403,16 @@ async function performCheckoutOnce(body, ctx = {}) {
         const invItem = created.items[plan.lineIndex];
         const months = lines[plan.lineIndex].product.warrantyMonths || 0;
         const warrantyEndsAt = months > 0 ? addMonths(soldAt, months) : null;
-        for (const u of plan.units) {
-          await tx.serialUnit.update({
-            where: { id: u.id },
-            data: { status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt },
-          });
-          await tx.serialEvent.create({ data: { serialId: u.id, type: 'SOLD', invoiceId: created.id, note: invoiceNumber } });
+        for (const serial of plan.serials) {
+          const prev = plan.existing.get(serial);
+          const unit = prev
+            ? await tx.serialUnit.update({ where: { id: prev.id }, data: { status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } })
+            : await tx.serialUnit.create({ data: { productId: lines[plan.lineIndex].product.id, serial, status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } });
+          await tx.serialEvent.create({ data: { serialId: unit.id, type: 'SOLD', invoiceId: created.id, note: invoiceNumber } });
         }
       }
       for (const rs of returnSerials) {
-        await tx.serialUnit.update({
-          where: { id: rs.id },
-          data: { status: 'IN_STOCK', invoiceItemId: null, soldAt: null, warrantyEndsAt: null },
-        });
+        await tx.serialUnit.update({ where: { id: rs.id }, data: { status: 'RETURNED' } });
         await tx.serialEvent.create({ data: { serialId: rs.id, type: 'RETURNED', invoiceId: rs.invoiceId, note: invoiceNumber } });
       }
 

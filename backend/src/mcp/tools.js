@@ -72,7 +72,7 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
       'adjust_stock',
       {
         title: 'Adjust stock',
-        description: 'Change stock of a SKU-linked, non-serial product by a signed delta (e.g. -2 after an online sale) or set an absolute value. Provide exactly one of delta or set.',
+        description: 'Change stock of a SKU-linked product by a signed delta (e.g. -2 after an online sale) or set an absolute value. Provide exactly one of delta or set.',
         inputSchema: { sku: z.string().min(1).max(64), delta: z.number().optional(), set: z.number().min(0).optional() },
       },
       wrap(async ({ sku, delta, set }) => {
@@ -80,7 +80,6 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
         const updated = await prisma.$transaction(async (tx) => {
           const p = await tx.product.findUnique({ where: { sku } });
           if (!p) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
-          if (p.trackSerial) throw Object.assign(new Error('Serial-tracked product: stock follows its registered units'), { status: 409 });
           const next = set !== undefined ? set : p.stock + delta;
           if (next < 0) {
             const settings = await tx.shopSettings.findFirst();

@@ -99,16 +99,12 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
 
   async function onSubmit(values: ProductForm) {
     try {
-      // A serial/IMEI-tracked product's stock is the count of its registered
-      // units — the server refuses a manual stock edit, so don't send one.
-      const { stock, ...rest } = values;
-      const payload = values.trackSerial ? { ...rest, stock: mode === "add" ? 0 : undefined } : values;
-      void stock;
+      const payload = values;
       if (mode === "edit" && product) {
         await updateProduct.mutateAsync({ id: product.id, data: payload });
         show("Product updated", "success");
       } else {
-        await createProduct.mutateAsync({ ...payload, stock: payload.stock ?? 0 });
+        await createProduct.mutateAsync(payload);
         show("Product added", "success");
       }
       onClose();
@@ -306,11 +302,10 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Field
-              label={trackSerial ? "Stock (= units registered)" : "Stock quantity"}
+              label="Stock quantity"
               type="number"
               min={0}
               step="0.001"
-              disabled={trackSerial}
               autoFocus={mode === "edit"}
               error={errors.stock?.message}
               {...register("stock", { valueAsNumber: true })}
@@ -345,15 +340,16 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
             </div>
           )}
 
-          <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
-            <legend className="px-1 text-sm font-semibold">Serial / IMEI &amp; warranty</legend>
-            <label className="flex items-start gap-2.5 text-sm">
-              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--brand)]" {...register("trackSerial")} />
-              <span><span className="font-medium">Track each unit by IMEI / serial number</span><span className="block text-xs text-foreground-muted">For phones, laptops, appliances. Each sale scans the exact unit; warranty starts at sale.</span></span>
-            </label>
-            {trackSerial && <Field label="Warranty (months)" type="number" min={0} max={240} error={errors.warrantyMonths?.message} {...register("warrantyMonths", { valueAsNumber: true })} />}
-            {trackSerial && mode === "add" && <p className="text-xs text-foreground-muted">Save the product first, then add its IMEIs from the product&apos;s <b>Units</b> button.</p>}
-          </fieldset>
+          {shop?.serialTracking && (
+            <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
+              <legend className="px-1 text-sm font-semibold">IMEI / serial &amp; warranty</legend>
+              <label className="flex items-start gap-2.5 text-sm">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--brand)]" {...register("trackSerial")} />
+                <span><span className="font-medium">Ask for the IMEI / serial number when selling this</span><span className="block text-xs text-foreground-muted">Entered at checkout for each unit sold — nothing to register in stock.</span></span>
+              </label>
+              {trackSerial && <Field label="Warranty (months)" type="number" min={0} max={240} error={errors.warrantyMonths?.message} {...register("warrantyMonths", { valueAsNumber: true })} />}
+            </fieldset>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <Field label="Reorder at (stock)" type="number" min={0} step="0.001" error={errors.reorderPoint?.message} {...register("reorderPoint", { valueAsNumber: true })} />
             <label className="flex flex-col gap-1.5 text-sm font-medium">Supplier

@@ -4,12 +4,12 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { api, ApiError } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
-// Serial / IMEI entry for a tracked product. Scan each unit with the
-// scanner (it types into the field and presses Enter) or type it. Every
-// serial is checked against in-stock units as it is added.
+// Asked at the moment of SALE: scan or type the IMEI / serial number of each
+// unit being sold (the scanner types it and presses Enter). Nothing is looked
+// up in stock — the server validates the number (IMEI checksum, not already
+// sold) when the bill is finalized.
 export function SerialPrompt({
   product,
   existing,
@@ -24,31 +24,19 @@ export function SerialPrompt({
   const [serials, setSerials] = useState<string[]>(existing);
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  async function add() {
+  function add() {
     const code = value.trim().toUpperCase().replace(/\s+/g, "");
     if (!code) return;
+    if (code.length < 4 || code.length > 64) return setError("An IMEI / serial number is 4–64 characters");
     if (serials.includes(code)) return setError("Already added to this bill");
-    setBusy(true);
     setError("");
-    try {
-      const r = await api.get<{ type: string; product: Product; serial?: { serial: string; status: string } }>(`/products/scan/${encodeURIComponent(code)}`);
-      if (r.type !== "serial" || r.product.id !== product.id) setError(`That code is not a unit of ${product.name}`);
-      else if (r.serial?.status !== "IN_STOCK") setError(`Unit is not in stock (${r.serial?.status})`);
-      else {
-        setSerials((s) => [...s, code]);
-        setValue("");
-      }
-    } catch (e) {
-      setError(e instanceof ApiError && e.status === 404 ? "Unknown serial/IMEI — receive it into stock first" : "Lookup failed");
-    } finally {
-      setBusy(false);
-    }
+    setSerials((s) => [...s, code]);
+    setValue("");
   }
 
   return (
-    <Modal title={`Scan serial / IMEI — ${product.name}`} onClose={onClose} size="sm">
+    <Modal title={`IMEI / serial — ${product.name}`} onClose={onClose} size="sm">
       <form
         className="flex flex-col gap-3"
         onSubmit={(e) => {
@@ -57,14 +45,13 @@ export function SerialPrompt({
         }}
       >
         <label className="text-sm font-medium" htmlFor="serial-input">
-          IMEI / serial number
+          IMEI / serial number of the unit sold
         </label>
         <input
           id="serial-input"
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          inputMode="text"
           autoComplete="off"
           placeholder="Scan or type, then Enter"
           className="rounded-lg border border-border bg-surface px-3 py-2.5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand"
@@ -89,7 +76,7 @@ export function SerialPrompt({
             {serials.length} unit{serials.length === 1 ? "" : "s"} · {product.warrantyMonths ? `${product.warrantyMonths}-month warranty starts today` : "no warranty"}
           </p>
           <div className="flex gap-2">
-            <Button type="submit" variant="secondary" disabled={busy || !value.trim()}>
+            <Button type="submit" variant="secondary" disabled={!value.trim()}>
               Add
             </Button>
             <Button type="button" disabled={serials.length === 0} onClick={() => onDone(serials)}>

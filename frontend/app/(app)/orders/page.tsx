@@ -180,7 +180,8 @@ function CollectDialog({ order, sym, onClose, onDone }: { order: Order; sym: str
   const [received, setReceived] = useState(String(order.total));
   const [serials, setSerials] = useState<Record<number, string>>({});
   const { data: products } = useQuery({ queryKey: ["products", ""], queryFn: () => api.get<{ id: number; trackSerial: boolean }[]>("/products") });
-  const tracked = new Set((products ?? []).filter((p) => p.trackSerial).map((p) => p.id));
+  const { data: shop } = useShopSettings();
+  const tracked = new Set(shop?.serialTracking ? (products ?? []).filter((p) => p.trackSerial).map((p) => p.id) : []);
 
   const run = useMutation({
     mutationFn: () =>

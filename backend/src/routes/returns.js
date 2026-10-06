@@ -65,16 +65,14 @@ router.post('/', async (req, res) => {
         // (invoiceItem.total already reflects any per-line discount
         // proration), not the pre-discount unit price.
         const refundAmount = round2((invoiceItem.total / invoiceItem.quantity) * line.quantity);
-        const prod = await tx.product.findUnique({ where: { id: invoiceItem.productId }, select: { trackSerial: true } });
+        // If IMEIs were recorded on this line, the return must say which ones come back.
         let units = [];
-        if (prod?.trackSerial) {
-          const sers = (line.serials || []).map(normalizeSerial);
-          if (sers.length !== line.quantity) {
-            throw Object.assign(new Error(`Returning "${invoiceItem.name}" needs ${line.quantity} serial/IMEI number(s)`), { status: 400 });
-          }
-          units = await tx.serialUnit.findMany({ where: { serial: { in: sers }, invoiceItemId: invoiceItem.id, status: 'SOLD' } });
-          if (units.length !== sers.length) {
-            throw Object.assign(new Error(`Some serials were not sold on that line of "${invoiceItem.name}"`), { status: 409 });
+        const soldUnits = await tx.serialUnit.findMany({ where: { invoiceItemId: invoiceItem.id, status: 'SOLD' } });
+        if (soldUnits.length > 0) {
+          const sers = new Set((line.serials || []).map(normalizeSerial));
+          units = soldUnits.filter((u) => sers.has(u.serial));
+          if (sers.size !== line.quantity || units.length !== sers.size) {
+            throw Object.assign(new Error(`Returning "${invoiceItem.name}": enter the ${line.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
           }
         }
         returnLines.push({ invoiceItem, quantity: line.quantity, refundAmount, units });
@@ -110,10 +108,7 @@ router.post('/', async (req, res) => {
 
       for (const l of returnLines) {
         for (const u of l.units) {
-          await tx.serialUnit.update({
-            where: { id: u.id },
-            data: { status: 'IN_STOCK', invoiceItemId: null, soldAt: null, warrantyEndsAt: null },
-          });
+          await tx.serialUnit.update({ where: { id: u.id }, data: { status: 'RETURNED' } });
           await tx.serialEvent.create({ data: { serialId: u.id, type: 'RETURNED', invoiceId: invoice.id, note: `Return #${created.id}` } });
         }
         await tx.product.update({

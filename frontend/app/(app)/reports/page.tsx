@@ -82,10 +82,10 @@ export default function ReportsPage() {
           <h2 className="mb-1 text-base font-semibold">When customers buy</h2>
           <p className="mb-3 text-xs text-foreground-muted">Bills per hour, by weekday — darker is busier.</p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-separate border-spacing-1 text-[10px]" aria-label="Hourly sales heatmap">
+            <table className="w-full min-w-[560px] table-fixed border-separate border-spacing-1 text-[10px]" aria-label="Hourly sales heatmap">
               <thead>
                 <tr>
-                  <th />
+                  <th className="w-9" />
                   {Array.from({ length: 24 }, (_, h) => (
                     <th key={h} scope="col" className="font-normal text-foreground-muted">{h % 3 === 0 ? h : ""}</th>
                   ))}

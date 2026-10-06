@@ -10,20 +10,19 @@
 const { parse } = require('csv-parse/sync');
 const { readSheet } = require('read-excel-file/universal');
 const prisma = require('./prisma');
-const { validateSerial } = require('./serials');
 
 const MAX_ROWS = 5000;
 
 const COLUMNS = [
   'name', 'barcode', 'sku', 'category', 'hsn', 'unit', 'purchase_price', 'selling_price', 'tax_rate',
   'stock', 'reorder_point', 'discount_type', 'discount_value', 'track_serial', 'warranty_months',
-  'serials', 'supplier',
+  'supplier',
 ];
 
 const SAMPLE_ROWS = [
   { name: 'Parle-G Biscuit 200g', barcode: '8901719101014', sku: 'PARLEG-200', category: 'Grocery', hsn: '1905', unit: 'PCS', purchase_price: '8', selling_price: '10', tax_rate: '18', stock: '120', reorder_point: '20', supplier: 'City Distributors' },
   { name: 'Basmati Rice (loose)', barcode: '', category: 'Grocery', hsn: '1006', unit: 'KGS', purchase_price: '70', selling_price: '95', tax_rate: '5', stock: '40.5', reorder_point: '10' },
-  { name: 'Redmi 13 5G 8/128', barcode: 'RM13-8-128', category: 'Mobiles', hsn: '8517', unit: 'PCS', purchase_price: '11200', selling_price: '13999', tax_rate: '18', track_serial: 'yes', warranty_months: '12', serials: '490154203237518; 356938035643809' },
+  { name: 'Redmi 13 5G 8/128', barcode: 'RM13-8-128', category: 'Mobiles', hsn: '8517', unit: 'PCS', purchase_price: '11200', selling_price: '13999', tax_rate: '18', stock: '5', track_serial: 'yes', warranty_months: '12' },
 ];
 
 // "Selling Price", "selling-price", "SELLING_PRICE" all -> selling_price
@@ -90,15 +89,13 @@ async function importProducts(buffer, format, { dryRun }) {
   const push = (row, outcome, message = '') => results.push({ row: row.number, name: row.fields.name || '', outcome, message });
 
   // Existing keys, loaded once (not one query per row).
-  const [prods, serialRows, suppliers] = await Promise.all([
+  const [prods, suppliers] = await Promise.all([
     prisma.product.findMany({ select: { barcode: true, sku: true, name: true } }),
-    prisma.serialUnit.findMany({ select: { serial: true } }),
     prisma.supplier.findMany({ select: { id: true, name: true } }),
   ]);
   const barcodes = new Set(prods.map((p) => p.barcode));
   const skus = new Set(prods.map((p) => p.sku).filter(Boolean));
   const names = new Set(prods.map((p) => p.name.trim().toLowerCase()));
-  const serialsTaken = new Set(serialRows.map((s) => s.serial));
   const supplierId = new Map(suppliers.map((s) => [s.name.trim().toLowerCase(), s.id]));
   const newSuppliers = new Set();
   const toCreate = [];
@@ -141,26 +138,10 @@ async function importProducts(buffer, format, { dryRun }) {
     }
     if (barcode.length > 64) { push(row, 'ERROR', 'barcode is longer than 64 characters'); continue; }
 
-    // Serial / IMEI tracked rows: units come from the `serials` column.
+    // IMEI / serial tracking is a per-product flag only — the numbers themselves
+    // are captured when the unit is sold, never imported into stock.
     const track = bool(f.track_serial);
-    let units = [];
-    if (track) {
-      const list = f.serials ? f.serials.split(/[;\n,\s]+/).filter(Boolean) : [];
-      const seen = new Set();
-      let problem = null;
-      for (const raw of list) {
-        const v = validateSerial(raw);
-        if (!v.ok) { problem = v.error; break; }
-        if (seen.has(v.serial)) { problem = `serial ${v.serial} appears twice in this row`; break; }
-        if (serialsTaken.has(v.serial)) { problem = `serial ${v.serial} is already registered`; break; }
-        seen.add(v.serial);
-        units.push(v.serial);
-      }
-      if (problem) { push(row, 'ERROR', problem); continue; }
-    } else if (f.serials) {
-      push(row, 'ERROR', 'serials given but track_serial is not yes');
-      continue;
-    }
+    if (f.serials) { push(row, 'ERROR', 'IMEI / serial numbers are entered at the moment of sale, not imported — remove the serials column'); continue; }
 
     // Row is good — claim its keys so later rows in the file collide with it.
     const notes = [];
@@ -168,11 +149,9 @@ async function importProducts(buffer, format, { dryRun }) {
       barcode = internalEan13(barcodes);
       notes.push(`barcode generated: ${barcode}`);
     }
-    if (track && stock.value !== undefined && stock.value !== units.length) notes.push(`stock ${stock.value} ignored — stock follows the ${units.length} serial(s) listed`);
     barcodes.add(barcode);
     names.add(name.toLowerCase());
     if (f.sku) skus.add(f.sku);
-    for (const u of units) serialsTaken.add(u);
     let sid = null;
     if (f.supplier) {
       const key = f.supplier.toLowerCase();
@@ -185,10 +164,10 @@ async function importProducts(buffer, format, { dryRun }) {
         barcode, sku: f.sku || null, name, category: f.category || null, hsn: f.hsn || null, unit: f.unit ? f.unit.toUpperCase() : null,
         purchasePrice: buy.value ?? 0, sellingPrice: sell.value, taxRate: tax.value ?? 0,
         discountType: dtype || null, discountValue: dtype ? dval.value ?? 0 : 0,
-        stock: track ? units.length : stock.value ?? 0, reorderPoint: reorder.value ?? 0,
+        stock: stock.value ?? 0, reorderPoint: reorder.value ?? 0,
         trackSerial: track, warrantyMonths: warranty.value ?? 0,
       },
-      units, supplierKey: sid, notes,
+      supplierKey: sid, notes,
     });
     push(row, dryRun ? 'VALID' : 'COMMITTED', notes.join('; '));
   }
@@ -202,10 +181,6 @@ async function importProducts(buffer, format, { dryRun }) {
         }
         for (const item of toCreate) {
           const p = await tx.product.create({ data: { ...item.data, supplierId: item.supplierKey ? supplierId.get(item.supplierKey) : null } });
-          for (const serial of item.units) {
-            const u = await tx.serialUnit.create({ data: { productId: p.id, serial } });
-            await tx.serialEvent.create({ data: { serialId: u.id, type: 'RECEIVED', note: 'Bulk import' } });
-          }
         }
       },
       { timeout: 120000, maxWait: 10000 }

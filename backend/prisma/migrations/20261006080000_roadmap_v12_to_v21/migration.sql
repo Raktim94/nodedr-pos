@@ -283,6 +283,7 @@ CREATE TABLE "new_ShopSettings" (
     "signatoryName" TEXT,
     "invoiceLayout" TEXT NOT NULL DEFAULT 'receipt',
     "upiId" TEXT,
+    "serialTracking" BOOLEAN NOT NULL DEFAULT false,
     "termsText" TEXT,
     "cashDrawer" BOOLEAN NOT NULL DEFAULT false,
     "terminalProvider" TEXT NOT NULL DEFAULT 'none',

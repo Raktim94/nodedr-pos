@@ -77,6 +77,9 @@ model ShopSettings {
   // and printed on invoices.
   upiId          String?
   termsText      String?
+  // Optional feature switch: ask for an IMEI / serial number at the moment of
+  // sale (and track warranty from it). Off by default — most shops don't need it.
+  serialTracking Boolean  @default(false)
   // Hardware
   cashDrawer     Boolean  @default(false) // pulse the cash drawer on a cash sale (ESC/POS via the receipt printer)
   // Card terminal (Stripe Terminal / Square Terminal). Provider secrets are
@@ -119,8 +122,8 @@ model Product {
   discountType  String?       // "percent" | "amount" | null (no standing discount)
   discountValue Float         @default(0) // interpreted per discountType; applied automatically at checkout
   stock         Float         @default(0) // fractional for weighed goods (kg, litre)
-  // Serial / IMEI tracking: when on, every unit is a SerialUnit row, stock
-  // is the count of IN_STOCK units, and a sale must name the exact units.
+  // With the shop-level serial switch on, a sale of this product must record
+  // one IMEI / serial per unit sold (stock stays a plain quantity).
   trackSerial   Boolean       @default(false)
   warrantyMonths Int          @default(0)
   reorderPoint  Float         @default(0) // suggest a purchase order at or below this stock
@@ -137,14 +140,14 @@ model Product {
   @@index([category])
 }
 
-// One physical unit of a serial-tracked product (a phone's IMEI, a laptop's
-// serial number...). Globally unique — an IMEI can only exist once — and
-// the warranty clock starts when the unit is sold.
+// An IMEI / serial number recorded when a unit is SOLD (never pre-registered
+// in stock). Globally unique — one unit can only be sold once until it is
+// returned — and the warranty clock starts at the sale.
 model SerialUnit {
   id             Int          @id @default(autoincrement())
   productId      Int
   serial         String       @unique
-  status         String       @default("IN_STOCK") // IN_STOCK | SOLD | DEFECTIVE
+  status         String       @default("SOLD") // SOLD | RETURNED
   invoiceItemId  Int?
   soldAt         DateTime?
   warrantyEndsAt DateTime?
@@ -162,7 +165,7 @@ model SerialUnit {
 model SerialEvent {
   id        Int        @id @default(autoincrement())
   serialId  Int
-  type      String // RECEIVED | SOLD | RETURNED | CLAIM | NOTE
+  type      String // SOLD | RETURNED | CLAIM | NOTE
   invoiceId Int?
   note      String?
   createdAt DateTime   @default(now())

@@ -4,7 +4,6 @@ const prisma = require('../lib/prisma');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const { round2 } = require('../lib/pricing');
 const { qtySchema, r3 } = require('../lib/qty');
-const { validateSerial } = require('../lib/serials');
 const { buildPurchaseOrderPdf } = require('../lib/pdfPurchaseOrder');
 
 const router = express.Router();
@@ -134,10 +133,10 @@ router.patch('/orders/:id/status', wrap(async (req, res) => {
 }));
 
 // POST /orders/:id/receive — goods arrived. Adds to stock, records the
-// latest purchase cost on the product (feeds margin reports), registers
-// serials/IMEIs for tracked products. Partial receipts are allowed.
+// latest purchase cost on the product (feeds margin reports). Partial
+// receipts are allowed.
 const receiveSchema = z.object({
-  items: z.array(z.object({ itemId: z.number().int().positive(), quantity: qtySchema, serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional() })).min(1),
+  items: z.array(z.object({ itemId: z.number().int().positive(), quantity: qtySchema })).min(1),
 });
 router.post('/orders/:id/receive', wrap(async (req, res) => {
   const p = receiveSchema.safeParse(req.body);
@@ -151,21 +150,7 @@ router.post('/orders/:id/receive', wrap(async (req, res) => {
       const it = byId.get(line.itemId);
       if (!it) throw err('Item is not on this order', 404);
       if (r3(it.receivedQty + line.quantity) > it.quantity + 1e-9) throw err(`Cannot receive more than ordered for "${it.name}"`, 409);
-      const prod = await tx.product.findUnique({ where: { id: it.productId } });
-      if (prod.trackSerial) {
-        const sers = [...new Set((line.serials || []).map((s) => { const v = validateSerial(s); if (!v.ok) throw err(v.error); return v.serial; }))];
-        if (sers.length !== line.quantity) throw err(`"${it.name}" needs ${line.quantity} unique serial/IMEI number(s)`);
-        const clash = await tx.serialUnit.findFirst({ where: { serial: { in: sers } } });
-        if (clash) throw err(`Serial ${clash.serial} is already registered`, 409);
-        for (const serial of sers) {
-          const u = await tx.serialUnit.create({ data: { productId: prod.id, serial } });
-          await tx.serialEvent.create({ data: { serialId: u.id, type: 'RECEIVED', note: order.number } });
-        }
-        const count = await tx.serialUnit.count({ where: { productId: prod.id, status: 'IN_STOCK' } });
-        await tx.product.update({ where: { id: prod.id }, data: { stock: count, purchasePrice: it.unitCost } });
-      } else {
-        await tx.product.update({ where: { id: prod.id }, data: { stock: { increment: line.quantity }, purchasePrice: it.unitCost } });
-      }
+      await tx.product.update({ where: { id: it.productId }, data: { stock: { increment: line.quantity }, purchasePrice: it.unitCost } });
       await tx.purchaseOrderItem.update({ where: { id: it.id }, data: { receivedQty: r3(it.receivedQty + line.quantity) } });
     }
     const fresh = await tx.purchaseOrderItem.findMany({ where: { orderId: order.id } });

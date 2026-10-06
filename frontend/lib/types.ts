@@ -46,6 +46,7 @@ export interface ShopSettings {
   upiId: string | null;
   termsText: string | null;
   cashDrawer: boolean;
+  serialTracking: boolean;
   terminalProvider: "none" | "stripe" | "square";
   fxRates: string | null;
   reportEmail: string | null;
@@ -211,8 +212,8 @@ export interface Order {
 
 export interface WarrantyResult {
   serial: string;
-  status: "IN_STOCK" | "SOLD" | "DEFECTIVE";
-  warranty: "ACTIVE" | "EXPIRED" | "NOT_SOLD" | "NO_WARRANTY";
+  status: "SOLD" | "RETURNED";
+  warranty: "ACTIVE" | "EXPIRED" | "RETURNED" | "NO_WARRANTY";
   warrantyMonths: number;
   soldAt: string | null;
   warrantyEndsAt: string | null;

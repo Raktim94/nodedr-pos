@@ -136,9 +136,6 @@ router.patch('/products/:sku/stock', requireApiKey({ scope: 'stock:write' }), as
       const product = await tx.product.findUnique({ where: { sku: req.params.sku } });
       if (!product) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
 
-      if (product.trackSerial) {
-        throw Object.assign(new Error(`"${product.name}" is serial/IMEI-tracked — stock follows its registered units`), { status: 409 });
-      }
       const nextStock = set !== undefined ? set : product.stock + delta;
       if (nextStock < 0) {
         const settings = await tx.shopSettings.findFirst();

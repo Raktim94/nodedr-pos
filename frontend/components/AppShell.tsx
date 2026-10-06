@@ -40,7 +40,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { can } from "@/lib/perm";
 import type { Permission } from "@/lib/types";
 
-type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean; perm?: Permission; hubOnly?: boolean; staffOnly?: boolean; primary?: boolean };
+type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean; perm?: Permission; hubOnly?: boolean; staffOnly?: boolean; primary?: boolean; serialOnly?: boolean };
 
 // staffOnly = hidden from read-only franchisor accounts (they get Reports +
 // Branches only). perm = needs that granular right (admins always pass).
@@ -52,7 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/purchasing", label: "Purchasing", icon: Truck, perm: "purchasing" },
   { href: "/customers", label: "Customers", icon: Users, staffOnly: true },
   { href: "/sales", label: "Sales", icon: ReceiptText, staffOnly: true },
-  { href: "/warranty", label: "Warranty", icon: ShieldCheck, staffOnly: true },
+  { href: "/warranty", label: "Warranty", icon: ShieldCheck, staffOnly: true, serialOnly: true },
   { href: "/reports", label: "Reports", icon: BarChart3, perm: "reports" },
   { href: "/team", label: "Team", icon: UserCog, adminOnly: true },
   { href: "/branches", label: "Branches", icon: Network, hubOnly: true },
@@ -98,6 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isHub = shop?.syncRole === "hub";
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!me) return false;
+    if (item.serialOnly && !shop?.serialTracking) return false;
     if (item.hubOnly) return isHub && (me.role === "admin" || me.role === "franchisor");
     if (item.adminOnly) return me.role === "admin";
     if (item.staffOnly) return me.role !== "franchisor";

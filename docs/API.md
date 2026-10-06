@@ -12,11 +12,11 @@ product). A product without a SKU is invisible to the API and MCP.
 | Scope | Allows |
 | --- | --- |
 | `products:read` | List/look up SKU-linked products with live stock and price |
-| `stock:write` | Adjust stock (not for IMEI/serial-tracked products) |
+| `stock:write` | Adjust stock |
 | `bills:write` | Take bills — the POS computes price, GST, discount, stock |
 | `bills:read` | Read bills **created through the same key** and download their PDFs |
 | `orders:write` | Create / read / cancel click-and-collect orders (reserve stock) |
-| `warranty:read` | Warranty status from an IMEI / serial number |
+| `warranty:read` | Warranty status from an IMEI / serial number (needs the *IMEI tracking* switch on in Settings → Features) |
 
 ## REST (`/api/external`, `Authorization: Bearer nk_live_…`)
 
@@ -25,7 +25,7 @@ product). A product without a SKU is invisible to the API and MCP.
 | `GET /products?limit=200&offset=0&updatedSince=ISO&q=` | Paginated (≤500), incremental; `X-Total-Count` header; each row has `stock` and `available` (stock minus open-order reservations) |
 | `GET /products/:skuOrBarcode` | One product |
 | `PATCH /products/:sku/stock` | `{delta}` or `{set}`, optional `idempotencyKey` |
-| `POST /bills` | `{externalRef, customer:{name,phone}, items:[{sku\|barcode, quantity, serials?}], paymentMethod, amountPaid, discountType, discountValue}` → `201 {invoice, receiptUrl}`. **Idempotent on `externalRef`** (a repeat returns the first bill, `200`, `deduplicated:true`). UPI/CARD are paid in full; CASH uses `amountPaid` (a shortfall needs a customer phone and becomes their due) |
+| `POST /bills` | `{externalRef, customer:{name,phone}, items:[{sku\|barcode, quantity, serials?}] (`serials` = the IMEI of each unit, only for products flagged IMEI-tracked, only when the feature is on), paymentMethod, amountPaid, discountType, discountValue}` → `201 {invoice, receiptUrl}`. **Idempotent on `externalRef`** (a repeat returns the first bill, `200`, `deduplicated:true`). UPI/CARD are paid in full; CASH uses `amountPaid` (a shortfall needs a customer phone and becomes their due) |
 | `GET /bills/:invoiceNumberOrExternalRef` | Only bills made with this key |
 | `GET /bills/:ref/pdf?layout=a4\|receipt` | PDF bill |
 | `POST /orders` | `{externalId, fulfilment, customer, items:[{sku,quantity}], paid, note}` → reserves stock, returns a `pickupCode`. Idempotent on `externalId` |

@@ -129,13 +129,14 @@ export default function PosPage() {
       setCompletedSale(null);
       // Serial/IMEI-tracked products are added by unit: scanning an IMEI adds
       // that exact unit; scanning the model's barcode asks for the IMEI(s).
-      if (product.trackSerial && !serial) {
+      const asksSerial = Boolean(shop?.serialTracking && product.trackSerial);
+      if (asksSerial && !serial) {
         setSerialFor(product);
         return;
       }
       setCart((prev) => {
         const existing = prev.find((item) => item.product.id === product.id);
-        if (product.trackSerial && serial) {
+        if (asksSerial && serial) {
           if (existing?.serials?.includes(serial)) {
             show(`${serial} is already on this bill`, "error");
             return prev;
@@ -151,20 +152,15 @@ export default function PosPage() {
         return prev.map((item) => (item.product.id === product.id ? { ...item, quantity: r3(item.quantity + 1) } : item));
       });
     },
-    [show, shop?.allowNegativeStock]
+    [show, shop?.allowNegativeStock, shop?.serialTracking]
   );
 
   const handleScan = useCallback(
     async (code: string) => {
       try {
-        // One lookup resolves a barcode, an external SKU or an IMEI/serial.
-        const r = await api.get<{ type: "product" | "serial"; product: Product; serial?: { serial: string; status: string } }>(`/products/scan/${encodeURIComponent(code)}`);
-        if (r.type === "serial") {
-          if (r.serial?.status !== "IN_STOCK") return show(`That unit is not in stock (${r.serial?.status})`, "error");
-          addToCart(r.product, r.serial.serial);
-        } else {
-          addToCart(r.product);
-        }
+        // One lookup resolves a barcode or an external SKU.
+        const r = await api.get<{ type: "product"; product: Product }>(`/products/scan/${encodeURIComponent(code)}`);
+        addToCart(r.product);
       } catch (err) {
         if (err instanceof ApiError && err.status === 404) {
           // Not a product: an NFC loyalty card tap types its UID like a scanner.
@@ -343,7 +339,7 @@ export default function PosPage() {
     setCart((prev) =>
       prev
         .map((item) => {
-          if (item.product.id !== productId || item.product.trackSerial) return item;
+          if (item.product.id !== productId || (item.serials && item.serials.length > 0)) return item;
           const q = r3(qty);
           if (q > 0 && !shop?.allowNegativeStock && q > item.product.stock + 1e-9) {
             show(`Only ${r3(item.product.stock)} in stock for "${item.product.name}"`, "error");
@@ -557,7 +553,7 @@ export default function PosPage() {
                         )}
                       </td>
                       <td className="py-2.5 pr-4">
-                        {item.product.trackSerial ? (
+                        {item.serials && item.serials.length > 0 ? (
                           <button type="button" onClick={() => setSerialFor(item.product)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-muted">
                             {item.quantity} unit{item.quantity === 1 ? "" : "s"} · edit
                           </button>

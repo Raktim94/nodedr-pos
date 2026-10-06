@@ -141,16 +141,13 @@ function ReceiveDialog({ id, onClose }: { id: number; onClose: () => void }) {
   const qc = useQueryClient();
   const { show } = useToast();
   const { data: po } = useQuery({ queryKey: ["po", id], queryFn: () => api.get<PODetail>(`/purchasing/orders/${id}`) });
-  const { data: products } = useQuery({ queryKey: ["products", ""], queryFn: () => api.get<{ id: number; trackSerial: boolean }[]>("/products") });
-  const tracked = new Set((products ?? []).filter((p) => p.trackSerial).map((p) => p.id));
   const [qty, setQty] = useState<Record<number, string>>({});
-  const [serials, setSerials] = useState<Record<number, string>>({});
 
   const receive = useMutation({
     mutationFn: () =>
       api.post(`/purchasing/orders/${id}/receive`, {
         items: po!.items
-          .map((i) => ({ itemId: i.id, quantity: Number(qty[i.id] ?? i.quantity - i.receivedQty), serials: serials[i.id] ? serials[i.id].split(/[\s,;]+/).filter(Boolean) : undefined }))
+          .map((i) => ({ itemId: i.id, quantity: Number(qty[i.id] ?? i.quantity - i.receivedQty) }))
           .filter((i) => i.quantity > 0),
       }),
     onSuccess: () => { show("Stock received", "success"); qc.invalidateQueries({ queryKey: ["pos"] }); qc.invalidateQueries({ queryKey: ["products"] }); qc.invalidateQueries({ queryKey: ["reorder"] }); onClose(); },
@@ -167,9 +164,6 @@ function ReceiveDialog({ id, onClose }: { id: number; onClose: () => void }) {
                 <p className="text-sm font-medium">{i.name}<span className="ml-2 text-xs font-normal text-foreground-muted">ordered {i.quantity} · received {i.receivedQty}</span></p>
                 <input aria-label={`Quantity received for ${i.name}`} type="number" min={0} step="0.001" value={qty[i.id] ?? String(Math.max(0, i.quantity - i.receivedQty))} onChange={(e) => setQty({ ...qty, [i.id]: e.target.value })} className="tabular w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm" />
               </div>
-              {tracked.has(i.productId) && (
-                <textarea aria-label={`IMEI / serials for ${i.name}`} placeholder="Scan or paste IMEI / serial numbers (one per unit)" rows={2} value={serials[i.id] ?? ""} onChange={(e) => setSerials({ ...serials, [i.id]: e.target.value })} className="mt-2 w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs" />
-              )}
             </div>
           ))}
           <Button onClick={() => receive.mutate()} disabled={receive.isPending}>{receive.isPending ? "Saving…" : "Add to stock"}</Button>

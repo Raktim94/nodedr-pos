@@ -3,7 +3,6 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const { notifyStockChange } = require('../lib/webhooks');
-const { validateSerial } = require('../lib/serials');
 const { importProducts, sampleCsv, COLUMNS } = require('../lib/bulkImport');
 
 const router = express.Router();
@@ -134,9 +133,9 @@ router.post('/import', requirePerm('inventory'), express.raw({ type: () => true,
   }
 });
 
-// GET /api/products/scan/:code — ONE lookup for whatever a scanner reads:
-// a barcode, an external SKU, or a serial/IMEI. A serial hit returns the
-// product plus that exact unit so the POS can add it to the cart in one scan.
+// GET /api/products/scan/:code — one lookup for whatever a scanner reads:
+// a barcode or an external SKU. (IMEI / serial numbers are only ever entered
+// at the moment of sale — they are not looked up here.)
 router.get('/scan/:code', async (req, res) => {
   const code = String(req.params.code).trim();
   if (!code || code.length > 64) return res.status(400).json({ error: 'Invalid code' });
@@ -144,85 +143,7 @@ router.get('/scan/:code', async (req, res) => {
   if (!product) product = await prisma.product.findUnique({ where: { sku: code } });
   if (product) return res.json({ type: 'product', product });
 
-  const unit = await prisma.serialUnit.findUnique({ where: { serial: code.toUpperCase().replace(/\s+/g, '') }, include: { product: true } });
-  if (unit) {
-    const { product: p, ...serial } = unit;
-    return res.json({ type: 'serial', product: p, serial });
-  }
   res.status(404).json({ error: 'Nothing matches that code' });
-});
-
-async function syncSerialStock(tx, productId) {
-  const count = await tx.serialUnit.count({ where: { productId, status: 'IN_STOCK' } });
-  return tx.product.update({ where: { id: productId }, data: { stock: count } });
-}
-
-// GET /api/products/:id/serials?status=IN_STOCK|SOLD|DEFECTIVE
-router.get('/:id/serials', async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
-  const status = ['IN_STOCK', 'SOLD', 'DEFECTIVE'].includes(req.query.status) ? req.query.status : undefined;
-  const units = await prisma.serialUnit.findMany({
-    where: { productId: id, ...(status ? { status } : {}) },
-    orderBy: { id: 'desc' },
-    take: 1000,
-  });
-  res.json(units);
-});
-
-const serialsSchema = z.object({ serials: z.array(z.string().trim().min(1).max(64)).min(1).max(1000) });
-
-// POST /api/products/:id/serials — receive units (scan or paste a list).
-// Bad / duplicate numbers are reported back, valid ones are still saved.
-router.post('/:id/serials', requirePerm('inventory'), async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
-  const parsed = serialsSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-
-  const product = await prisma.product.findUnique({ where: { id } });
-  if (!product) return res.status(404).json({ error: 'Product not found' });
-  if (!product.trackSerial) return res.status(409).json({ error: 'Turn on serial/IMEI tracking for this product first' });
-
-  const accepted = [];
-  const rejected = [];
-  const seen = new Set();
-  for (const raw of parsed.data.serials) {
-    const v = validateSerial(raw);
-    if (!v.ok) { rejected.push({ serial: raw, reason: v.error }); continue; }
-    if (seen.has(v.serial)) { rejected.push({ serial: v.serial, reason: 'Duplicate in this list' }); continue; }
-    seen.add(v.serial);
-    accepted.push(v.serial);
-  }
-  const existing = await prisma.serialUnit.findMany({ where: { serial: { in: accepted } }, select: { serial: true } });
-  const taken = new Set(existing.map((e) => e.serial));
-  const fresh = accepted.filter((s) => !taken.has(s));
-  for (const s of accepted) if (taken.has(s)) rejected.push({ serial: s, reason: 'Already registered' });
-
-  const updated = await prisma.$transaction(async (tx) => {
-    for (const serial of fresh) {
-      const u = await tx.serialUnit.create({ data: { productId: id, serial } });
-      await tx.serialEvent.create({ data: { serialId: u.id, type: 'RECEIVED' } });
-    }
-    return syncSerialStock(tx, id);
-  });
-  if (updated.sku) notifyStockChange([{ sku: updated.sku, stock: updated.stock }]);
-  res.status(201).json({ added: fresh.length, rejected, stock: updated.stock });
-});
-
-// PATCH /api/products/serials/:serial — mark a unit DEFECTIVE / back IN_STOCK.
-router.patch('/serials/:serial', requirePerm('inventory'), async (req, res) => {
-  const parsed = z.object({ status: z.enum(['IN_STOCK', 'DEFECTIVE']), note: z.string().trim().max(200).optional() }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  const unit = await prisma.serialUnit.findUnique({ where: { serial: String(req.params.serial).toUpperCase() } });
-  if (!unit) return res.status(404).json({ error: 'Serial not found' });
-  if (unit.status === 'SOLD') return res.status(409).json({ error: 'A sold unit must be returned through a return, not edited here' });
-  await prisma.$transaction(async (tx) => {
-    await tx.serialUnit.update({ where: { id: unit.id }, data: { status: parsed.data.status, note: parsed.data.note ?? unit.note } });
-    await tx.serialEvent.create({ data: { serialId: unit.id, type: 'NOTE', note: `Marked ${parsed.data.status}${parsed.data.note ? ': ' + parsed.data.note : ''}` } });
-    await syncSerialStock(tx, unit.productId);
-  });
-  res.json({ ok: true });
 });
 
 router.post('/', requirePerm('inventory'), async (req, res) => {
@@ -262,12 +183,6 @@ router.put('/:id', requirePerm('inventory'), async (req, res) => {
     return res.status(err.status || 400).json({ error: err.message });
   }
   try {
-    if ('stock' in data) {
-      const cur = await prisma.product.findUnique({ where: { id }, select: { trackSerial: true } });
-      if (cur?.trackSerial) {
-        return res.status(409).json({ error: 'Stock of a serial/IMEI-tracked product follows its registered units — add or remove units instead' });
-      }
-    }
     const product = await prisma.product.update({ where: { id }, data });
     if ('stock' in data && product.sku) {
       notifyStockChange([{ sku: product.sku, stock: product.stock }]);

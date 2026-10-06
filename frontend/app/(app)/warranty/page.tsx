@@ -60,7 +60,7 @@ export default function WarrantyPage() {
               <p className="font-mono text-sm text-foreground-muted">{w.serial}</p>
             </div>
             <Badge tone={tone}>
-              {w.warranty === "ACTIVE" ? `Under warranty · ${w.daysLeft} days left` : w.warranty === "EXPIRED" ? "Warranty expired" : w.warranty === "NOT_SOLD" ? "In stock (not sold)" : "No warranty"}
+              {w.warranty === "ACTIVE" ? `Under warranty · ${w.daysLeft} days left` : w.warranty === "EXPIRED" ? "Warranty expired" : w.warranty === "RETURNED" ? "Returned by customer" : "No warranty"}
             </Badge>
           </div>
 

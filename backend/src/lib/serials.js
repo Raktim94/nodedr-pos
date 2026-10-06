@@ -37,7 +37,7 @@ function addMonths(date, months) {
 }
 
 function warrantyStatus(unit, now = new Date()) {
-  if (unit.status === 'IN_STOCK') return 'NOT_SOLD';
+  if (unit.status === 'RETURNED') return 'RETURNED';
   if (!unit.warrantyEndsAt) return 'NO_WARRANTY';
   return new Date(unit.warrantyEndsAt) >= now ? 'ACTIVE' : 'EXPIRED';
 }

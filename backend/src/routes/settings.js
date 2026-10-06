@@ -46,6 +46,7 @@ const fields = {
   upiId: z.string().trim().max(100).regex(/^[\w.\-]{2,64}@[A-Za-z][A-Za-z0-9.\-]{1,40}$/, 'Enter a valid UPI id like shop@bank').optional().or(z.literal('')),
   termsText: z.string().trim().max(600).optional().or(z.literal('')),
   cashDrawer: z.boolean(),
+  serialTracking: z.boolean(),
 };
 
 // POST (onboarding, create-once): every field required or defaulted.
@@ -66,6 +67,7 @@ const createSchema = z.object({
   allowNegativeStock: fields.allowNegativeStock.default(false),
   invoiceLayout: fields.invoiceLayout.default('receipt'),
   cashDrawer: fields.cashDrawer.default(false),
+  serialTracking: fields.serialTracking.default(false),
 });
 
 // PUT (partial update): no defaults anywhere, so an omitted key is simply
