@@ -107,3 +107,30 @@ Only `en_US` is filled in for the multi-locale fields (`title`, `tagline`,
 `description`, `release_notes`) — every real app in the store also
 supports more locales, but translating into them is a separate, ongoing
 effort best done post-submission rather than guessed at here.
+
+## Troubleshooting: "there are ports in use" (port 1994)
+
+CasaOS refuses to install if port 1994 or the container names
+(`nodedr-pos-frontend`, `-backend`, `-updater`) are already taken. The usual
+cause is **orphan containers**: CasaOS has forgotten the app (it is missing
+from `casaos-cli app-management list apps` and `/var/lib/casaos/apps/nodedr-pos`
+is gone) but the old containers are still running, for example after an
+interrupted uninstall or update.
+
+Check:
+
+```bash
+docker ps -a --filter name=nodedr-pos --format '{{.Names}} {{.Image}} {{.Ports}}'
+ss -ltnp | grep :1994
+```
+
+Fix (your data lives in `/DATA/AppData/nodedr-pos/data`, a bind mount that
+survives container removal — back it up first anyway):
+
+```bash
+cp -a /DATA/AppData/nodedr-pos/data ~/nodedr-pos-data-backup
+docker rm -f nodedr-pos-frontend nodedr-pos-backend nodedr-pos-updater
+docker network rm nodedr-pos_nodedr-pos
+```
+
+Then install NodeDR POS again from the app store.
