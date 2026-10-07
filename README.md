@@ -153,6 +153,7 @@ What is verified and what still needs real-device testing: [docs/ROADMAP.md](doc
 - [Quick start (Docker Compose)](#quick-start)
 - [Where to run it](#where-to-run-it)
 - [Hardware setup](#hardware-setup)
+- [Customer display](#customer-display-phone-tablet-or-second-screen)
 - [Reference data & validation](#reference-data--validation)
 - [Customer dues ("udhaar")](#customer-dues-udhaar)
 - [Returns & exchanges](#returns--exchanges)
@@ -166,6 +167,34 @@ What is verified and what still needs real-device testing: [docs/ROADMAP.md](doc
 - [Security](#security)
 - [Contributing](#contributing)
 - [License](#license)
+
+## What's new in 1.5
+
+- **Find products online** — Inventory → *Find online* searches free community
+  databases (Open Food / Beauty / Products Facts) by name or barcode. Results are
+  validated (barcode check digit, junk names, wrong-code records) and shown with
+  warnings (only the barcode or search text leaves your server, never shop data);
+  *Review & add* opens the normal form pre-filled. Scanning an unknown
+  barcode in Inventory does this automatically. In any product form, *Check online*
+  compares the barcode with the online record and lets you replace the name,
+  category or photo field by field. Nothing is saved until you press Save.
+- **Product photos** — add a photo (file or phone camera) when registering or
+  editing a product; shown in the inventory list.
+- **Customer display on any device** — open the link from POS → *Customer display*
+  on a phone, tablet or second PC on the same network; it follows the till live,
+  including the UPI payment QR. See [Customer display](#customer-display-phone-tablet-or-second-screen).
+  A chime (and a spoken amount for UPI/card) confirms each completed sale.
+- **Online orders** — billing follows who took the money: orders *paid on the
+  website* are handed over without a POS bill; *pay-at-pickup* orders are billed
+  in the POS at hand-over (the cashier can override). **Connect your own website**
+  through the API — see [docs/CUSTOM_STORE.md](docs/CUSTOM_STORE.md).
+- **Purchasing** — edit/delete suppliers, create purchase orders by hand, cancel
+  orders.
+- **Smarter installs** — `install.sh` picks a free port if 1994 is taken, and the
+  CasaOS README explains the "ports in use" orphan-container fix.
+
+Update an existing install from **Settings → Updates → Update now** (see
+[Updating](#updating)).
 
 ## What's new in 1.2
 
@@ -251,7 +280,8 @@ Security review: [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
 - **Sales history** — searchable past invoices with a detail view and
   one-click receipt reprint.
 - **Inventory management** — scan a known barcode to edit stock; an unknown
-  one opens "Add Product" pre-filled. Low-stock dashboard alerts. An
+  one is looked up online and opens "Add Product" pre-filled (blank if nothing
+  is found or you're offline). Low-stock dashboard alerts. An
   "allow negative stock" setting lets you keep selling past zero when your
   counts run behind reality, instead of blocking the register.
 - **Print or download receipts, three ways** — "Print" opens a formatted
