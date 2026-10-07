@@ -152,11 +152,11 @@ x-casaos:
   index: /
   scheme: http
   port_map: "1994"
-  version: "1.2.0"
+  version: "1.4.0"
   update_at: "2026-10-07"
   release_notes:
     en_US: |-
-      1.2.0 (2026-10-07):
+      1.4.0 (2026-10-07):
       - New: in-app updates. Settings > Updates shows when a new version is
         available and updates NodeDR POS with one click.
       - Many more currencies (incl. Hong Kong dollar), online orders, IMEI &
