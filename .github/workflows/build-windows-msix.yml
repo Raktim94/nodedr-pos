@@ -280,11 +280,35 @@ jobs:
             Write-Host "$h  $($_.Name)"
           }
 
+      - name: Bundle the direct-download install kit (certificate + installer script)
+        shell: pwsh
+        run: |
+          Copy-Item packaging\windows\msix\sideload\Install-NodeDRPOS.ps1 dist\
+          Copy-Item dist\nodedr-pos-test.cer dist\NodeDR-POS-publisher.cer
+          Remove-Item dist\nodedr-pos-test.cer
+
+      # The exact path a downloader takes: a clean PC that does not trust the
+      # certificate runs Install-NodeDRPOS.ps1 and must end up with the app
+      # installed; -Uninstall must remove it again.
+      - name: Test the direct-download installer script (certificate trust + install + uninstall)
+        shell: pwsh
+        run: |
+          & "$PWD\dist\Install-NodeDRPOS.ps1" -NoPause
+          if ($LASTEXITCODE -ne 0) { throw "Install-NodeDRPOS.ps1 failed" }
+          if (-not (Get-AppxPackage -Name "*NodedrPOS*")) { throw "package not installed by the script" }
+          Write-Host "  [PASS] script installed the package"
+          & "$PWD\dist\Install-NodeDRPOS.ps1" -Uninstall -NoPause
+          Start-Sleep -Seconds 3
+          if (Get-AppxPackage -Name "*NodedrPOS*") { throw "script -Uninstall left the package installed" }
+          Write-Host "  [PASS] script uninstalled the package"
+
       - uses: actions/upload-artifact@v7
         with:
           name: nodedr-pos-msix
           path: |
             dist/Nodedr-POS-*-x64.msix
+            dist/NodeDR-POS-publisher.cer
+            dist/Install-NodeDRPOS.ps1
             dist/SHA256SUMS-msix.txt
             dist/wack-report.xml
           retention-days: 30
@@ -306,6 +330,8 @@ jobs:
           $msix = Get-ChildItem dist\Nodedr-POS-*-x64.msix | Select-Object -First 1
           gh release upload "${{ github.event.inputs.release_tag }}" $msix.FullName --clobber
           gh release upload "${{ github.event.inputs.release_tag }}" dist\SHA256SUMS-msix.txt --clobber
+          gh release upload "${{ github.event.inputs.release_tag }}" dist\NodeDR-POS-publisher.cer --clobber
+          gh release upload "${{ github.event.inputs.release_tag }}" dist\Install-NodeDRPOS.ps1 --clobber
 
       - name: Skipped publishing (test-identity build)
         if: github.event.inputs.release_tag != '' && steps.identity.outputs.has-real-identity != 'true'
