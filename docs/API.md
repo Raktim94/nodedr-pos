@@ -1,5 +1,7 @@
 # External API & MCP
 
+> Building your own online store? Start with [CUSTOM_STORE.md](CUSTOM_STORE.md).
+
 One key, two doors: a REST API for e-commerce stores and an MCP endpoint for AI
 agents. Both are authenticated with an API key created in **Settings →
 Integrations**, and both expose only what the key's permissions allow.
@@ -15,7 +17,7 @@ product). A product without a SKU is invisible to the API and MCP.
 | `stock:write` | Adjust stock |
 | `bills:write` | Take bills — the POS computes price, GST, discount, stock |
 | `bills:read` | Read bills **created through the same key** and download their PDFs |
-| `orders:write` | Create / read / cancel click-and-collect orders (reserve stock) |
+| `orders:write` | Create / read / cancel click-and-collect orders (reserve stock). The POS never bills these — your store does |
 | `warranty:read` | Warranty status from an IMEI / serial number (needs the *IMEI tracking* switch on in Settings → Features) |
 
 ## REST (`/api/external`, `Authorization: Bearer nk_live_…`)

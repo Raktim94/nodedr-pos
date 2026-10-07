@@ -305,7 +305,7 @@ test('purchasing: suppliers, reorder suggestion, PO receive updates stock + cost
   assert.equal((await admin.post(`/api/purchasing/orders/${po.data.id}/receive`, { items: [{ itemId: po.data.items[0].id, quantity: 1 }] })).status, 409);
 });
 
-test('orders: API order reserves stock, kanban status, collect bills it', async () => {
+test('orders: API order reserves stock, kanban status, hand-over takes stock without billing', async () => {
   const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
   const k = await admin.post('/api/api-keys', { name: 'orders', scopes: ['products:read', 'orders:write'], confirmPassword: PW });
   const hdr = { authorization: `Bearer ${k.data.apiKey}` };
@@ -329,12 +329,14 @@ test('orders: API order reserves stock, kanban status, collect bills it', async 
   assert.equal(polled.data.find((x) => x.id === id)?.status, 'READY');
   assert.equal((await api.get('/api/external/orders?updatedSince=nope', hdr)).status, 400);
   assert.equal((await admin.get(`/api/orders/by-code/${o.data.order.pickupCode}`)).data.id, id);
-  const col = await admin.post(`/api/orders/${id}/collect`, { paymentMethod: 'UPI' });
+  const col = await admin.post(`/api/orders/${id}/collect`, {});
   assert.equal(col.status, 200, JSON.stringify(col.data));
   assert.equal(col.data.order.status, 'COLLECTED');
+  assert.equal(col.data.invoice, undefined, 'online orders are billed by the store, not the POS');
+  assert.equal(col.data.order.invoiceId, null);
   const after = (await admin.get('/api/products')).data.find((p) => p.id === cola.id);
   assert.equal(after.stock, before.stock - 10);
-  assert.equal((await admin.post(`/api/orders/${id}/collect`, { paymentMethod: 'UPI' })).status, 409);
+  assert.equal((await admin.post(`/api/orders/${id}/collect`, {})).status, 409);
 });
 
 test('store webhooks: bad signature rejected, valid Woo order becomes an order', async () => {
@@ -452,14 +454,14 @@ test('security: franchisor is limited to the hub views and read-only', async () 
   assert.equal((await f.post('/api/hub/transfers', { fromBranchId: 1, toBranchId: 2, items: [] })).status, 403);
 });
 
-test('security: concurrent hand-over bills an order exactly once', async () => {
+test('security: concurrent hand-over takes stock exactly once', async () => {
   const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
   const key = await admin.post('/api/api-keys', { name: 'race-orders', scopes: ['orders:write'], confirmPassword: PW });
   const placed = await client(srv.base).post('/api/external/orders', { externalId: 'race-o', items: [{ sku: 'COLA-1', quantity: 2 }], customer: { name: 'Race' } }, { authorization: `Bearer ${key.data.apiKey}` });
   assert.equal(placed.status, 201, JSON.stringify(placed.data));
   const o = { data: placed.data.order };
   const before = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
-  const results = await Promise.all([1, 2, 3, 4].map(() => admin.post(`/api/orders/${o.data.id}/collect`, { paymentMethod: 'UPI' })));
+  const results = await Promise.all([1, 2, 3, 4].map(() => admin.post(`/api/orders/${o.data.id}/collect`, {})));
   assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => r.status)));
   const after = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
   assert.equal(after, before - 2);

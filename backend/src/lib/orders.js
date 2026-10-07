@@ -3,15 +3,17 @@
 //
 // Stock model: an order does NOT move Product.stock. Open orders (NEW,
 // PACKING, READY) are *reservations*: availability = stock − reserved. Stock
-// is only decremented when the order is billed at collection, through the
-// normal checkout service — so cancelling an order needs no stock unwinding
-// and serial/IMEI units are assigned at hand-over, not at order time.
+// is only decremented when the order is handed over (COLLECTED) — so
+// cancelling an order needs no stock unwinding.
+//
+// The POS does NOT bill online orders: the customer's invoice/payment belongs
+// to the e-commerce store that took the order. Handing over only releases the
+// goods (stock out) and tells the store the order is collected.
 const crypto = require('crypto');
 const prisma = require('./prisma');
 const { round2, effectivePrice } = require('./pricing');
 const { r3 } = require('./qty');
-const { performCheckout, checkoutSchema } = require('./checkout');
-const { notifyEvent } = require('./webhooks');
+const { notifyEvent, notifyStockChange } = require('./webhooks');
 
 const OPEN = ['NEW', 'PACKING', 'READY'];
 const NEXT = { NEW: ['PACKING', 'READY', 'CANCELLED'], PACKING: ['READY', 'CANCELLED'], READY: ['CANCELLED'] };
@@ -107,45 +109,37 @@ async function setStatus(id, status) {
 }
 
 /**
- * Hand the order over and bill it. Billing goes through the shared checkout
- * service; `serials` maps productId -> [serial...] for tracked products.
- * Prepaid orders are billed as paid in full.
+ * Hand the order over: take the goods out of stock and mark it COLLECTED. No
+ * invoice is created — billing is the e-commerce store's job.
  */
-async function collect(id, { paymentMethod, amountPaid = 0, serials = {}, user }) {
+async function collect(id) {
   const o = await prisma.order.findUnique({ where: { id }, include: { items: true } });
   if (!o) throw err('Order not found', 404);
   if (o.status === 'COLLECTED') throw err('Order was already collected', 409);
   if (o.status === 'CANCELLED') throw err('Order is cancelled', 409);
 
-  // Claim the order atomically BEFORE billing: two concurrent hand-overs (a
-  // double click, two tills) would otherwise both pass the status check and
-  // bill — and decrement stock — twice. Only the caller whose conditional
-  // update flips the row proceeds; a failed bill releases the claim.
-  const claimed = await prisma.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
-  if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
-  try {
-    return await billClaimedOrder(o, { paymentMethod, amountPaid, serials, user });
-  } catch (e) {
-    await prisma.order.updateMany({ where: { id, status: 'COLLECTED', invoiceId: null }, data: { status: o.status } });
-    throw e;
-  }
-}
-
-async function billClaimedOrder(o, { paymentMethod, amountPaid, serials, user }) {
-  const id = o.id;
-  const body = checkoutSchema.parse({
-    customerName: o.customerName,
-    customerPhone: o.customerPhone || '',
-    items: o.items.map((i) => ({ productId: i.productId, quantity: i.quantity, serials: serials[i.productId] })),
-    paymentMethod: o.paid ? (paymentMethod === 'CARD' ? 'CARD' : 'UPI') : paymentMethod,
-    amountPaid,
-    externalRef: `order-${o.id}`,
+  // One transaction: claim the order (so two concurrent hand-overs — a double
+  // click, two tills — can't both take stock) and decrement stock. Any failure
+  // rolls the whole thing back, including the claim.
+  const changed = [];
+  const updated = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
+    if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
+    const settings = await tx.shopSettings.findFirst();
+    for (const it of o.items) {
+      const p = await tx.product.findUnique({ where: { id: it.productId } });
+      if (!p) continue; // product deleted since the order — nothing to take out
+      if (!settings?.allowNegativeStock && p.stock + 1e-9 < it.quantity) {
+        throw err(`Not enough stock for "${p.name}" to hand over (have ${p.stock})`, 409);
+      }
+      const after = await tx.product.update({ where: { id: p.id }, data: { stock: { decrement: it.quantity } } });
+      if (after.sku) changed.push({ sku: after.sku, stock: after.stock });
+    }
+    return tx.order.findUnique({ where: { id }, include: { items: true } });
   });
-  // Idempotent per order: a double-click can't bill twice.
-  const { invoice } = await performCheckout(body, { source: 'ORDER', cashierName: user?.name, user, apiKeyId: null });
-  const updated = await prisma.order.update({ where: { id }, data: { status: 'COLLECTED', invoiceId: invoice.id }, include: { items: true } });
+  if (changed.length) notifyStockChange(changed);
   emitOrderEvent('order.updated', updated, o.status);
-  return { order: updated, invoice };
+  return { order: updated };
 }
 
 module.exports = { createOrder, setStatus, collect, publicOrder, reservedByProduct, OPEN };

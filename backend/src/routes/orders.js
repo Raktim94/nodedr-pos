@@ -46,15 +46,11 @@ router.patch('/:id/status', wrap(async (req, res) => {
   res.json(orders.publicOrder(await orders.setStatus(idOf(req), status)));
 }));
 
-// POST /api/orders/:id/collect — hand over + bill.
+// POST /api/orders/:id/collect — hand over: stock goes out, order is marked
+// collected. Not billed here — the e-commerce store owns the invoice/payment.
 router.post('/:id/collect', wrap(async (req, res) => {
-  const p = z.object({
-    paymentMethod: z.enum(['CASH', 'UPI', 'CARD']).default('CASH'),
-    amountPaid: z.number().min(0).default(0),
-    serials: z.record(z.string(), z.array(z.string().trim().min(1).max(64)).max(1000)).default({}),
-  }).parse(req.body);
-  const { order, invoice } = await orders.collect(idOf(req), { ...p, user: req.user });
-  res.json({ order: orders.publicOrder(order), invoice });
+  const { order } = await orders.collect(idOf(req));
+  res.json({ order: orders.publicOrder(order) });
 }));
 
 module.exports = router;

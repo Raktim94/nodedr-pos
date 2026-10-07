@@ -17,12 +17,39 @@ export function OnlineTab() {
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <StoresCard />
+      <CustomWebsiteCard />
       <AnnouncementsCard />
     </div>
   );
 }
 
 interface Store { id: number; platform: "woocommerce" | "shopify" | "generic"; name: string; active: boolean; lastEventAt: string | null; webhookUrl: string; outboundConfigured: boolean; baseUrl: string; shopDomain: string; locationId: string }
+
+function CustomWebsiteCard() {
+  const base = typeof window === "undefined" ? "" : `${window.location.origin}/api/external`;
+  const example = `curl -X POST ${base}/orders \\
+  -H "Authorization: Bearer nk_live_…" -H "Content-Type: application/json" \\
+  -d '{"externalId":"web-1001","customer":{"name":"Meena","phone":"98765…"},"items":[{"sku":"COLA-1","quantity":2}],"paid":true}'`;
+  return (
+    <Card className="flex flex-col gap-3 p-6">
+      <div>
+        <h2 className="text-base font-semibold">Your own website (API)</h2>
+        <p className="mt-1 text-sm text-foreground-muted">
+          Built your own online store? Send its orders to the POS with a small REST call. Your website takes the payment and issues the customer&apos;s invoice — the POS reserves stock, lets you pack and hand over, and tells your site each status change. Orders are never billed in the POS.
+        </p>
+      </div>
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground-muted">
+        <li>Give the products you sell online a <b>SKU</b> (Inventory → edit).</li>
+        <li>Create an API key with <b>products:read</b> and <b>orders:write</b> in <b>Integrations</b>; add a webhook URL to receive order updates.</li>
+        <li>Send orders to <code className="rounded bg-surface-muted px-1 font-mono text-xs">{base || "/api/external"}/orders</code>.</li>
+      </ol>
+      <pre className="overflow-x-auto rounded-lg bg-surface-muted p-3 font-mono text-xs leading-relaxed">{example}</pre>
+      <p className="text-sm">
+        <a className="font-medium text-brand hover:underline" href="https://github.com/Raktim94/nodedr-pos/blob/master/docs/CUSTOM_STORE.md" target="_blank" rel="noreferrer">Developer guide with Node and Python examples →</a>
+      </p>
+    </Card>
+  );
+}
 
 function StoresCard() {
   const { show } = useToast();
@@ -73,7 +100,7 @@ function StoresCard() {
       {adding && (
         <Modal title="Connect a store" onClose={() => setAdding(false)} size="sm">
           <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
-            <Select label="Platform" value={platform} onChange={(e) => setPlatform(e.target.value)} options={[{ value: "woocommerce", label: "WooCommerce" }, { value: "shopify", label: "Shopify" }, { value: "generic", label: "Other (generic signed webhook)" }]} />
+            <Select label="Platform" value={platform} onChange={(e) => setPlatform(e.target.value)} options={[{ value: "woocommerce", label: "WooCommerce" }, { value: "shopify", label: "Shopify" }, { value: "generic", label: "Custom website (signed webhook)" }]} />
             <Field label="Name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="My online shop" />
             <Button type="submit" disabled={!name.trim() || create.isPending}>Connect</Button>
           </form>

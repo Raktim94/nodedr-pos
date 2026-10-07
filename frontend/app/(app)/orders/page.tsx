@@ -17,7 +17,7 @@ const COLUMNS: { key: Col; title: string; hint: string }[] = [
   { key: "NEW", title: "New", hint: "Stock is reserved" },
   { key: "PACKING", title: "Packing", hint: "Being picked" },
   { key: "READY", title: "Ready", hint: "Waiting for the customer" },
-  { key: "COLLECTED", title: "Collected", hint: "Billed" },
+  { key: "COLLECTED", title: "Collected", hint: "Handed over today" },
 ];
 const NEXT: Record<string, Col | undefined> = { NEW: "PACKING", PACKING: "READY", READY: "COLLECTED" };
 const ALLOWED: Record<string, string[]> = { NEW: ["PACKING", "READY"], PACKING: ["READY"], READY: ["COLLECTED"] };
@@ -88,7 +88,7 @@ export default function OrdersPage() {
     <div>
       <PageHeader
         title="Online orders"
-        subtitle="Orders from your e-commerce stores (WooCommerce, Shopify, API) for pickup or delivery. Drag a card — or use its button — to move it along."
+        subtitle="Orders from your e-commerce websites (WooCommerce, Shopify, your own site via API) for pickup or delivery. Your website bills the customer — here you pack and hand over. Drag a card, or use its button, to move it along."
         actions={
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) findByCode(); }}>
             <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Pickup code" aria-label="Pickup code" maxLength={8} className="w-32 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm uppercase tracking-widest" />
@@ -134,7 +134,7 @@ export default function OrdersPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">{o.customerName}</p>
-                        <p className="font-mono text-xs tracking-widest text-foreground-muted">{o.pickupCode}</p>
+                        <p className="font-mono text-xs tracking-widest text-foreground-muted">{o.pickupCode}{o.externalId ? <span className="ml-2 tracking-normal">#{o.externalId}</span> : null}</p>
                       </div>
                       <p className="tabular text-sm font-semibold">{formatMoney(o.total, sym)}</p>
                     </div>
@@ -153,7 +153,7 @@ export default function OrdersPage() {
                           className="flex-1 !px-3 !py-1.5 text-xs"
                           onClick={() => (NEXT[o.status] === "COLLECTED" ? setCollecting(o) : move.mutate({ id: o.id, status: NEXT[o.status]! }))}
                         >
-                          {NEXT[o.status] === "COLLECTED" ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Hand over &amp; bill</> : <>Move to {NEXT[o.status]?.toLowerCase()} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></>}
+                          {NEXT[o.status] === "COLLECTED" ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Hand over</> : <>Move to {NEXT[o.status]?.toLowerCase()} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></>}
                         </Button>
                         <Button variant="ghost" aria-label={`Cancel order ${o.pickupCode}`} className="!px-2.5 !py-1.5" onClick={() => move.mutate({ id: o.id, status: "CANCELLED" })}>
                           <XCircle className="h-4 w-4 text-danger" aria-hidden="true" />
@@ -167,7 +167,7 @@ export default function OrdersPage() {
           ))}
         </div>
       )}
-      {!isLoading && orders.length === 0 && <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No orders yet" hint="Orders from your website, WooCommerce or Shopify store appear here. Connect a store in Settings → Online stores." />}
+      {!isLoading && orders.length === 0 && <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No orders yet" hint="Orders from your website, WooCommerce or Shopify store appear here. Connect a store in Settings → Online stores, or connect your own website through the API." />}
 
       {collecting && <CollectDialog order={collecting} sym={sym} onClose={() => setCollecting(null)} onDone={() => { setCollecting(null); qc.invalidateQueries({ queryKey: ["orders"] }); qc.invalidateQueries({ queryKey: ["products"] }); }} />}
     </div>
@@ -176,55 +176,27 @@ export default function OrdersPage() {
 
 function CollectDialog({ order, sym, onClose, onDone }: { order: Order; sym: string; onClose: () => void; onDone: () => void }) {
   const { show } = useToast();
-  const [method, setMethod] = useState<"CASH" | "UPI" | "CARD">(order.paid ? "UPI" : "CASH");
-  const [received, setReceived] = useState(String(order.total));
-  const [serials, setSerials] = useState<Record<number, string>>({});
-  const { data: products } = useQuery({ queryKey: ["products", ""], queryFn: () => api.get<{ id: number; trackSerial: boolean }[]>("/products") });
-  const { data: shop } = useShopSettings();
-  const tracked = new Set(shop?.serialTracking ? (products ?? []).filter((p) => p.trackSerial).map((p) => p.id) : []);
-
   const run = useMutation({
-    mutationFn: () =>
-      api.post(`/orders/${order.id}/collect`, {
-        paymentMethod: method,
-        amountPaid: method === "CASH" ? Number(received) || 0 : 0,
-        serials: Object.fromEntries(Object.entries(serials).map(([k, v]) => [k, v.split(/[\s,;]+/).filter(Boolean)])),
-      }),
-    onSuccess: () => { show(`Order ${order.pickupCode} billed`, "success"); onDone(); },
-    onError: (e) => show(describeApiError(e, "Could not bill the order"), "error"),
+    mutationFn: () => api.post(`/orders/${order.id}/collect`, {}),
+    onSuccess: () => { show(`Order ${order.pickupCode} handed over`, "success"); onDone(); },
+    onError: (e) => show(describeApiError(e, "Could not hand over the order"), "error"),
   });
 
   return (
     <Modal title={`Hand over · ${order.customerName}`} onClose={onClose} size="sm">
       <div className="flex flex-col gap-3">
+        <p className="font-mono text-sm tracking-widest text-foreground-muted">
+          {order.pickupCode}{order.externalId ? ` · store order #${order.externalId}` : ""}
+        </p>
         <ul className="text-sm">
           {order.items.map((i) => (
             <li key={i.productId} className="flex justify-between py-0.5"><span>{i.quantity}× {i.name}</span><span className="tabular">{formatMoney(i.price * i.quantity, sym)}</span></li>
           ))}
         </ul>
-        {order.items.filter((i) => tracked.has(i.productId)).map((i) => (
-          <label key={i.productId} className="flex flex-col gap-1 text-sm font-medium">
-            IMEI / serials for {i.name} ({i.quantity})
-            <textarea value={serials[i.productId] ?? ""} onChange={(e) => setSerials((s) => ({ ...s, [i.productId]: e.target.value }))} rows={2} placeholder="Scan each unit" className="rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs" />
-          </label>
-        ))}
-        {order.paid ? (
-          <p className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">Already paid online — billed as paid in full.</p>
-        ) : (
-          <>
-            <div className="grid grid-cols-3 gap-2">
-              {(["CASH", "UPI", "CARD"] as const).map((m) => (
-                <button key={m} type="button" onClick={() => setMethod(m)} className={`rounded-lg border px-3 py-2 text-sm font-medium ${method === m ? "border-brand bg-brand text-brand-foreground" : "border-border"}`}>{m}</button>
-              ))}
-            </div>
-            {method === "CASH" && (
-              <label className="flex flex-col gap-1 text-sm font-medium">Cash received
-                <input type="number" min={0} step="0.01" value={received} onChange={(e) => setReceived(e.target.value)} className="rounded-lg border border-border bg-surface px-3 py-2" />
-              </label>
-            )}
-          </>
-        )}
-        <Button onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? "Billing…" : `Bill ${formatMoney(order.total, sym)} & hand over`}</Button>
+        <p className={`rounded-lg px-3 py-2 text-sm ${order.paid ? "bg-success-soft text-success" : "bg-surface-muted text-foreground-muted"}`}>
+          {order.paid ? "Paid online." : "Payment is handled by the website — check its order if the customer pays on collection."} No bill is made here.
+        </p>
+        <Button onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? "Saving…" : "Hand over — take items out of stock"}</Button>
       </div>
     </Modal>
   );
