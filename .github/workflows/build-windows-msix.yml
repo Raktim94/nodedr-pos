@@ -293,6 +293,7 @@ jobs:
       - name: Test the direct-download installer script (certificate trust + install + uninstall)
         shell: pwsh
         run: |
+          $global:LASTEXITCODE = 0
           & "$PWD\dist\Install-NodeDRPOS.ps1" -NoPause
           if ($LASTEXITCODE -ne 0) { throw "Install-NodeDRPOS.ps1 failed" }
           if (-not (Get-AppxPackage -Name "*NodedrPOS*")) { throw "package not installed by the script" }
