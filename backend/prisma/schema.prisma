@@ -468,13 +468,14 @@ model Order {
   paid        Boolean   @default(false)
   paymentRef  String?
   apiKeyId    Int?
+  dedupScope  String    @default("") // who sent it: key:<id> / store:<id> — externalId is unique per sender
   integrationId Int? // the WooCommerce/Shopify/generic store that sent it — status changes are pushed back
   invoiceId   Int?      @unique
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   items       OrderItem[]
 
-  @@unique([channel, externalId])
+  @@unique([channel, dedupScope, externalId])
   @@index([status])
 }
 

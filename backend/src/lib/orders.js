@@ -37,10 +37,13 @@ async function reservedByProduct(tx, productIds) {
 async function createOrder(input) {
   const { channel, externalId = null, fulfilment = 'PICKUP', customer = {}, items, note = null, paid = false, paymentRef = null, apiKeyId = null, integrationId = null } = input;
   if (!items?.length) throw err('Order has no items');
+  // externalId is only unique within its sender (API key / connected store), so
+  // one key can neither read nor squat another key's order ids.
+  const dedupScope = apiKeyId ? `key:${apiKeyId}` : integrationId ? `store:${integrationId}` : '';
 
   return prisma.$transaction(async (tx) => {
     if (externalId) {
-      const prior = await tx.order.findUnique({ where: { channel_externalId: { channel, externalId } }, include: { items: true } });
+      const prior = await tx.order.findUnique({ where: { channel_dedupScope_externalId: { channel, dedupScope, externalId } }, include: { items: true } });
       if (prior) return { order: prior, deduplicated: true };
     }
     const settings = await tx.shopSettings.findFirst();
@@ -61,7 +64,7 @@ async function createOrder(input) {
     const total = round2(lines.reduce((s, l) => s + l.price * l.quantity, 0));
     const order = await tx.order.create({
       data: {
-        channel, externalId, fulfilment, pickupCode: pickupCode(), note, paid, paymentRef, apiKeyId, integrationId, total,
+        channel, externalId, dedupScope, fulfilment, pickupCode: pickupCode(), note, paid, paymentRef, apiKeyId, integrationId, total,
         customerName: customer.name || 'Online Customer', customerPhone: customer.phone || null, customerEmail: customer.email || null,
         items: { create: lines },
       },

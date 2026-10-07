@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requirePerm } = require('../middleware/auth');
 const { makePortalToken } = require('../lib/publicLink');
 const { round2 } = require('../lib/pricing');
 
@@ -79,7 +79,7 @@ router.get('/by-card/:uid', async (req, res) => {
 });
 
 // PUT /api/customers/:id/card — link (or unlink with null) an NFC card UID.
-router.put('/:id/card', async (req, res) => {
+router.put('/:id/card', requirePerm('customers'), async (req, res) => {
   const id = Number(req.params.id);
   const parsed = z.object({ cardUid: z.string().trim().regex(/^[0-9A-Fa-f:\-]{4,40}$/).nullable() }).safeParse(req.body);
   if (!Number.isInteger(id) || !parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -102,7 +102,7 @@ router.get('/:id/portal-link', async (req, res) => {
   res.json({ url, whatsappUrl: `https://wa.me/${customer.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Your loyalty & receipts page: ${url}`)}` });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('customers'), async (req, res) => {
   const parsed = customerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -124,7 +124,7 @@ const settleDueSchema = z.object({
 // (CustomerDuePayment) rather than just decrementing a number with no
 // history. Amount is capped at the current balance — can't "overpay" a due
 // into a negative number by mistake.
-router.post('/:id/settle-due', async (req, res) => {
+router.post('/:id/settle-due', requirePerm('customers'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid customer id' });
   const parsed = settleDueSchema.safeParse(req.body);
@@ -168,7 +168,7 @@ router.get('/:id/due-payments', async (req, res) => {
   res.json(payments);
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePerm('customers'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid customer id' });
   const parsed = customerSchema.partial().safeParse(req.body);

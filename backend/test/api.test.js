@@ -246,6 +246,11 @@ test('permissions: cashier without returns/discount is blocked; discount cap enf
   assert.equal((await c.post('/api/returns', { invoiceId: 1, items: [{ invoiceItemId: 1, quantity: 1 }] })).status, 403);
   assert.equal((await c.get('/api/reports/overview')).status, 403);
   assert.equal((await c.post('/api/products', { barcode: 'x', name: 'x', purchasePrice: 1, sellingPrice: 2, taxRate: 0 })).status, 403);
+  // 'customers' is enforced server-side, not just hidden in the UI
+  assert.equal((await c.post('/api/customers', { name: 'Nope', phone: '9000000001' })).status, 403);
+  assert.equal((await c.put('/api/customers/1', { name: 'Nope', phone: '9000000001' })).status, 403);
+  assert.equal((await c.put('/api/customers/1/card', { cardUid: '04:AA:BB:CC' })).status, 403);
+  assert.equal((await c.post('/api/customers/1/settle-due', { amount: 1, paymentMethod: 'CASH' })).status, 403);
 });
 
 test('shifts: open, cash sale, close with variance', async () => {
@@ -494,4 +499,18 @@ test('A4 PDF: signature block never overflows or leaves a blank page', async () 
     assert.ok(p >= 1 && p <= Math.ceil(n / 24) + 1, `${n} lines -> ${p} pages`);
     if (n <= 12) assert.equal(p, 1, `${n} lines must fit on one page`);
   }
+});
+
+test('security: order externalId is scoped per API key (no cross-key read or squat)', async () => {
+  const mkKey = async (name) => (await admin.post('/api/api-keys', { name, scopes: ['products:read', 'orders:write'], confirmPassword: PW })).data.apiKey;
+  const [a, b] = [await mkKey('shop-a'), await mkKey('shop-b')];
+  const api = client(srv.base);
+  const send = (key, externalId, name) => api.post('/api/external/orders', { externalId, items: [{ sku: 'COLA-1', quantity: 1 }], customer: { name, phone: '6000000000' } }, { authorization: `Bearer ${key}` });
+  const first = await send(a, 'shared-id-1', 'Victim Customer');
+  assert.equal(first.status, 201, JSON.stringify(first.data));
+  const other = await send(b, 'shared-id-1', 'Other');
+  assert.equal(other.status, 201, JSON.stringify(other.data));
+  assert.notEqual(other.data.order.id, first.data.order.id);
+  assert.notEqual(other.data.order.customerName, 'Victim Customer');
+  assert.equal((await send(a, 'shared-id-1', 'Victim Customer')).data.deduplicated, true, 'same key still dedupes');
 });
