@@ -24,6 +24,34 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- 1b. Make sure the web port is free --------------------------------------
+# Default is 1994. If something else already listens there (and it isn't this
+# stack's own frontend, which `docker compose up` will simply recreate), pick
+# the next free port and persist it in .env so later `docker compose` runs and
+# the health check below agree with it.
+port_in_use() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$1$"
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+  fi
+}
+
+WANT_PORT="$(grep -m1 '^HOST_PORT=' .env 2>/dev/null | cut -d= -f2-)"
+WANT_PORT="${WANT_PORT:-${HOST_PORT:-1994}}"
+OWN_PORT="$(docker port nodedr-pos-frontend 3000/tcp 2>/dev/null | head -1 | sed 's/.*://')"
+
+if [ "$WANT_PORT" != "$OWN_PORT" ] && port_in_use "$WANT_PORT"; then
+  NEW_PORT="$WANT_PORT"
+  while port_in_use "$NEW_PORT"; do NEW_PORT=$((NEW_PORT + 1)); done
+  echo "Port ${WANT_PORT} is already in use by another program; using ${NEW_PORT} instead."
+  touch .env
+  sed -i '/^HOST_PORT=/d;/^FRONTEND_ORIGIN=/d' .env
+  printf 'HOST_PORT=%s\nFRONTEND_ORIGIN=http://localhost:%s\n' "$NEW_PORT" "$NEW_PORT" >> .env
+fi
+
 # --- 2. Build the images and start the stack --------------------------------
 # The SQLite database and the auto-generated session secret persist in the
 # `nodedr-pos_data` Docker volume (declared in docker-compose.yml), which
