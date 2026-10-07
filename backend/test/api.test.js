@@ -531,3 +531,22 @@ test('product photo: upload on create, replace, clear, served to signed-in users
   const q = await admin.get('/api/products/lookup?q=a');
   assert.equal(q.status, 400);
 });
+
+test('customer display: shared by key across devices, no login for the viewer', async () => {
+  const link = await admin.get('/api/display/link');
+  assert.equal(link.status, 200);
+  assert.match(link.data.key, /^[a-f0-9]{32}$/);
+  const anon = (u) => fetch(srv.base + u).then(async (r) => ({ status: r.status, data: await r.json() }));
+  assert.equal((await anon('/api/display/state')).status, 403);
+  assert.equal((await anon('/api/display/state?key=wrong')).status, 403);
+  const push = await admin.post('/api/display/state', { shopName: 'S', symbol: 'Rs.', lines: [], total: 5, upiUri: 'upi://pay?am=5' });
+  assert.equal(push.status, 200);
+  const got = await anon(`/api/display/state?key=${link.data.key}&v=tablet-1`);
+  assert.equal(got.data.changed, true);
+  assert.equal(got.data.state.upiUri, 'upi://pay?am=5');
+  const same = await anon(`/api/display/state?key=${link.data.key}&since=${got.data.seq}`);
+  assert.equal(same.data.changed, false);
+  assert.equal((await admin.post('/api/display/state', { nope: 1 })).status, 400);
+  assert.equal((await fetch(srv.base + '/api/display/state', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"lines":[]}' })).status, 401);
+  assert.equal((await admin.get('/api/display/link')).data.viewers, 1);
+});

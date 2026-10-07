@@ -10,10 +10,47 @@ import { DISPLAY_CHANNEL, type DisplayState } from "@/lib/display";
 export default function CustomerDisplay() {
   const [s, setS] = useState<DisplayState | null>(null);
 
+  const [link, setLink] = useState<"local" | "connecting" | "live" | "offline" | "invalid">("local");
+
+  // Same-browser window: instant updates over BroadcastChannel.
   useEffect(() => {
     const ch = new BroadcastChannel(DISPLAY_CHANNEL);
     ch.onmessage = (e: MessageEvent<DisplayState>) => setS(e.data);
     return () => ch.close();
+  }, []);
+
+  // Another device (phone / tablet / other PC): /display?key=… polls the
+  // server once a second; an unchanged cart costs a few bytes.
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get("key");
+    if (!key) return;
+    const viewer = Math.random().toString(36).slice(2, 10);
+    let since = 0;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    setLink("connecting");
+    async function tick() {
+      try {
+        const res = await fetch(`/api/display/state?key=${encodeURIComponent(key!)}&since=${since}&v=${viewer}`, { cache: "no-store" });
+        if (res.status === 403) {
+          setLink("invalid");
+          return; // wrong link — stop polling
+        }
+        if (!res.ok) throw new Error(String(res.status));
+        const d = (await res.json()) as { seq: number; changed: boolean; state?: DisplayState | null };
+        since = d.seq;
+        if (d.changed) setS(d.state ?? null);
+        setLink("live");
+      } catch {
+        setLink("offline");
+      }
+      if (!stopped) timer = setTimeout(tick, 1000);
+    }
+    tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   const [qr, setQr] = useState<string | null>(null);
@@ -42,10 +79,19 @@ export default function CustomerDisplay() {
     <main className="flex min-h-screen flex-col bg-[var(--green-950)] p-8 text-white">
       <header className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">{s?.shopName || "Welcome"}</h1>
-        <p className="text-sm text-white/60">{new Date().toLocaleDateString()}</p>
+        <p className="text-sm text-white/60">
+          {link === "offline" && <span className="mr-3 text-amber-300">Reconnecting…</span>}
+          {new Date().toLocaleDateString()}
+        </p>
       </header>
 
-      {s?.thankYou ? (
+      {link === "invalid" && (
+        <div role="alert" className="flex flex-1 items-center justify-center text-center">
+          <p className="max-w-md text-2xl text-white/80">This display link is not valid. Open the link again from the POS &ldquo;Customer display&rdquo; button.</p>
+        </div>
+      )}
+
+      {link === "invalid" ? null : s?.thankYou ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p className="text-5xl font-semibold tracking-tight">Thank you!</p>
           <p className="text-lg text-white/70">Please visit again.</p>

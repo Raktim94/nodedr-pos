@@ -24,6 +24,7 @@ import { paymentSoundEnabled, playPaymentConfirmation, setPaymentSoundEnabled } 
 import { readScaleKg, scaleSupported } from "@/lib/scale";
 import { SerialPrompt } from "@/components/pos/SerialPrompt";
 import { UpiQr } from "@/components/pos/UpiQr";
+import { CustomerDisplayLink } from "@/components/pos/CustomerDisplayLink";
 import { TerminalCharge } from "@/components/pos/TerminalCharge";
 import { ShareActions } from "@/components/pos/ShareActions";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
@@ -51,6 +52,7 @@ export default function PosPage() {
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [upiUri, setUpiUri] = useState<string | null>(null);
+  const [displayLinkOpen, setDisplayLinkOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   useEffect(() => setSoundOn(paymentSoundEnabled()), []);
   const [amountPaid, setAmountPaid] = useState("");
@@ -400,7 +402,7 @@ export default function PosPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={() => window.open("/display", "nodedr-display", "popup,width=900,height=600")}>
+          <Button type="button" variant="secondary" onClick={() => setDisplayLinkOpen(true)}>
             <Monitor className="h-4 w-4" aria-hidden="true" />
             Customer display
           </Button>
@@ -426,6 +428,7 @@ export default function PosPage() {
         </div>
       </div>
 
+      {displayLinkOpen && <CustomerDisplayLink onClose={() => setDisplayLinkOpen(false)} />}
       {cameraScannerOpen && (
         <CameraScannerModal
           onClose={() => setCameraScannerOpen(false)}

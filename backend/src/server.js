@@ -27,6 +27,7 @@ const integrationRoutes = require('./routes/integrations');
 const hubRoutes = require('./routes/hub');
 const { startSync } = require('./lib/sync');
 const orderRoutes = require('./routes/orders');
+const displayRoutes = require('./routes/display');
 const announcementRoutes = require('./routes/announcements');
 const purchasingRoutes = require('./routes/purchasing');
 const emailReportRoutes = require('./routes/emailReports');
@@ -112,6 +113,7 @@ app.use('/api/sync', hubRoutes.cfg);
 app.use('/api/integrations', integrationRoutes.admin);
 app.use('/api/webhooks', integrationRoutes.hook);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/display', displayRoutes);
 
 // MCP over Streamable HTTP — authenticated with an API key (Bearer), tools
 // limited to that key's scopes. Same rate budget as the External API.

@@ -742,6 +742,28 @@ The header, footer, currency, GSTIN, and whether the GST breakdown shows are
 all driven by your settings, so this layout adapts to how you configure the
 shop.
 
+## Customer display (phone, tablet or second screen)
+
+The customer display shows the cart and total, and the **UPI payment QR for the
+exact amount** (INR shops with a UPI id set). It works on any device on the same
+network — no cables, no app.
+
+1. On the POS page press **Customer display**.
+2. Open the link it shows on the phone/tablet/second PC, or scan its QR code.
+   The link looks like `http://<machine>:1994/display?key=<secret>` — for
+   example `http://192.168.1.40:1994/display?key=…`.
+3. That's it. The display follows the till automatically (about once a second)
+   and reconnects by itself if Wi-Fi drops. The POS shows how many displays are
+   connected.
+
+Notes: the `key` is a secret generated on first use and stored in
+`data/display-key` — anyone with the link can watch the cart, so keep it to your
+own screens. Opening `/display` without a key only mirrors a window in the same
+browser as the till. Use the browser's fullscreen / "Add to Home screen" on a
+tablet for a kiosk look. Completing a sale also plays a chime (and speaks the
+amount for UPI/card) on the till; toggle it with **Payment sound** on the POS
+page.
+
 ## Reference data & validation
 
 ### Built-in (small, stable lists)
