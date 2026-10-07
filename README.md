@@ -147,7 +147,7 @@ What is verified and what still needs real-device testing: [docs/ROADMAP.md](doc
 
 | Dashboard | POS checkout (weighed item + UPI QR) |
 | --- | --- |
-| ![Dashboard: today's revenue, 14-day chart, register timer, low stock, online orders](docs/screenshots/dashboard.png) | ![POS: cart with a weighed item and a dynamic UPI QR](docs/screenshots/pos.png) |
+| ![Dashboard: today's revenue, 14-day chart, low stock, online orders](docs/screenshots/dashboard.png) | ![POS: cart with a weighed item and a dynamic UPI QR](docs/screenshots/pos.png) |
 
 | Online orders (from your e-commerce store) | Reports |
 | --- | --- |
