@@ -3,6 +3,8 @@ const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const { notifyStockChange } = require('../lib/webhooks');
+const { saveProductImage, fetchRemoteProductImage, readProductImage, NAME_RE: IMAGE_NAME_RE } = require('../lib/productImages');
+const { lookupProducts } = require('../lib/productLookup');
 const { importProducts, sampleCsv, COLUMNS } = require('../lib/bulkImport');
 
 const router = express.Router();
@@ -44,6 +46,10 @@ const fields = {
   warrantyMonths: z.number().int().min(0).max(240),
   reorderPoint: z.number().min(0).max(1_000_000),
   supplierId: z.number().int().positive().nullable(),
+  // Photo: a PNG/JPEG/WebP data URL to set it, null to remove it. `imageUrl` is
+  // the online-lookup suggestion (allow-listed hosts only, fetched server-side).
+  image: z.string().max(1_200_000).nullable(),
+  imageUrl: z.string().url().max(500),
 };
 const createSchema = z.object({
   ...fields,
@@ -54,8 +60,36 @@ const createSchema = z.object({
   warrantyMonths: fields.warrantyMonths.default(0),
   reorderPoint: fields.reorderPoint.default(0),
   supplierId: fields.supplierId.default(null),
+  image: fields.image.optional(),
+  imageUrl: fields.imageUrl.optional(),
 });
 const updateSchema = z.object(fields).partial();
+
+// Turns the transient `image` / `imageUrl` request fields into Product.imageFile.
+// Mutates and returns `data`. Throws {status} on a bad upload.
+async function applyImage(data) {
+  const { image, imageUrl } = data;
+  delete data.image;
+  delete data.imageUrl;
+  if (image === null) data.imageFile = null;
+  else if (typeof image === 'string') data.imageFile = saveProductImage(image);
+  else if (imageUrl) {
+    const name = await fetchRemoteProductImage(imageUrl);
+    if (name) data.imageFile = name;
+  }
+  return data;
+}
+
+// GET /api/products/image/:name — serves a stored product photo (content-hash
+// names, so immutable and safe to cache in the signed-in browser).
+function serveImage(req, res) {
+  const buf = IMAGE_NAME_RE.test(req.params.name) ? readProductImage(req.params.name) : null;
+  if (!buf) return res.status(404).json({ error: 'Not found' });
+  res.set('Cache-Control', 'private, max-age=31536000, immutable');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.type(req.params.name.endsWith('.png') ? 'image/png' : req.params.name.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+  res.send(buf);
+}
 
 function normalizeDiscount(data) {
   // A discountType with no value (or vice versa) doesn't make sense —
@@ -100,6 +134,28 @@ router.get('/low-stock', async (req, res) => {
   });
   res.json({ threshold, products });
 });
+
+// GET /api/products/lookup?q=<name or barcode> — suggestions from free online
+// product databases (Open Food/Beauty/Products Facts). Read-only: the user
+// reviews a suggestion in the product form before anything is saved.
+// `inCatalog` marks barcodes this shop already stocks.
+const lookupLimiter = require('express-rate-limit')({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
+router.get('/lookup', requirePerm('inventory'), lookupLimiter, async (req, res) => {
+  try {
+    const out = await lookupProducts(req.query.q);
+    const existing = await prisma.product.findMany({
+      where: { barcode: { in: out.results.map((r) => r.barcode) } },
+      select: { barcode: true },
+    });
+    const have = new Set(existing.map((p) => p.barcode));
+    res.json({ ...out, results: out.results.map((r) => ({ ...r, inCatalog: have.has(r.barcode) })) });
+  } catch (err) {
+    if (!err.status) console.error('product lookup failed', err);
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Product lookup failed' });
+  }
+});
+
+router.get('/image/:name', serveImage);
 
 // GET /api/products/barcode/:barcode — scanner lookup
 router.get('/barcode/:barcode', async (req, res) => {
@@ -160,7 +216,7 @@ router.post('/', requirePerm('inventory'), async (req, res) => {
 
   let data;
   try {
-    data = normalizeDiscount(parsed.data);
+    data = await applyImage(normalizeDiscount(parsed.data));
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
@@ -178,7 +234,7 @@ router.put('/:id', requirePerm('inventory'), async (req, res) => {
   }
   let data;
   try {
-    data = normalizeDiscount(parsed.data);
+    data = await applyImage(normalizeDiscount(parsed.data));
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileDown, PackageCheck, Plus, Send, Truck } from "lucide-react";
+import { FileDown, PackageCheck, Pencil, Plus, Send, Trash2, Truck, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/Bits";
@@ -11,6 +11,8 @@ import { api, describeApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
+import { Select } from "@/components/ui/Select";
+import { useProducts } from "@/hooks/useProducts";
 import type { Supplier } from "@/lib/types";
 
 interface ReorderGroup { supplierId: number | null; supplierName: string; items: { productId: number; name: string; stock: number; reorderPoint: number; unit: string | null; unitCost: number; suggestedQty: number }[] }
@@ -26,7 +28,8 @@ export default function PurchasingPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<"reorder" | "orders" | "suppliers">("reorder");
   const [receiving, setReceiving] = useState<number | null>(null);
-  const [supplierDialog, setSupplierDialog] = useState(false);
+  const [supplierDialog, setSupplierDialog] = useState<Supplier | "new" | null>(null);
+  const [poDialog, setPoDialog] = useState(false);
 
   const { data: reorder = [] } = useQuery({ queryKey: ["reorder"], queryFn: () => api.get<ReorderGroup[]>("/purchasing/reorder") });
   const { data: orders = [] } = useQuery({ queryKey: ["pos"], queryFn: () => api.get<PO[]>("/purchasing/orders") });
@@ -45,7 +48,7 @@ export default function PurchasingPage() {
 
   return (
     <div>
-      <PageHeader title="Purchasing" subtitle="Suppliers, low-stock reorder suggestions and purchase orders." actions={<Button onClick={() => setSupplierDialog(true)}><Plus className="h-4 w-4" aria-hidden="true" /> Supplier</Button>} />
+      <PageHeader title="Purchasing" subtitle="Suppliers, low-stock reorder suggestions and purchase orders." actions={<div className="flex gap-2"><Button variant="secondary" onClick={() => setSupplierDialog("new")}><Plus className="h-4 w-4" aria-hidden="true" /> Supplier</Button><Button onClick={() => setPoDialog(true)} disabled={suppliers.length === 0} title={suppliers.length === 0 ? "Add a supplier first" : undefined}><Plus className="h-4 w-4" aria-hidden="true" /> New purchase order</Button></div>} />
       <div role="tablist" aria-label="Purchasing" className="mb-4 inline-flex rounded-xl border border-border bg-surface p-1">
         {([["reorder", `Reorder (${reorder.reduce((n, g) => n + g.items.length, 0)})`], ["orders", "Purchase orders"], ["suppliers", "Suppliers"]] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`rounded-lg px-3.5 py-1.5 text-sm font-medium ${tab === k ? "bg-brand text-brand-foreground" : "text-foreground-muted hover:text-foreground"}`}>{label}</button>
@@ -86,6 +89,7 @@ export default function PurchasingPage() {
                   <td className="p-3"><div className="flex justify-end gap-1.5">
                     <a href={`/api/purchasing/orders/${o.id}/pdf`} download><Button variant="ghost" aria-label={`Download ${o.number} PDF`}><FileDown className="h-4 w-4" aria-hidden="true" /></Button></a>
                     {o.status === "DRAFT" && <Button variant="secondary" onClick={() => setStatus.mutate({ id: o.id, status: "SENT" })}><Send className="h-4 w-4" aria-hidden="true" /> Mark sent</Button>}
+                    {(o.status === "DRAFT" || o.status === "SENT") && <Button variant="ghost" aria-label={`Cancel ${o.number}`} title="Cancel order" onClick={() => { if (window.confirm(`Cancel ${o.number}?`)) setStatus.mutate({ id: o.id, status: "CANCELLED" }); }}><X className="h-4 w-4" aria-hidden="true" /></Button>}
                     {(o.status === "DRAFT" || o.status === "SENT") && <Button onClick={() => setReceiving(o.id)}><PackageCheck className="h-4 w-4" aria-hidden="true" /> Receive</Button>}
                   </div></td>
                 </tr>
@@ -100,7 +104,10 @@ export default function PurchasingPage() {
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {suppliers.map((s, i) => (
             <li key={s.id} className="rise card-surface p-4" style={{ "--i": i } as React.CSSProperties}>
-              <p className="font-semibold">{s.name}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-semibold">{s.name}</p>
+                <button type="button" aria-label={`Edit ${s.name}`} title="Edit supplier" onClick={() => setSupplierDialog(s)} className="text-foreground/40 hover:text-brand"><Pencil className="h-4 w-4" aria-hidden="true" /></button>
+              </div>
               <p className="text-sm text-foreground-muted">{[s.phone, s.email].filter(Boolean).join(" · ") || "No contact"}</p>
               {s.gstin && <p className="mt-1 font-mono text-xs text-foreground-muted">GSTIN {s.gstin}</p>}
             </li>
@@ -109,29 +116,106 @@ export default function PurchasingPage() {
         </ul>
       )}
 
-      {supplierDialog && <SupplierDialog onClose={() => setSupplierDialog(false)} />}
+      {supplierDialog && <SupplierDialog supplier={supplierDialog === "new" ? undefined : supplierDialog} onClose={() => setSupplierDialog(null)} />}
+      {poDialog && <NewPoDialog suppliers={suppliers} onCreated={() => setTab("orders")} onClose={() => setPoDialog(false)} />}
       {receiving != null && <ReceiveDialog id={receiving} onClose={() => setReceiving(null)} />}
     </div>
   );
 }
 
-function SupplierDialog({ onClose }: { onClose: () => void }) {
+function SupplierDialog({ supplier, onClose }: { supplier?: Supplier; onClose: () => void }) {
   const qc = useQueryClient();
   const { show } = useToast();
-  const [f, setF] = useState({ name: "", phone: "", email: "", gstin: "" });
+  const [f, setF] = useState({ name: supplier?.name ?? "", phone: supplier?.phone ?? "", email: supplier?.email ?? "", address: supplier?.address ?? "", gstin: supplier?.gstin ?? "", notes: supplier?.notes ?? "" });
+  const done = () => { qc.invalidateQueries({ queryKey: ["suppliers"] }); qc.invalidateQueries({ queryKey: ["reorder"] }); qc.invalidateQueries({ queryKey: ["products"] }); onClose(); };
   const save = useMutation({
-    mutationFn: () => api.post("/purchasing/suppliers", f),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["suppliers"] }); onClose(); },
+    mutationFn: () => (supplier ? api.put(`/purchasing/suppliers/${supplier.id}`, f) : api.post("/purchasing/suppliers", f)),
+    onSuccess: () => { show(supplier ? "Supplier updated" : "Supplier added", "success"); done(); },
     onError: (e) => show(describeApiError(e, "Could not save"), "error"),
   });
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/purchasing/suppliers/${supplier!.id}`),
+    onSuccess: () => { show("Supplier deleted", "success"); done(); },
+    onError: (e) => show(describeApiError(e, "Could not delete"), "error"),
+  });
   return (
-    <Modal title="Add supplier" onClose={onClose} size="sm">
+    <Modal title={supplier ? "Edit supplier" : "Add supplier"} onClose={onClose} size="sm">
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         <Field label="Name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         <Field label="Phone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         <Field label="Email" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+        <Field label="Address" value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} />
         <Field label="GSTIN" value={f.gstin} onChange={(e) => setF({ ...f, gstin: e.target.value.toUpperCase() })} />
-        <Button type="submit" disabled={save.isPending || !f.name.trim()}>Save supplier</Button>
+        <Field label="Notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+        <Button type="submit" disabled={save.isPending || !f.name.trim()}>{supplier ? "Save changes" : "Save supplier"}</Button>
+        {supplier && (
+          <Button type="button" variant="ghost" disabled={remove.isPending} onClick={() => { if (window.confirm(`Delete "${supplier.name}"? Products using it become unassigned.`)) remove.mutate(); }}>
+            <Trash2 className="h-4 w-4" aria-hidden="true" /> Delete supplier
+          </Button>
+        )}
+      </form>
+    </Modal>
+  );
+}
+
+interface PoLine { productId: number; name: string; quantity: string; unitCost: string }
+
+// Manual purchase order: pick a supplier, add products, set quantity and cost.
+function NewPoDialog({ suppliers, onCreated, onClose }: { suppliers: Supplier[]; onCreated: () => void; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { show } = useToast();
+  const { data: shop } = useShopSettings();
+  const sym = shop?.currencySymbol ?? "Rs.";
+  const [supplierId, setSupplierId] = useState(String(suppliers[0]?.id ?? ""));
+  const [notes, setNotes] = useState("");
+  const [search, setSearch] = useState("");
+  const [lines, setLines] = useState<PoLine[]>([]);
+  const { data: products = [] } = useProducts(search);
+
+  const total = lines.reduce((n, l) => n + (Number(l.quantity) || 0) * (Number(l.unitCost) || 0), 0);
+  const valid = supplierId !== "" && lines.length > 0 && lines.every((l) => Number(l.quantity) > 0 && Number(l.unitCost) >= 0 && l.unitCost !== "");
+  const update = (id: number, patch: Partial<PoLine>) => setLines((ls) => ls.map((l) => (l.productId === id ? { ...l, ...patch } : l)));
+
+  const create = useMutation({
+    mutationFn: () => api.post<PO>("/purchasing/orders", { supplierId: Number(supplierId), notes: notes.trim() || undefined, items: lines.map((l) => ({ productId: l.productId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) })) }),
+    onSuccess: (po) => { show(`${po.number} created`, "success"); qc.invalidateQueries({ queryKey: ["pos"] }); onCreated(); onClose(); },
+    onError: (e) => show(describeApiError(e, "Could not create the order"), "error"),
+  });
+
+  return (
+    <Modal title="New purchase order" onClose={onClose} size="lg">
+      <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (valid) create.mutate(); }}>
+        <Select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} options={suppliers.map((s) => ({ value: String(s.id), label: s.name }))} />
+        <Field label="Add products" placeholder="Search by name or barcode…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {search.trim() && (
+          <ul className="max-h-40 overflow-y-auto rounded-xl border border-border divide-y divide-border">
+            {products.slice(0, 20).map((p) => (
+              <li key={p.id}>
+                <button type="button" disabled={lines.some((l) => l.productId === p.id)} onClick={() => { setLines((ls) => [...ls, { productId: p.id, name: p.name, quantity: "1", unitCost: String(p.purchasePrice) }]); setSearch(""); }} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-brand/5 disabled:opacity-40">
+                  <span>{p.name}</span><span className="text-xs text-foreground-muted">stock {p.stock}</span>
+                </button>
+              </li>
+            ))}
+            {products.length === 0 && <li className="px-3 py-2 text-sm text-foreground-muted">No matching products.</li>}
+          </ul>
+        )}
+        {lines.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-foreground-muted">Search above and pick the products to order.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {lines.map((l) => (
+              <div key={l.productId} className="flex flex-wrap items-center gap-2 rounded-xl border border-border p-2.5">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{l.name}</span>
+                <input aria-label={`Quantity for ${l.name}`} type="number" min={0} step="0.001" value={l.quantity} onChange={(e) => update(l.productId, { quantity: e.target.value })} className="tabular w-20 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm" />
+                <input aria-label={`Unit cost for ${l.name}`} type="number" min={0} step="0.01" value={l.unitCost} onChange={(e) => update(l.productId, { unitCost: e.target.value })} className="tabular w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm" />
+                <button type="button" aria-label={`Remove ${l.name}`} onClick={() => setLines((ls) => ls.filter((x) => x.productId !== l.productId))} className="text-foreground/40 hover:text-danger"><X className="h-4 w-4" aria-hidden="true" /></button>
+              </div>
+            ))}
+            <p className="tabular text-right text-sm font-semibold">Total {formatMoney(total, sym)}</p>
+          </div>
+        )}
+        <Field label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Button type="submit" disabled={!valid || create.isPending}>{create.isPending ? "Creating…" : "Create purchase order"}</Button>
       </form>
     </Modal>
   );

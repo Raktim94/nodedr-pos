@@ -12,7 +12,9 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { BarcodeDownloadPanel } from "@/components/BarcodeDownloadPanel";
 import { CameraScannerModal } from "@/components/CameraScannerModal";
-import { useCreateProduct, useProducts, useUpdateProduct } from "@/hooks/useProducts";
+import { ProductImageField } from "@/components/ProductImageField";
+import { productImageSrc } from "@/lib/productImage";
+import { useCreateProduct, useProducts, useUpdateProduct, type ProductInput } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
@@ -52,10 +54,12 @@ interface ProductModalProps {
   mode: "add" | "edit";
   product?: Product;
   initialBarcode?: string;
+  // Values suggested by the online lookup; the user reviews them before saving.
+  prefill?: { barcode: string; name: string; category?: string | null; imageUrl?: string | null };
   onClose: () => void;
 }
 
-export function ProductModal({ mode, product, initialBarcode, onClose }: ProductModalProps) {
+export function ProductModal({ mode, product, initialBarcode, prefill, onClose }: ProductModalProps) {
   const { show } = useToast();
   const { data: shop } = useShopSettings();
   const { data: products } = useProducts();
@@ -71,10 +75,10 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   } = useForm<ProductForm>({
     resolver: zodResolver(productSchema),
     defaultValues: {
-      barcode: product?.barcode ?? initialBarcode ?? "",
+      barcode: product?.barcode ?? prefill?.barcode ?? initialBarcode ?? "",
       sku: product?.sku ?? "",
-      name: product?.name ?? "",
-      category: product?.category ?? "",
+      name: product?.name ?? prefill?.name ?? "",
+      category: product?.category ?? prefill?.category ?? "",
       hsn: product?.hsn ?? "",
       unit: product?.unit ?? "",
       purchasePrice: product?.purchasePrice ?? 0,
@@ -90,6 +94,11 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
     },
   });
 
+  // Photo: undefined = leave as is, string = new upload, null = remove.
+  const [newImage, setNewImage] = useState<string | null | undefined>(undefined);
+  const onlineImage = mode === "add" ? prefill?.imageUrl ?? null : null;
+  const imagePreview = newImage === undefined ? productImageSrc(product?.imageFile) ?? onlineImage : newImage;
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -100,7 +109,9 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
 
   async function onSubmit(values: ProductForm) {
     try {
-      const payload = values;
+      const payload: ProductInput = { ...values };
+      if (newImage !== undefined) payload.image = newImage;
+      else if (onlineImage) payload.imageUrl = onlineImage;
       if (mode === "edit" && product) {
         await updateProduct.mutateAsync({ id: product.id, data: payload });
         show("Product updated", "success");
@@ -165,6 +176,7 @@ export function ProductModal({ mode, product, initialBarcode, onClose }: Product
   return (
     <Modal title={mode === "edit" ? "Edit product" : "Add new product"} onClose={onClose} size="lg" closeOnBackdrop={false}>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
+        <ProductImageField src={imagePreview} onChange={setNewImage} />
         <section aria-label="Barcode" className="flex flex-col gap-2.5">
           <Field label="Barcode" autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
           <div className="flex flex-wrap items-center gap-2">

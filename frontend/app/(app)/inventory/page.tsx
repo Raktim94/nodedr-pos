@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Barcode as BarcodeIcon, FileUp, PackagePlus, Pencil, Plus, ScanBarcode, Search, Tag, Trash2 } from "lucide-react";
+import { Barcode as BarcodeIcon, FileUp, Globe, ImageIcon, PackagePlus, Pencil, Plus, ScanBarcode, Search, Tag, Trash2 } from "lucide-react";
 import { BulkImportPanel } from "@/components/BulkImportPanel";
 import { can } from "@/lib/perm";
 import { useMe } from "@/hooks/useAuth";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ProductModal } from "@/components/ProductModal";
+import { ProductLookupModal } from "@/components/ProductLookupModal";
+import { productImageSrc } from "@/lib/productImage";
 import { StockAdjustModal } from "@/components/StockAdjustModal";
 import { BarcodeLabelModal } from "@/components/BarcodeLabelModal";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -17,9 +19,9 @@ import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { effectivePrice } from "@/lib/quote";
-import type { Product } from "@/lib/types";
+import type { Product, ProductLookupResult } from "@/lib/types";
 
-type ModalState = { mode: "add"; initialBarcode?: string } | { mode: "edit"; product: Product } | null;
+type ModalState = { mode: "add"; initialBarcode?: string; prefill?: ProductLookupResult } | { mode: "edit"; product: Product } | null;
 
 export default function InventoryPage() {
   const [search, setSearch] = useState("");
@@ -27,6 +29,7 @@ export default function InventoryPage() {
   const [stockTarget, setStockTarget] = useState<Product | null>(null);
   const [labelTarget, setLabelTarget] = useState<Product | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState(false);
   const { data: me } = useMe();
   const canEdit = can(me, "inventory");
   const { data: shop } = useShopSettings();
@@ -51,7 +54,7 @@ export default function InventoryPage() {
     [show]
   );
 
-  useBarcodeScanner({ onScan: handleScan, enabled: modal === null && stockTarget === null && !importOpen });
+  useBarcodeScanner({ onScan: handleScan, enabled: modal === null && stockTarget === null && !importOpen && !lookupOpen });
 
   async function handleDelete(product: Product) {
     if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
@@ -78,6 +81,10 @@ export default function InventoryPage() {
             <Button variant="secondary" onClick={() => setImportOpen((v) => !v)} aria-expanded={importOpen}>
               <FileUp className="h-4 w-4" aria-hidden="true" />
               Bulk import
+            </Button>
+            <Button variant="secondary" onClick={() => setLookupOpen(true)}>
+              <Globe className="h-4 w-4" aria-hidden="true" />
+              Find online
             </Button>
             <Button onClick={() => setModal({ mode: "add" })}>
               <Plus className="h-4 w-4" aria-hidden="true" />
@@ -128,6 +135,14 @@ export default function InventoryPage() {
                   return (
                     <tr key={product.id}>
                       <td className="py-2.5 pr-4">
+                        <span className="mr-2.5 inline-flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-surface-muted align-middle">
+                          {product.imageFile ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={productImageSrc(product.imageFile) ?? ""} alt="" loading="lazy" className="h-full w-full object-cover" />
+                          ) : (
+                            <ImageIcon className="h-4 w-4 text-foreground/25" aria-hidden="true" />
+                          )}
+                        </span>
                         <button
                           type="button"
                           onClick={() => setModal({ mode: "edit", product })}
@@ -233,9 +248,18 @@ export default function InventoryPage() {
       </Card>
 
       {modal?.mode === "add" && (
-        <ProductModal mode="add" initialBarcode={modal.initialBarcode} onClose={() => setModal(null)} />
+        <ProductModal mode="add" initialBarcode={modal.initialBarcode} prefill={modal.prefill} onClose={() => setModal(null)} />
       )}
       {modal?.mode === "edit" && <ProductModal mode="edit" product={modal.product} onClose={() => setModal(null)} />}
+      {lookupOpen && (
+        <ProductLookupModal
+          onClose={() => setLookupOpen(false)}
+          onPick={(r) => {
+            setLookupOpen(false);
+            setModal({ mode: "add", prefill: r });
+          }}
+        />
+      )}
       {stockTarget && <StockAdjustModal product={stockTarget} onClose={() => setStockTarget(null)} />}
       {labelTarget && <BarcodeLabelModal product={labelTarget} onClose={() => setLabelTarget(null)} />}
     </div>

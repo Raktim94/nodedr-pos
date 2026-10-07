@@ -71,6 +71,8 @@ export interface Product {
   discountValue: number;
   stock: number;
   trackSerial: boolean;
+  // Photo file name — shown via /api/products/image/<name>.
+  imageFile: string | null;
   warrantyMonths: number;
   reorderPoint: number;
   supplierId: number | null;
@@ -246,4 +248,21 @@ export interface Supplier {
   address: string | null;
   gstin: string | null;
   notes: string | null;
+}
+
+// A suggestion from the online product lookup (never saved until reviewed).
+export interface ProductLookupResult {
+  barcode: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  quantity: string | null;
+  imageUrl: string | null;
+  source: string;
+  inCatalog: boolean;
+}
+export interface ProductLookupResponse {
+  mode: "barcode" | "name";
+  results: ProductLookupResult[];
+  warnings: string[];
 }

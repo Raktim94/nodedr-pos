@@ -125,6 +125,8 @@ model Product {
   // With the shop-level serial switch on, a sale of this product must record
   // one IMEI / serial per unit sold (stock stays a plain quantity).
   trackSerial   Boolean       @default(false)
+  // Photo, stored as a file under data/product-images/ (see lib/productImages.js).
+  imageFile     String?
   warrantyMonths Int          @default(0)
   reorderPoint  Float         @default(0) // suggest a purchase order at or below this stock
   supplierId    Int?

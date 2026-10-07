@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
-import { Camera, Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X, Monitor, Scale, Smartphone, Hash } from "lucide-react";
+import { Camera, Minus, Plus, ScanBarcode, Trash2, Search, Star, CheckCircle2, X, Monitor, Scale, Smartphone, Hash, Volume2, VolumeX } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -20,6 +20,7 @@ import { formatMoney, round2 } from "@/lib/format";
 import { openReceiptPrint } from "@/lib/print";
 import { effectivePrice, quoteSale } from "@/lib/quote";
 import { postDisplay } from "@/lib/display";
+import { paymentSoundEnabled, playPaymentConfirmation, setPaymentSoundEnabled } from "@/lib/paymentSound";
 import { readScaleKg, scaleSupported } from "@/lib/scale";
 import { SerialPrompt } from "@/components/pos/SerialPrompt";
 import { UpiQr } from "@/components/pos/UpiQr";
@@ -49,6 +50,9 @@ export default function PosPage() {
   const [discountValue, setDiscountValue] = useState(0);
   const [pointsRedeemed, setPointsRedeemed] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const [upiUri, setUpiUri] = useState<string | null>(null);
+  const [soundOn, setSoundOn] = useState(true);
+  useEffect(() => setSoundOn(paymentSoundEnabled()), []);
   const [amountPaid, setAmountPaid] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [completedSale, setCompletedSale] = useState<{ id: number; invoiceNumber: string; totalAmount: number } | null>(
@@ -293,6 +297,8 @@ export default function PosPage() {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
       const paidCash = invoice.paymentMethod === "CASH";
+      // Soundbox-style confirmation: chime for every sale, spoken for UPI/card.
+      playPaymentConfirmation(`${money(invoice.totalAmount)}`, !paidCash);
       resetSale();
       // Cash sale + a drawer on the receipt printer: kick it open (best effort).
       if (paidCash && shop?.cashDrawer && shop.autoPrintMethod !== "usb") api.post("/print/drawer").catch(() => {});
@@ -376,10 +382,10 @@ export default function PosPage() {
       discount: quote.discountAmount,
       tax: quote.taxAmount,
       total: quote.total,
-      upiUri: null,
+      upiUri: paymentMethod === "UPI" && collectTotal > 0 ? upiUri : null,
       thankYou: cart.length === 0 && !!completedSale,
     });
-  }, [cart, quote, shop?.shopName, sym, completedSale]);
+  }, [cart, quote, shop?.shopName, sym, completedSale, paymentMethod, collectTotal, upiUri]);
 
   const maxRedeemable = customer && shop?.loyaltyEnabled ? customer.loyaltyPoints : 0;
 
@@ -397,6 +403,21 @@ export default function PosPage() {
           <Button type="button" variant="secondary" onClick={() => window.open("/display", "nodedr-display", "popup,width=900,height=600")}>
             <Monitor className="h-4 w-4" aria-hidden="true" />
             Customer display
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            aria-pressed={soundOn}
+            title="Chime and spoken confirmation when a sale is completed"
+            onClick={() => {
+              const next = !soundOn;
+              setSoundOn(next);
+              setPaymentSoundEnabled(next);
+              if (next) playPaymentConfirmation(money(0).replace(/[\d.,]+/, "test"), false);
+            }}
+          >
+            {soundOn ? <Volume2 className="h-4 w-4" aria-hidden="true" /> : <VolumeX className="h-4 w-4" aria-hidden="true" />}
+            Payment sound {soundOn ? "on" : "off"}
           </Button>
           <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)}>
             <Camera className="h-4 w-4" aria-hidden="true" />
@@ -772,7 +793,7 @@ export default function PosPage() {
                 </button>
               ))}
             </div>
-            {paymentMethod === "UPI" && shop?.upiId && collectTotal > 0 && <UpiQr amount={collectTotal} />}
+            {paymentMethod === "UPI" && shop?.upiId && collectTotal > 0 && <UpiQr amount={collectTotal} onUri={setUpiUri} />}
             {paymentMethod === "CARD" && shop?.terminalProvider && shop.terminalProvider !== "none" && collectTotal > 0 && (
               <TerminalCharge amount={collectTotal} reference="POS" paymentId={terminalPaymentId} onPaid={setTerminalPaymentId} />
             )}

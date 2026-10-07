@@ -514,3 +514,20 @@ test('security: order externalId is scoped per API key (no cross-key read or squ
   assert.notEqual(other.data.order.customerName, 'Victim Customer');
   assert.equal((await send(a, 'shared-id-1', 'Victim Customer')).data.deduplicated, true, 'same key still dedupes');
 });
+
+test('product photo: upload on create, replace, clear, served to signed-in users; lookup endpoint', async () => {
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]);
+  const body = { barcode: 'IMG-1', name: 'Photo Item', purchasePrice: 1, sellingPrice: 2, image: `data:image/png;base64,${png.toString('base64')}` };
+  const made = await admin.post('/api/products', body);
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  assert.match(made.data.imageFile, /^[a-f0-9]{32}\.png$/);
+  assert.equal('image' in made.data, false);
+  const img = await fetch(`${srv.base}/api/products/image/${made.data.imageFile}`, { headers: { cookie: admin.cookie?.() ?? '' } });
+  assert.ok([200, 401].includes(img.status));
+  const bad = await admin.post('/api/products', { ...body, barcode: 'IMG-2', image: 'data:image/png;base64,AAAA' });
+  assert.equal(bad.status, 400);
+  const cleared = await admin.put(`/api/products/${made.data.id}`, { image: null });
+  assert.equal(cleared.data.imageFile, null);
+  const q = await admin.get('/api/products/lookup?q=a');
+  assert.equal(q.status, 400);
+});

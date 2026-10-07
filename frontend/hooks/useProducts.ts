@@ -21,6 +21,10 @@ export interface ProductInput {
   warrantyMonths?: number;
   reorderPoint?: number;
   supplierId?: number | null;
+  // Photo: data URL to set, null to remove, omitted to leave unchanged.
+  image?: string | null;
+  // Online-lookup suggestion; the server fetches it (allow-listed hosts only).
+  imageUrl?: string;
 }
 
 export function useProducts(search = "") {

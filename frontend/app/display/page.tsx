@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { DISPLAY_CHANNEL, type DisplayState } from "@/lib/display";
 
 // Second-screen display for the customer. Mirrors the cashier's cart via
@@ -14,6 +15,25 @@ export default function CustomerDisplay() {
     ch.onmessage = (e: MessageEvent<DisplayState>) => setS(e.data);
     return () => ch.close();
   }, []);
+
+  const [qr, setQr] = useState<string | null>(null);
+  const upiUri = s?.upiUri ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!upiUri) {
+      setQr(null);
+      return;
+    }
+    QRCode.toDataURL(upiUri, { margin: 1, width: 480, errorCorrectionLevel: "M" })
+      .then((d) => !cancelled && setQr(d))
+      .catch(() => !cancelled && setQr(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [upiUri]);
+
+  // The QR may include a previous balance, so show the exact amount it encodes.
+  const qrAmount = upiUri ? Number(new URLSearchParams(upiUri.split("?")[1] ?? "").get("am")) || (s?.total ?? 0) : 0;
 
   const money = (n: number) => `${s?.symbol ?? ""} ${n.toFixed(2)}`;
   const idle = !s || (s.lines.length === 0 && !s.thankYou);
@@ -29,6 +49,20 @@ export default function CustomerDisplay() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p className="text-5xl font-semibold tracking-tight">Thank you!</p>
           <p className="text-lg text-white/70">Please visit again.</p>
+        </div>
+      ) : upiUri ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
+          <p className="text-2xl text-white/70">Scan to pay with any UPI app</p>
+          <p className="tabular text-6xl font-semibold tracking-[-0.03em]">{money(qrAmount)}</p>
+          <div className="rounded-3xl bg-white p-5">
+            {qr ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qr} alt={`UPI payment QR for ${money(qrAmount)}`} width={320} height={320} />
+            ) : (
+              <div className="h-80 w-80 animate-pulse rounded bg-neutral-200" />
+            )}
+          </div>
+          <p className="text-sm text-white/60">The amount is filled in for you — just confirm in your app.</p>
         </div>
       ) : idle ? (
         <div className="flex flex-1 items-center justify-center text-center">
