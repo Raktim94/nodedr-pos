@@ -79,6 +79,7 @@ export function ProductLookupModal({ onPick, onClose }: { onPick: (r: ProductLoo
                       <p className="truncate text-sm font-medium">{r.name}</p>
                       <p className="truncate text-xs text-foreground-muted">{[r.brand, r.quantity, r.category].filter(Boolean).join(" · ") || "No more details"}</p>
                       <p className="font-mono text-xs text-foreground-muted">{r.barcode} · {r.source}</p>
+                      {r.warnings.length > 0 && <p className="mt-0.5 text-xs text-warning">⚠ {r.warnings.join(" · ")}</p>}
                     </div>
                     {r.inCatalog ? (
                       <span className="flex items-center gap-1 text-xs text-success"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> In catalog</span>

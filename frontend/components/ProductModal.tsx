@@ -13,6 +13,7 @@ import { Modal } from "@/components/ui/Modal";
 import { BarcodeDownloadPanel } from "@/components/BarcodeDownloadPanel";
 import { CameraScannerModal } from "@/components/CameraScannerModal";
 import { ProductImageField } from "@/components/ProductImageField";
+import { OnlineMatchPanel } from "@/components/OnlineMatchPanel";
 import { productImageSrc } from "@/lib/productImage";
 import { useCreateProduct, useProducts, useUpdateProduct, type ProductInput } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
@@ -96,8 +97,10 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
 
   // Photo: undefined = leave as is, string = new upload, null = remove.
   const [newImage, setNewImage] = useState<string | null | undefined>(undefined);
-  const onlineImage = mode === "add" ? prefill?.imageUrl ?? null : null;
-  const imagePreview = newImage === undefined ? productImageSrc(product?.imageFile) ?? onlineImage : newImage;
+  // An online photo chosen via "Use photo" (or pre-filled from the lookup).
+  const [chosenOnline, setChosenOnline] = useState<string | null>(null);
+  const onlineImage = chosenOnline ?? (mode === "add" ? prefill?.imageUrl ?? null : null);
+  const imagePreview = newImage !== undefined ? newImage : onlineImage ?? productImageSrc(product?.imageFile);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -129,6 +132,8 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
   const taxRate = useWatch({ control, name: "taxRate" });
   const hsnValue = useWatch({ control, name: "hsn" });
   const barcodeValue = useWatch({ control, name: "barcode" });
+  const nameValue = useWatch({ control, name: "name" });
+  const categoryValue = useWatch({ control, name: "category" });
   const sellingPrice = useWatch({ control, name: "sellingPrice" });
   const discountType = useWatch({ control, name: "discountType" });
   const discountValue = useWatch({ control, name: "discountValue" });
@@ -176,7 +181,16 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
   return (
     <Modal title={mode === "edit" ? "Edit product" : "Add new product"} onClose={onClose} size="lg" closeOnBackdrop={false}>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
-        <ProductImageField src={imagePreview} onChange={setNewImage} />
+        <ProductImageField src={imagePreview} onChange={(v) => { setChosenOnline(null); setNewImage(v); }} />
+        {barcodeValue?.trim() && (
+          <OnlineMatchPanel
+            barcode={barcodeValue.trim()}
+            current={{ name: nameValue ?? "", category: categoryValue ?? "", imageSrc: imagePreview }}
+            onUseName={(v) => setValue("name", v, { shouldValidate: true, shouldDirty: true })}
+            onUseCategory={(v) => setValue("category", v, { shouldDirty: true })}
+            onUseImage={(url) => { setNewImage(undefined); setChosenOnline(url); }}
+          />
+        )}
         <section aria-label="Barcode" className="flex flex-col gap-2.5">
           <Field label="Barcode" autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
           <div className="flex flex-wrap items-center gap-2">

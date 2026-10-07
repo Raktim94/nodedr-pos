@@ -260,6 +260,9 @@ export interface ProductLookupResult {
   imageUrl: string | null;
   source: string;
   inCatalog: boolean;
+  // Data-quality checks done on the server.
+  validBarcode: boolean;
+  warnings: string[];
 }
 export interface ProductLookupResponse {
   mode: "barcode" | "name";

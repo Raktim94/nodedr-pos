@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { lookupProducts, detectMode, _clearCache } = require('../src/lib/productLookup');
+const { lookupProducts, detectMode, validGtin, _clearCache } = require('../src/lib/productLookup');
 const { saveProductImage, fetchRemoteProductImage, readProductImage } = require('../src/lib/productImages');
 
 const ok = (body) => Promise.resolve({ ok: true, status: 200, json: async () => body });
@@ -67,4 +67,44 @@ test('images: magic-number check, size cap, remote host allow-list', async () =>
   const good = await fetchRemoteProductImage('https://images.openfoodfacts.org/x.png', () => Promise.resolve({ ok: true, arrayBuffer: async () => png }));
   assert.equal(good, name);
   assert.equal(await fetchRemoteProductImage('https://images.openfoodfacts.org/x.png', () => Promise.reject(new Error('net'))), null);
+});
+
+test('validGtin: real EAN-13 / UPC-A pass, a mistyped digit fails', () => {
+  assert.equal(validGtin('4006381333931'), true); // EAN-13
+  assert.equal(validGtin('036000291452'), true); // UPC-A
+  assert.equal(validGtin('4006381333932'), false);
+  assert.equal(validGtin('12345'), false);
+});
+
+test('results carry validation flags; junk names and mismatched codes are dropped', async () => {
+  _clearCache();
+  const out = await lookupProducts('biscuit', {
+    fetchImpl: () => ok({ products: [
+      { code: '4006381333931', product_name: 'Pencil', categories: 'en:Stationery', image_front_small_url: 'https://images.openfoodfacts.org/p.jpg' },
+      { code: '4006381333932', product_name: 'Bad Check' },
+      { code: '5555555555555', product_name: '12345 -' }, // no letters -> dropped
+    ] }),
+  });
+  const good = out.results.find((r) => r.barcode === '4006381333931');
+  assert.equal(good.validBarcode, true);
+  assert.deepEqual(good.warnings, []);
+  const bad = out.results.find((r) => r.barcode === '4006381333932');
+  assert.equal(bad.validBarcode, false);
+  assert.ok(bad.warnings.some((w) => /check digit/i.test(w)));
+  assert.equal(out.results.some((r) => r.barcode === '5555555555555'), false);
+
+  _clearCache();
+  const mismatch = await lookupProducts('4006381333931', { fetchImpl: () => ok({ status: 1, product: { code: '9999999999994', product_name: 'Other' } }) });
+  assert.deepEqual(mismatch.results, []);
+});
+
+test('barcode lookup answers from the first source that has it, without waiting for slow ones', async () => {
+  _clearCache();
+  const fetchImpl = (url) => String(url).includes('openfoodfacts')
+    ? ok({ status: 1, product: { code: '4006381333931', product_name: 'Fast' } })
+    : new Promise(() => {}); // never answers
+  const t = Date.now();
+  const out = await lookupProducts('4006381333931', { fetchImpl });
+  assert.equal(out.results[0].name, 'Fast');
+  assert.ok(Date.now() - t < 1000);
 });

@@ -2,7 +2,7 @@ name: nodedr-pos
 
 services:
   backend:
-    image: ghcr.io/raktim94/nodedr-pos-backend:1.5.0
+    image: ghcr.io/raktim94/nodedr-pos-backend:1.5.1
     container_name: nodedr-pos-backend
     hostname: nodedr-pos-backend
     restart: unless-stopped
@@ -47,7 +47,7 @@ services:
             en_US: USB passthrough for optional direct-USB thermal receipt printing. Safe to leave as-is with no printer attached.
 
   frontend:
-    image: ghcr.io/raktim94/nodedr-pos-frontend:1.5.0
+    image: ghcr.io/raktim94/nodedr-pos-frontend:1.5.1
     container_name: nodedr-pos-frontend
     hostname: nodedr-pos-frontend
     restart: unless-stopped
@@ -72,7 +72,7 @@ services:
   # NodeDR POS images above and recreates those two containers (nothing else).
   # Needs the Docker socket to do that; data in /DATA/AppData is untouched.
   updater:
-    image: ghcr.io/raktim94/nodedr-pos-updater:1.5.0
+    image: ghcr.io/raktim94/nodedr-pos-updater:1.5.1
     container_name: nodedr-pos-updater
     hostname: nodedr-pos-updater
     restart: unless-stopped
@@ -146,10 +146,17 @@ x-casaos:
   index: /
   scheme: http
   port_map: "1994"
-  version: "1.5.0"
+  version: "1.5.1"
   update_at: "2026-10-08"
   release_notes:
     en_US: |-
+      1.5.1 (2026-10-08):
+      - Scanning an unknown barcode in Inventory now looks it up online and
+        opens the form pre-filled (falls back to a blank form if offline).
+      - Online data is validated (barcode check digit, junk names, wrong-code
+        records) with warnings, and "Check online" in the product form lets you
+        replace the name, category or photo of an existing product.
+
       1.5.0 (2026-10-08):
       - New: find products online by name or barcode and add them after review;
         product photos; edit/delete suppliers and create purchase orders by hand.

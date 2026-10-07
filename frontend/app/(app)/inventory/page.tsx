@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { ProductModal } from "@/components/ProductModal";
 import { ProductLookupModal } from "@/components/ProductLookupModal";
 import { productImageSrc } from "@/lib/productImage";
+import { lookupBarcode } from "@/lib/productLookup";
 import { StockAdjustModal } from "@/components/StockAdjustModal";
 import { BarcodeLabelModal } from "@/components/BarcodeLabelModal";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -47,8 +48,22 @@ export default function InventoryPage() {
         const product = await api.get<Product>(`/products/barcode/${encodeURIComponent(code)}`);
         setModal({ mode: "edit", product });
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) setModal({ mode: "add", initialBarcode: code });
-        else show("Barcode lookup failed", "error");
+        if (err instanceof ApiError && err.status === 404) {
+          // Not in the catalog: try the online databases (first answer wins, so
+          // this is quick) and open the form pre-filled for review. Any failure
+          // just opens the empty form for this barcode.
+          try {
+            const found = await lookupBarcode(code);
+            if (found) {
+              show(`Details filled from ${found.source} — review before saving`, "success");
+              setModal({ mode: "add", initialBarcode: code, prefill: found });
+              return;
+            }
+          } catch {
+            // offline / database down — manual entry below
+          }
+          setModal({ mode: "add", initialBarcode: code });
+        } else show("Barcode lookup failed", "error");
       }
     },
     [show]

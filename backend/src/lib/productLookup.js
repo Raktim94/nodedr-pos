@@ -20,6 +20,17 @@ const USER_AGENT = 'nodedr-pos/1.x (https://github.com/Raktim94/nodedr-pos)';
 
 const cache = new Map();
 
+// GTIN check digit (EAN-8 / UPC-A / EAN-13 / GTIN-14): weights 3,1,3,1… from the
+// right of the digits before the check digit. Catches mistyped / corrupt codes.
+function validGtin(code) {
+  if (!/^\d{8}$|^\d{12,14}$/.test(code)) return false;
+  const digits = code.split('').map(Number);
+  const check = digits.pop();
+  const sum = digits.reverse().reduce((n, d, i) => n + d * (i % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+}
+const stripZeros = (c) => String(c).replace(/^0+/, '');
+
 function cacheGet(key) {
   const hit = cache.get(key);
   if (!hit) return null;
@@ -43,15 +54,28 @@ function normalize(p, source) {
   const name = String(p.product_name || p.generic_name || '').trim();
   const barcode = String(p.code || '').trim();
   if (!name || !barcode) return null; // unusable as a catalog entry
+  // Junk entries in community data: a "name" that is only digits/symbols.
+  if (!/\p{L}/u.test(name)) return null;
   const brand = String(p.brands || '').split(',')[0].trim();
   const category = String(p.categories || '').split(',')[0].trim();
+  const imageUrl = /^https:\/\//.test(p.image_front_small_url || '') ? p.image_front_small_url : null;
+  const cleanCategory = category.replace(/^[a-z]{2}:/i, '').slice(0, 80) || null;
+  const validBarcode = validGtin(barcode);
+  // What the shop should double-check before trusting this suggestion.
+  const warnings = [];
+  if (!validBarcode) warnings.push('Barcode check digit is wrong — verify the code');
+  if (!imageUrl) warnings.push('No photo available');
+  if (!cleanCategory) warnings.push('No category');
+  if (name.length > 120) warnings.push('Name is unusually long — shorten it');
   return {
     barcode,
+    validBarcode,
+    warnings,
     name: name.slice(0, 200),
     brand: brand || null,
-    category: category.replace(/^[a-z]{2}:/i, '').slice(0, 80) || null,
+    category: cleanCategory,
     quantity: String(p.quantity || '').trim().slice(0, 40) || null,
-    imageUrl: /^https:\/\//.test(p.image_front_small_url || '') ? p.image_front_small_url : null,
+    imageUrl,
     source: source.label,
   };
 }
@@ -69,7 +93,10 @@ async function queryOne(source, q, mode, fetchImpl) {
   if (mode === 'barcode') {
     const data = await getJson(`https://${source.host}/api/v2/product/${encodeURIComponent(q)}.json?fields=${FIELDS}`, fetchImpl);
     // status 0 / missing product = "not in this database", not an error.
-    return data && data.status === 1 && data.product ? [normalize({ code: q, ...data.product }, source)] : [];
+    if (!(data && data.status === 1 && data.product)) return [];
+    // Never accept a record whose code differs from the one asked for.
+    const got = data.product.code ?? q;
+    return stripZeros(got) === stripZeros(q) ? [normalize({ ...data.product, code: q }, source)] : [];
   }
   const url =
     `https://${source.host}/cgi/search.pl?search_terms=${encodeURIComponent(q)}` +
@@ -92,7 +119,24 @@ async function lookupProducts(rawQuery, { fetchImpl = fetch } = {}) {
   const cached = cacheGet(key);
   if (cached) return cached;
 
-  const settled = await Promise.allSettled(SOURCES.map((s) => queryOne(s, q, mode, fetchImpl)));
+  const attempts = SOURCES.map((s) => queryOne(s, q, mode, fetchImpl));
+  // A barcode has exactly one right answer, so don't wait for the slowest
+  // database: answer as soon as any source has it (scanning stays fast); only
+  // wait for all of them when nobody does.
+  if (mode === 'barcode') {
+    const first = await new Promise((resolve) => {
+      let pending = attempts.length;
+      attempts.forEach((a) =>
+        a.then((r) => (r.some(Boolean) ? resolve(r) : --pending === 0 && resolve(null)), () => --pending === 0 && resolve(null))
+      );
+    });
+    if (first) {
+      const out = { mode, results: first.filter(Boolean), warnings: [] };
+      cacheSet(key, out);
+      return out;
+    }
+  }
+  const settled = await Promise.allSettled(attempts);
   const failed = settled.filter((r) => r.status === 'rejected').length;
   if (failed === SOURCES.length) {
     throw Object.assign(
@@ -118,4 +162,4 @@ async function lookupProducts(rawQuery, { fetchImpl = fetch } = {}) {
   return out;
 }
 
-module.exports = { lookupProducts, detectMode, normalize, _clearCache: () => cache.clear() };
+module.exports = { lookupProducts, detectMode, normalize, validGtin, _clearCache: () => cache.clear() };
