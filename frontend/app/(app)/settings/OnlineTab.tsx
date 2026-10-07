@@ -35,7 +35,7 @@ function CustomWebsiteCard() {
       <div>
         <h2 className="text-base font-semibold">Your own website (API)</h2>
         <p className="mt-1 text-sm text-foreground-muted">
-          Built your own online store? Send its orders to the POS with a small REST call. Your website takes the payment and issues the customer&apos;s invoice — the POS reserves stock, lets you pack and hand over, and tells your site each status change. Orders are never billed in the POS.
+          Built your own online store? Send its orders to the POS with a small REST call. The POS reserves stock, lets you pack and hand over, and tells your site each status change. Send paid: true if your website already charged the customer (no POS bill); send paid: false for pay-at-pickup and the POS bills it at hand-over.
         </p>
       </div>
       <ol className="list-decimal space-y-1 pl-5 text-sm text-foreground-muted">

@@ -17,7 +17,7 @@ product). A product without a SKU is invisible to the API and MCP.
 | `stock:write` | Adjust stock |
 | `bills:write` | Take bills — the POS computes price, GST, discount, stock |
 | `bills:read` | Read bills **created through the same key** and download their PDFs |
-| `orders:write` | Create / read / cancel click-and-collect orders (reserve stock). The POS never bills these — your store does |
+| `orders:write` | Create / read / cancel click-and-collect orders (reserve stock). `paid:true` orders are handed over without a POS bill; `paid:false` (pay at pickup) are billed at hand-over |
 | `warranty:read` | Warranty status from an IMEI / serial number (needs the *IMEI tracking* switch on in Settings → Features) |
 
 ## REST (`/api/external`, `Authorization: Bearer nk_live_…`)

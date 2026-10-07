@@ -6,13 +6,16 @@
 // is only decremented when the order is handed over (COLLECTED) — so
 // cancelling an order needs no stock unwinding.
 //
-// The POS does NOT bill online orders: the customer's invoice/payment belongs
-// to the e-commerce store that took the order. Handing over only releases the
-// goods (stock out) and tells the store the order is collected.
+// Billing follows who took the money. An order the website already charged
+// (`paid`) is handed over WITHOUT a POS bill — the website issued the invoice,
+// billing again would double-count the sale. An order to be paid at pickup
+// (`paid: false`) is billed here, at hand-over, through the normal checkout
+// (payment method, GST invoice, receipt). The cashier can override either way.
 const crypto = require('crypto');
 const prisma = require('./prisma');
 const { round2, effectivePrice } = require('./pricing');
 const { r3 } = require('./qty');
+const { performCheckout, checkoutSchema } = require('./checkout');
 const { notifyEvent, notifyStockChange } = require('./webhooks');
 
 const OPEN = ['NEW', 'PACKING', 'READY'];
@@ -109,18 +112,57 @@ async function setStatus(id, status) {
 }
 
 /**
- * Hand the order over: take the goods out of stock and mark it COLLECTED. No
- * invoice is created — billing is the e-commerce store's job.
+ * Hand the order over. `bill` (default: bill only if the website has NOT
+ * already been paid) decides between:
+ *   - bill:  checkout through the shared service -> invoice + payment here;
+ *   - no bill: just take the goods out of stock (the website holds the invoice).
+ * `serials` maps productId -> [serial...] for IMEI-tracked products (billing only).
  */
-async function collect(id) {
+async function collect(id, { bill, paymentMethod = 'CASH', amountPaid = 0, serials = {}, user } = {}) {
   const o = await prisma.order.findUnique({ where: { id }, include: { items: true } });
   if (!o) throw err('Order not found', 404);
   if (o.status === 'COLLECTED') throw err('Order was already collected', 409);
   if (o.status === 'CANCELLED') throw err('Order is cancelled', 409);
+  const doBill = bill === undefined ? !o.paid : bill;
 
-  // One transaction: claim the order (so two concurrent hand-overs — a double
-  // click, two tills — can't both take stock) and decrement stock. Any failure
-  // rolls the whole thing back, including the claim.
+  if (!doBill) return handOverWithoutBill(o);
+
+  // Claim the order atomically BEFORE billing: two concurrent hand-overs (a
+  // double click, two tills) would otherwise both pass the status check and
+  // bill — and decrement stock — twice. Only the caller whose conditional
+  // update flips the row proceeds; a failed bill releases the claim.
+  const claimed = await prisma.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
+  if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
+  try {
+    return await billClaimedOrder(o, { paymentMethod, amountPaid, serials, user });
+  } catch (e) {
+    await prisma.order.updateMany({ where: { id, status: 'COLLECTED', invoiceId: null }, data: { status: o.status } });
+    throw e;
+  }
+}
+
+async function billClaimedOrder(o, { paymentMethod, amountPaid, serials, user }) {
+  const id = o.id;
+  const body = checkoutSchema.parse({
+    customerName: o.customerName,
+    customerPhone: o.customerPhone || '',
+    items: o.items.map((i) => ({ productId: i.productId, quantity: i.quantity, serials: serials[i.productId] })),
+    paymentMethod: o.paid ? (paymentMethod === 'CARD' ? 'CARD' : 'UPI') : paymentMethod,
+    amountPaid,
+    externalRef: `order-${o.id}`,
+  });
+  // Idempotent per order: a double-click can't bill twice.
+  const { invoice } = await performCheckout(body, { source: 'ORDER', cashierName: user?.name, user, apiKeyId: null });
+  const updated = await prisma.order.update({ where: { id }, data: { status: 'COLLECTED', invoiceId: invoice.id }, include: { items: true } });
+  emitOrderEvent('order.updated', updated, o.status);
+  return { order: updated, invoice };
+}
+
+// Goods out, no invoice: one transaction claims the order (so concurrent
+// hand-overs can't both take stock) and decrements stock; any failure rolls
+// the whole thing back, including the claim.
+async function handOverWithoutBill(o) {
+  const id = o.id;
   const changed = [];
   const updated = await prisma.$transaction(async (tx) => {
     const claimed = await tx.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });

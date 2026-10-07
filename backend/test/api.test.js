@@ -454,14 +454,14 @@ test('security: franchisor is limited to the hub views and read-only', async () 
   assert.equal((await f.post('/api/hub/transfers', { fromBranchId: 1, toBranchId: 2, items: [] })).status, 403);
 });
 
-test('security: concurrent hand-over takes stock exactly once', async () => {
+test('security: concurrent hand-over bills and takes stock exactly once', async () => {
   const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
   const key = await admin.post('/api/api-keys', { name: 'race-orders', scopes: ['orders:write'], confirmPassword: PW });
   const placed = await client(srv.base).post('/api/external/orders', { externalId: 'race-o', items: [{ sku: 'COLA-1', quantity: 2 }], customer: { name: 'Race' } }, { authorization: `Bearer ${key.data.apiKey}` });
   assert.equal(placed.status, 201, JSON.stringify(placed.data));
   const o = { data: placed.data.order };
   const before = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
-  const results = await Promise.all([1, 2, 3, 4].map(() => admin.post(`/api/orders/${o.data.id}/collect`, {})));
+  const results = await Promise.all([1, 2, 3, 4].map(() => admin.post(`/api/orders/${o.data.id}/collect`, { paymentMethod: 'UPI' })));
   assert.equal(results.filter((r) => r.status === 200).length, 1, JSON.stringify(results.map((r) => r.status)));
   const after = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
   assert.equal(after, before - 2);
@@ -551,4 +551,29 @@ test('customer display: shared by key across devices, no login for the viewer', 
   assert.equal((await admin.post('/api/display/state', { nope: 1 })).status, 400);
   assert.equal((await fetch(srv.base + '/api/display/state', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"lines":[]}' })).status, 401);
   assert.equal((await admin.get('/api/display/link')).data.viewers, 1);
+});
+
+test('orders: paid on the website -> no POS bill; pay-at-pickup -> billed in the POS; bill can be overridden', async () => {
+  const k = await admin.post('/api/api-keys', { name: 'bill-mode', scopes: ['orders:write'], confirmPassword: PW });
+  const hdr = { authorization: `Bearer ${k.data.apiKey}` };
+  const place = async (externalId, paid) => (await client(srv.base).post('/api/external/orders', { externalId, items: [{ sku: 'COLA-1', quantity: 1 }], customer: { name: 'Pay', phone: '6111100000' }, paid }, hdr)).data.order;
+
+  const unpaid = await place('bm-unpaid', false);
+  const billed = await admin.post(`/api/orders/${unpaid.id}/collect`, { paymentMethod: 'UPI' });
+  assert.equal(billed.status, 200, JSON.stringify(billed.data));
+  assert.ok(billed.data.invoice?.invoiceNumber, 'pay-at-pickup order is billed in the POS');
+  assert.equal(billed.data.order.invoiceId, billed.data.invoice.id);
+
+  const paid = await place('bm-paid', true);
+  const noBill = await admin.post(`/api/orders/${paid.id}/collect`, {});
+  assert.equal(noBill.status, 200);
+  assert.equal(noBill.data.invoice, undefined);
+
+  const paid2 = await place('bm-paid2', true);
+  const forced = await admin.post(`/api/orders/${paid2.id}/collect`, { bill: true, paymentMethod: 'UPI' });
+  assert.ok(forced.data.invoice?.invoiceNumber, 'bill:true overrides the paid flag');
+
+  const unpaid2 = await place('bm-unpaid2', false);
+  const skip = await admin.post(`/api/orders/${unpaid2.id}/collect`, { bill: false });
+  assert.equal(skip.data.invoice, undefined, 'bill:false hands over without a POS bill');
 });

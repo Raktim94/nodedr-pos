@@ -52,7 +52,7 @@ curl -X POST http://192.168.1.40:1994/api/external/orders \
 ```
 
 * `fulfilment` is `PICKUP` (default) or `DELIVERY`.
-* `paid` is just information for the shop ("Paid" badge) — no payment is taken.
+* `paid` — `true` if you already charged the customer online (no POS bill is made at hand-over), `false` if they pay at the shop (the POS bills them at hand-over). The shop can override this at the counter.
 * `externalId` is **your** order number. Sending the same one again is safe: you
   get the original order back with `"deduplicated": true` (retry on timeouts).
 * Success `201` returns `{ order: { id, pickupCode, status: "NEW", total, items, … } }`.
@@ -101,8 +101,9 @@ Other calls: `GET /orders/:ref` (your `externalId` or the POS id) and
 
 When the customer arrives with the pickup code, staff press **Hand over**. That
 takes the items out of stock, marks the order `COLLECTED` and fires
-`order.updated` to your site. Nothing is billed or printed by the POS — mark your
-own invoice paid/fulfilled when you receive `COLLECTED`.
+`order.updated` to your site. For a `paid: true` order nothing is billed by the
+POS. For a pay-at-pickup order the shop takes cash/UPI/card and the POS issues
+the bill — mark your own order paid when you receive `COLLECTED`.
 
 ## Python example
 

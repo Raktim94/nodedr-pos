@@ -2,7 +2,7 @@ name: nodedr-pos
 
 services:
   backend:
-    image: ghcr.io/raktim94/nodedr-pos-backend:1.4.0
+    image: ghcr.io/raktim94/nodedr-pos-backend:1.5.0
     container_name: nodedr-pos-backend
     hostname: nodedr-pos-backend
     restart: unless-stopped
@@ -47,7 +47,7 @@ services:
             en_US: USB passthrough for optional direct-USB thermal receipt printing. Safe to leave as-is with no printer attached.
 
   frontend:
-    image: ghcr.io/raktim94/nodedr-pos-frontend:1.4.0
+    image: ghcr.io/raktim94/nodedr-pos-frontend:1.5.0
     container_name: nodedr-pos-frontend
     hostname: nodedr-pos-frontend
     restart: unless-stopped
@@ -72,7 +72,7 @@ services:
   # NodeDR POS images above and recreates those two containers (nothing else).
   # Needs the Docker socket to do that; data in /DATA/AppData is untouched.
   updater:
-    image: ghcr.io/raktim94/nodedr-pos-updater:1.4.0
+    image: ghcr.io/raktim94/nodedr-pos-updater:1.5.0
     container_name: nodedr-pos-updater
     hostname: nodedr-pos-updater
     restart: unless-stopped
@@ -146,10 +146,19 @@ x-casaos:
   index: /
   scheme: http
   port_map: "1994"
-  version: "1.4.0"
-  update_at: "2026-10-07"
+  version: "1.5.0"
+  update_at: "2026-10-08"
   release_notes:
     en_US: |-
+      1.5.0 (2026-10-08):
+      - New: find products online by name or barcode and add them after review;
+        product photos; edit/delete suppliers and create purchase orders by hand.
+      - New: customer display on any phone/tablet/second screen over the LAN,
+        with the UPI payment QR, plus a payment-confirmation sound.
+      - Online orders: orders already paid on the website are handed over without
+        a POS bill; pay-at-pickup orders are billed at hand-over. Developer guide
+        for connecting your own website through the API (docs/CUSTOM_STORE.md).
+
       1.4.0 (2026-10-07):
       - New: in-app updates. Settings > Updates shows when a new version is
         available and updates NodeDR POS with one click.
