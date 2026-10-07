@@ -32,7 +32,7 @@ const FEATURES = [
   {
     icon: WifiOff,
     title: "Works fully offline",
-    body: "Sales, inventory, and receipt printing all run on your own machine via Docker or a native Windows/Debian installer — no internet connection needed to make a sale.",
+    body: "Sales, inventory, and receipt printing all run on your own machine via Docker or CasaOS — no internet connection needed to make a sale.",
   },
   {
     icon: Lock,
@@ -76,7 +76,7 @@ const FAQS = [
   },
   {
     q: "Does this free POS software work without internet?",
-    a: "Yes. nodedr-pos runs entirely offline once installed. The app and its database run locally via Docker Compose or a native Windows/Debian installer, so checkout and receipt printing keep working with no internet connection.",
+    a: "Yes. nodedr-pos runs entirely offline once installed. The app and its database run locally via Docker Compose or CasaOS, so checkout and receipt printing keep working with no internet connection.",
   },
   {
     q: "Is open-source POS software safe for handling sales and customer data?",
@@ -88,7 +88,7 @@ const FAQS = [
   },
   {
     q: "What do I need to run this free POS system?",
-    a: "Any machine that can run Docker Compose, or a native installer for Windows 10/11 and Debian/Ubuntu. A USB barcode scanner and ESC/POS thermal printer are supported but optional.",
+    a: "Any machine that can run Docker Compose (Windows, Linux, Mac), a CasaOS/ZimaOS box, or the macOS app. A USB barcode scanner and ESC/POS thermal printer are supported but optional.",
   },
 ];
 
@@ -225,16 +225,7 @@ export default function HomePage() {
           </p>
           <QuickstartCommand />
           <p className="max-w-xl text-xs text-foreground/60">
-            Prefer no Docker at all? Grab the{" "}
-            <a
-              href={`${GITHUB_URL}/releases/latest`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 hover:text-foreground"
-            >
-              native Windows or Debian/Ubuntu installer
-            </a>{" "}
-            instead, or see the{" "}
+            On a CasaOS/ZimaOS box, install it from the app store. Or see the{" "}
             <a
               href={GITHUB_URL}
               target="_blank"

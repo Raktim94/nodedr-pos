@@ -8,8 +8,6 @@
 [![Docker Compose](https://img.shields.io/badge/deploy-docker%20compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![Node](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)](backend/Dockerfile)
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
-[![Windows 10/11](https://img.shields.io/badge/Windows%2010%2F11-installer%20ready-0078D6?logo=windows11&logoColor=white)](packaging/windows/README.md)
-[![Debian/Ubuntu](https://img.shields.io/badge/Debian%2FUbuntu-.deb%20ready-A81D33?logo=debian&logoColor=white)](packaging/README.md)
 [![CasaOS / ZimaOS](https://img.shields.io/badge/CasaOS%20%2F%20ZimaOS-one--click%20app-1F6FEB)](casaos/README.md)
 
 A free, open-source, **offline-first** Point of Sale and inventory
@@ -38,54 +36,14 @@ machine:
 
 | I have… | Best option | Needs |
 | --- | --- | --- |
-| 🪟 **Windows 10/11** | [**Microsoft Store** or **installer**](#windows-1011--recommended-for-most-shops) | nothing else |
-| 🐧 **Ubuntu / Debian** | [**.deb package**](#ubuntu--debian) | nothing else |
-| 🍎 **Mac** | [**macOS app (.dmg)**](#macos) or [Docker](#any-os-with-docker-windows-mac-linux-nas-vps) | — / Docker |
-| 🖥️ **Anything else, a NAS or a VPS** | [**Docker Compose**](#any-os-with-docker-windows-mac-linux-nas-vps) | Docker |
+| 🖥️ **Windows, Linux, a NAS or a VPS** | [**Docker Compose**](#any-os-with-docker-windows-mac-linux-nas-vps) | Docker |
 | 🏠 **CasaOS / ZimaOS box** | [**CasaOS app**](casaos/README.md) | nothing else |
+| 🍎 **Mac** | [**macOS app (.dmg)**](#macos) or Docker | — / Docker |
 
-### Windows 10/11 — recommended for most shops
-
-1. **Download** the installer:
-   **[nodedr-pos-setup-latest-x64.exe](https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-setup-latest-x64.exe)**
-   (all versions: [GitHub Releases](https://github.com/Raktim94/nodedr-pos/releases)).
-2. **Run it.** Windows may show *"Windows protected your PC"* (Microsoft
-   [SmartScreen](https://learn.microsoft.com/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/))
-   because the installer isn't code-signed yet — click **More info → Run anyway**.
-   It needs administrator permission to install two background services.
-3. **Wait about a minute.** The installer sets up *NodeDR POS Backend* and
-   *NodeDR POS Web Interface* as Windows services that start by themselves
-   when the PC boots — nobody has to be logged in.
-4. **Open the register:** double-click the **NodeDR POS** desktop shortcut, or
-   go to <http://localhost:1994>. From a phone/tablet on the same Wi-Fi use
-   `http://<this-pc's-IP>:1994` (find the IP with `ipconfig` → *IPv4 Address*;
-   the installer already opened the firewall for port 1994).
-5. **First-run setup** — see [First launch](#first-launch) below.
-
-Your data lives in `C:\ProgramData\NodeDRPOS`, outside the program folder, so
-updating (run a newer installer over the old one) or uninstalling never
-deletes it. More detail: [`packaging/windows/README.md`](packaging/windows/README.md).
-
-> **Microsoft Store:** NodeDR POS also has a Microsoft Store listing —
-> **[apps.microsoft.com/detail/9N4D0GW2XZ37](https://apps.microsoft.com/detail/9N4D0GW2XZ37)**
-> (or open `ms-windows-store://pdp/?productid=9N4D0GW2XZ37`). Installing from the
-> Store gives automatic updates and no SmartScreen warning. If the page says it
-> isn't available yet, the listing hasn't been published — use the installer above.
-
-### Ubuntu / Debian
-
-```bash
-# 1. Download the package
-wget https://github.com/Raktim94/nodedr-pos/releases/latest/download/nodedr-pos-latest-amd64.deb
-# 2. Install it (creates the service and database, and starts it)
-sudo apt install ./nodedr-pos-latest-amd64.deb
-# 3. Open it
-xdg-open http://localhost:1994      # or browse to http://<this-machine>:1994
-```
-
-Handy commands afterwards: `nodedr-pos doctor`, `nodedr-pos backup`,
-`nodedr-pos logs`. A small tray icon appears in your desktop session (status,
-open, restart). Details: [`packaging/README.md`](packaging/README.md).
+> The native Windows `.exe` and Debian/Ubuntu `.deb` installers were retired —
+> Docker (or CasaOS) is the supported way to run NodeDR POS on those systems,
+> because it can **update itself with one click** (see
+> [Updating](#updating)).
 
 ### macOS
 
@@ -119,13 +77,29 @@ open, restart). Details: [`packaging/README.md`](packaging/README.md).
    ./install.sh          # no Git Bash on Windows? run: docker compose up -d --build
    ```
 3. Open <http://localhost:1994>. Stop with `docker compose down` (data is kept in the
-   `nodedr-pos_data` volume). Update with `git pull && ./install.sh`.
+   `nodedr-pos_data` volume). Update from the app: see [Updating](#updating).
 
 On a **VPS with a domain**, copy `.env.example` to `.env`, set
 `FRONTEND_ORIGIN=https://pos.yourdomain.com`, `COOKIE_SECURE=true` and
 `PUBLIC_BASE_URL=https://pos.yourdomain.com`, and put HTTPS in front
 (see [Where to run it](#where-to-run-it)). The step-by-step Docker commands are
 also listed under [Quick start](#quick-start).
+
+### Updating
+
+Docker and CasaOS installs include a small updater container
+(`nodedr-pos-updater`, a [Watchtower](https://github.com/nicholas-fedor/watchtower)
+instance that only touches the two NodeDR POS containers). When a newer
+version is published, admins see an **"Update available"** banner in the app.
+Go to **Settings → Updates**, click **Update now** and confirm your password —
+the app pulls the latest images, restarts itself (about a minute) and reloads.
+Your data volume is never touched.
+
+The updater needs the Docker socket, which is why it is a separate,
+single-purpose container reachable only over the internal Docker network and
+only with a shared token (`UPDATER_TOKEN` — the default is fine on a LAN; set
+your own in `.env` on a public server). To update by hand instead:
+`docker compose pull && docker compose up -d`.
 
 ### First launch
 
@@ -330,11 +304,7 @@ The backend and frontend are two separate containers, neither of which needs
 elevated privileges or host device access — everything still comes up with a
 single `docker compose up`.
 
-**The same two-process split runs natively, without Docker, on the `.deb` and
-`.exe` installers** — `systemd` units on Linux, Windows services on Windows —
-each process supervised, restarted, and firewalled the same way the two
-containers are here. See [Install](#install) for which install
-method fits your till.
+**The macOS app runs the same two-process split natively** (no Docker), each process supervised and restarted. See [Install](#install) for which install method fits your till.
 
 ## Tech stack
 
@@ -946,7 +916,7 @@ nodedr-pos/
 ├── docker-compose.yml         # declares the nodedr-pos_data named volume
 ├── docs/screenshots/          # README images
 ├── casaos/                    # CasaOS/ZimaOS app store manifest + assets — see casaos/README.md
-├── packaging/                 # Windows (.exe) and Debian/Ubuntu (.deb) native installers
+├── packaging/                 # macOS app (.dmg) + shared tray helper
 ├── backend/
 │   ├── Dockerfile
 │   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem, Return

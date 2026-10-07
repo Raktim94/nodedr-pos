@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -25,13 +25,20 @@ import { EmailTab } from "./EmailTab";
 import { SyncTab } from "./SyncTab";
 import { FeaturesTab } from "./FeaturesTab";
 import { IntegrationsTab } from "./IntegrationsTab";
+import { UpdatesTab } from "./UpdatesTab";
 
-const TABS = ["Company", "Tax & Loyalty", "Receipt", "Features", "Invoice & signature", "Payments", "Online stores", "E-mail reports", "Branches", "Reference Data", "Integrations", "Password", "Staff"] as const;
+const TABS = ["Company", "Tax & Loyalty", "Receipt", "Features", "Invoice & signature", "Payments", "Online stores", "E-mail reports", "Branches", "Reference Data", "Integrations", "Password", "Staff", "Updates"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
   const { data: settings, isLoading, isError, error, refetch } = useShopSettings();
   const [tab, setTab] = useState<Tab>("Company");
+
+  // Deep link from the "Update available" banner: /settings?tab=Updates
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("tab");
+    if (wanted && (TABS as readonly string[]).includes(wanted)) setTab(wanted as Tab);
+  }, []);
 
   if (isLoading) {
     return <p className="text-sm text-foreground/50">Loading settings…</p>;
@@ -96,6 +103,7 @@ export default function SettingsPage() {
       {tab === "Integrations" && <IntegrationsTab />}
       {tab === "Password" && <PasswordTab />}
       {tab === "Staff" && <UsersPanel />}
+      {tab === "Updates" && <UpdatesTab />}
     </div>
   );
 }

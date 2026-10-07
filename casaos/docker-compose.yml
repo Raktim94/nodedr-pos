@@ -2,15 +2,20 @@ name: nodedr-pos
 
 services:
   backend:
-    image: ghcr.io/raktim94/nodedr-pos-backend:1.1.0
+    image: ghcr.io/raktim94/nodedr-pos-backend:latest
     container_name: nodedr-pos-backend
     hostname: nodedr-pos-backend
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     environment:
       DATABASE_URL: "file:/app/data/pos.db"
       PORT: "4000"
       FRONTEND_ORIGIN: "http://localhost:1994"
       COOKIE_SECURE: "false"
+      # In-app "Update now" button (Settings > Updates) -> the updater below.
+      UPDATER_URL: "http://nodedr-pos-updater:8080"
+      UPDATER_TOKEN: "nodedr-pos-updater"
     volumes:
       - type: bind
         source: /DATA/AppData/$AppID/data
@@ -44,10 +49,12 @@ services:
             en_US: USB passthrough for optional direct-USB thermal receipt printing. Safe to leave as-is with no printer attached.
 
   frontend:
-    image: ghcr.io/raktim94/nodedr-pos-frontend:1.1.0
+    image: ghcr.io/raktim94/nodedr-pos-frontend:latest
     container_name: nodedr-pos-frontend
     hostname: nodedr-pos-frontend
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     ports:
       - target: 3000
         published: "1994"
@@ -62,6 +69,31 @@ services:
           description:
             en_US: NodeDR POS web interface
           protocol: tcp
+
+  # Powers the in-app "Update now" button. Does nothing on its own (no
+  # polling): it only acts when the backend calls it with the token, and only
+  # on the two NodeDR POS containers above (label-scoped). Needs the Docker
+  # socket to pull images and recreate them; data in /DATA/AppData is
+  # untouched.
+  updater:
+    image: nickfedor/watchtower:latest
+    container_name: nodedr-pos-updater
+    hostname: nodedr-pos-updater
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: "nodedr-pos-updater"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - nodedr-pos
+    x-casaos:
+      volumes:
+        - container: /var/run/docker.sock
+          description:
+            en_US: Docker socket, used only by the in-app "Update now" button to pull the latest NodeDR POS images.
 
 networks:
   nodedr-pos:
@@ -120,10 +152,16 @@ x-casaos:
   index: /
   scheme: http
   port_map: "1994"
-  version: "1.1.0"
-  update_at: "2026-08-21"
+  version: "1.2.0"
+  update_at: "2026-10-07"
   release_notes:
     en_US: |-
+      1.2.0 (2026-10-07):
+      - New: in-app updates. Settings > Updates shows when a new version is
+        available and updates NodeDR POS with one click.
+      - Many more currencies (incl. Hong Kong dollar), online orders, IMEI &
+        warranty, purchasing, reports and more — see the project README.
+
       1.1.0 (2026-08-21):
       - Dashboard: new "Total Due" stat and a customers-with-due section for
         quick collections follow-up.

@@ -32,6 +32,12 @@ you don't need to wait for this to land in the official app store:
    an admin account and setting up your shop, exactly like every other
    install method.
 
+**Updating:** admins get an "Update available" banner in the app. Open
+**Settings → Updates → Update now** — the bundled `nodedr-pos-updater`
+container pulls the latest images and restarts the app (about a minute).
+Your data is untouched. (It needs the Docker socket, which is why the
+install form lists it.)
+
 Your data (the SQLite database) persists at
 `/DATA/AppData/nodedr-pos/data` on the CasaOS box, following the same
 convention CasaOS's own backup/restore UI expects for every other app.

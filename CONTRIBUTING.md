@@ -2,8 +2,8 @@
 
 Thanks for considering a contribution to NodeDR POS — a free, offline-first
 Point of Sale for small retail shops. This is a small, focused tool with a
-real production surface (three install paths — Docker, Windows `.exe`,
-Debian `.deb` — all shipping from the same code), so this guide covers
+real production surface (Docker/CasaOS and a macOS app, all shipping from
+the same code), so this guide covers
 environment setup, the conventions the codebase already leans on, and the
 process for issues/PRs.
 
@@ -114,7 +114,7 @@ nodedr-pos/
 ├── docker-compose.yml         # declares the nodedr-pos_data named volume
 ├── install.sh                 # one-command Docker install/upgrade
 ├── docs/screenshots/          # README images
-├── packaging/                 # .deb (Debian/Ubuntu) and .exe (Windows) installer builds
+├── packaging/                 # macOS app (.dmg) build + shared tray helper
 ├── backend/
 │   ├── Dockerfile
 │   ├── prisma/schema.prisma  # User, ShopSettings, Product, Invoice, InvoiceItem, Return
@@ -186,20 +186,6 @@ read the relevant section before changing either:
   runs as root (it's required, not an oversight — don't "fix" it by
   adding a `USER` line).
 
-## Working on the native installers
-
-The Windows (`.exe`) and Debian (`.deb`) installers are built from the
-same `backend`/`frontend` source — see
-[`packaging/windows/README.md`](packaging/windows/README.md) and
-[`packaging/README.md`](packaging/README.md) for the full build process,
-service/systemd-unit layout, and what CI verifies before a release. If you
-touch `packaging/debian/copyright` or the `.nsi` script's license/version
-metadata, keep them consistent with the root [`LICENSE`](./LICENSE) — the
-`Files: *` stanza in `packaging/debian/copyright` describes *our* code and
-must match; the stanzas for the bundled Node.js runtime and vendored
-`node_modules` describe *their* actual upstream licenses and should not be
-changed to match ours.
-
 ## Making a change
 
 1. Fork the repo and branch off `master`:
@@ -244,7 +230,7 @@ Open an issue with:
 
 - What you expected vs. what happened.
 - Exact repro steps.
-- Install method (Docker / Windows `.exe` / Debian `.deb` / local dev)
+- Install method (Docker / CasaOS / macOS app / local dev)
   and versions (Node, OS, Docker if relevant).
 - For a printing bug: which transport (browser Print, Download PDF,
   Print via USB), printer model, and `lsusb` / `dmesg | grep usblp`

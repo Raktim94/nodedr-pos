@@ -15,6 +15,7 @@ const returnRoutes = require('./routes/returns');
 const printRoutes = require('./routes/print');
 const mastersRoutes = require('./routes/masters');
 const apiKeyRoutes = require('./routes/apiKeys');
+const updateRoutes = require('./routes/update');
 const externalRoutes = require('./routes/external');
 const warrantyRoutes = require('./routes/warranty');
 const signatureRoutes = require('./routes/signatures');
@@ -83,10 +84,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', version: require('../package.json').version }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/update', updateRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/invoices', invoiceRoutes);

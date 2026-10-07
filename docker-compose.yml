@@ -3,8 +3,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Same name CI publishes (docker-publish.yml). `up --build` still builds
+    # from source and tags it with this name; the in-app "Update now" button
+    # (see the `updater` service below) pulls the published image under it.
+    image: ghcr.io/raktim94/nodedr-pos-backend:latest
     container_name: nodedr-pos-backend
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     environment:
       # Absolute path — do not go back to a ".." relative path here. Prisma's
       # old built-in SQLite engine resolved relative file: URLs relative to
@@ -25,6 +31,11 @@ services:
       # Public address used in receipt/portal links and the External API's receiptUrl
       # (defaults to the address the request arrived on).
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      # In-app updates (Settings > Updates): the backend asks the `updater`
+      # container below to pull the latest images. Unset these two and the
+      # Update button simply says this install can't update itself.
+      UPDATER_URL: "http://updater:8080"
+      UPDATER_TOKEN: "${UPDATER_TOKEN:-nodedr-pos-updater}"
     # The backend is intentionally NOT published to the host. It's reachable
     # only over the internal Docker network via the frontend's /api proxy,
     # which keeps the API off the LAN and shrinks the attack surface. To hit
@@ -72,12 +83,36 @@ services:
         # the backend service over the internal Docker network; never exposed
         # to the browser.
         BACKEND_URL: "http://backend:4000"
+    image: ghcr.io/raktim94/nodedr-pos-frontend:latest
     container_name: nodedr-pos-frontend
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     ports:
       - "${HOST_PORT:-1994}:3000"
     depends_on:
       - backend
+
+  # One-click updates. Watchtower (maintained fork) in HTTP-API mode: it does
+  # NOTHING on its own — no polling, no auto-update — and only acts when the
+  # backend POSTs /v1/update with the shared token (Settings > Updates >
+  # Update now, admin + password confirm). It touches only containers that
+  # carry the watchtower.enable label (backend + frontend), pulls their newest
+  # image and recreates them with the same settings; the data volume is
+  # untouched. It needs the Docker socket, which is why this is its own tiny
+  # container on the internal network (no published port) instead of
+  # privilege handed to the POS backend.
+  updater:
+    image: nickfedor/watchtower:latest
+    container_name: nodedr-pos-updater
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: "${UPDATER_TOKEN:-nodedr-pos-updater}"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   # Optional HTTPS front door, off by default — `docker compose up` alone
   # never starts this. Only needed for camera barcode/QR scanning from a

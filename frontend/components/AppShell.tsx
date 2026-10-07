@@ -37,6 +37,8 @@ import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { BrandFooter } from "@/components/BrandFooter";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { UpdateBanner } from "@/components/UpdateBanner";
+import { useUpdateStatus } from "@/hooks/useUpdate";
 import { can } from "@/lib/perm";
 import type { Permission } from "@/lib/types";
 
@@ -66,6 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { data: me } = useMe();
   const { data: lowStock } = useLowStock();
   const { data: health } = useSyncStatus();
+  const { data: update } = useUpdateStatus(me?.role === "admin");
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -177,6 +180,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
                 {item.label}
+                {item.href === "/settings" && update?.updateAvailable && (
+                  <span className="ml-auto h-2 w-2 rounded-full bg-brand shadow-[0_0_6px_var(--brand-glow)]" aria-label="Update available" />
+                )}
               </Link>
             );
           })}
@@ -289,6 +295,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        <UpdateBanner isAdmin={me?.role === "admin"} />
 
         <main className="mx-auto w-full max-w-[1440px] flex-1 overflow-y-auto bg-background p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">{children}</main>
 

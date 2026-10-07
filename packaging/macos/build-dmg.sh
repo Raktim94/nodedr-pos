@@ -3,7 +3,7 @@
 #
 # MUST run on macOS (Apple Silicon or Intel): the backend uses native Node
 # addons (better-sqlite3), so the payload is assembled by a real `npm ci` on the
-# target architecture, same reasoning as the Windows installer.
+# target architecture, same reasoning as other native builds.
 #
 # What ends up in the app:
 #   * its own Node.js runtime        — no Docker, no Node install needed
@@ -13,7 +13,7 @@
 #
 # NOTE ON "DOCKER BUNDLED": Docker Desktop can't be redistributed inside an app
 # and isn't needed — the app runs the same code natively, exactly like the
-# Windows installer and the .deb. Docker Compose remains available for anyone
+# other installers. Docker Compose remains available for anyone
 # who prefers it.
 #
 # Usage: packaging/macos/build-dmg.sh [--version 1.2.0] [--arch arm64|x64] [--node 24.18.0]
