@@ -88,14 +88,15 @@ also listed under [Quick start](#quick-start).
 ### Updating
 
 Docker and CasaOS installs include a small updater container
-(`nodedr-pos-updater`, a [Watchtower](https://github.com/nicholas-fedor/watchtower)
-instance that only touches the two NodeDR POS containers). When a newer
+(`nodedr-pos-updater`, see [`updater/`](updater/server.js)). When a newer
 version is published, admins see an **"Update available"** banner in the app.
 Go to **Settings → Updates**, click **Update now** and confirm your password —
-the app pulls the latest images, restarts itself (about a minute) and reloads.
-Your data volume is never touched.
+the updater downloads that exact version, swaps the two app containers (about
+a minute) and the page reloads. If the download fails (no internet) nothing is
+changed and the error is shown. Your data volume is never touched.
 
-The updater needs the Docker socket, which is why it is a separate,
+The updater does nothing on its own and only ever touches the backend and
+frontend containers. It needs the Docker socket, which is why it is a separate,
 single-purpose container reachable only over the internal Docker network and
 only with a shared token (`UPDATER_TOKEN` — the default is fine on a LAN; set
 your own in `.env` on a public server). To update by hand instead:

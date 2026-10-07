@@ -9,8 +9,6 @@ services:
     image: ghcr.io/raktim94/nodedr-pos-backend:latest
     container_name: nodedr-pos-backend
     restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
     environment:
       # Absolute path — do not go back to a ".." relative path here. Prisma's
       # old built-in SQLite engine resolved relative file: URLs relative to
@@ -86,31 +84,29 @@ services:
     image: ghcr.io/raktim94/nodedr-pos-frontend:latest
     container_name: nodedr-pos-frontend
     restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
     ports:
       - "${HOST_PORT:-1994}:3000"
     depends_on:
       - backend
 
-  # One-click updates. Watchtower (maintained fork) in HTTP-API mode: it does
-  # NOTHING on its own — no polling, no auto-update — and only acts when the
-  # backend POSTs /v1/update with the shared token (Settings > Updates >
-  # Update now, admin + password confirm). It touches only containers that
-  # carry the watchtower.enable label (backend + frontend), pulls their newest
-  # image and recreates them with the same settings; the data volume is
-  # untouched. It needs the Docker socket, which is why this is its own tiny
-  # container on the internal network (no published port) instead of
-  # privilege handed to the POS backend.
+  # One-click updates. A tiny sidecar (see updater/server.js) that does
+  # NOTHING on its own — no polling, no auto-update. When an admin presses
+  # Settings > Updates > "Update now" (admin + password confirm), the backend
+  # tells it which published version to move to; it pulls that exact version of
+  # the backend and frontend images and recreates those two containers with
+  # the same settings (data volume untouched, rolled back if it fails). It
+  # needs the Docker socket, which is why this is its own container on the
+  # internal network (no published port) instead of privilege handed to the
+  # POS backend.
   updater:
-    image: nickfedor/watchtower:latest
+    build:
+      context: ./updater
+    image: ghcr.io/raktim94/nodedr-pos-updater:latest
     container_name: nodedr-pos-updater
     restart: unless-stopped
     environment:
-      WATCHTOWER_HTTP_API_UPDATE: "true"
-      WATCHTOWER_HTTP_API_TOKEN: "${UPDATER_TOKEN:-nodedr-pos-updater}"
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_CLEANUP: "true"
+      UPDATER_TOKEN: "${UPDATER_TOKEN:-nodedr-pos-updater}"
+      TARGET_CONTAINERS: "nodedr-pos-backend,nodedr-pos-frontend"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 

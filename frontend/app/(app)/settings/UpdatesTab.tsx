@@ -10,7 +10,7 @@ import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useUpdateStatus } from "@/hooks/useUpdate";
 import { api, ApiError } from "@/lib/api";
 
-type Phase = "idle" | "updating" | "unchanged";
+type Phase = "idle" | "updating" | "unchanged" | "failed";
 
 const POLL_MS = 3000;
 const GIVE_UP_MS = 6 * 60_000;
@@ -22,6 +22,7 @@ export function UpdatesTab() {
   const { withPasswordConfirm } = usePasswordConfirm();
   const [phase, setPhase] = useState<Phase>("idle");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
@@ -50,6 +51,17 @@ export function UpdatesTab() {
         sawDown = true;
         return;
       }
+      // Backend is up: ask the updater whether it gave up (e.g. no internet to
+      // download the new version) — otherwise we'd just wait for nothing.
+      try {
+        const p = await api.get<{ state: string; error?: string | null }>("/update/progress");
+        if (p.state === "error") {
+          if (timer.current) clearInterval(timer.current);
+          setFailure(p.error || "The update failed");
+          setPhase("failed");
+          return;
+        }
+      } catch {}
       if ((version && version !== startVersion) || sawDown) {
         if (timer.current) clearInterval(timer.current);
         window.location.reload();
@@ -63,6 +75,7 @@ export function UpdatesTab() {
 
   async function update() {
     if (!data) return;
+    setFailure(null);
     const ok = await withPasswordConfirm("update NodeDR POS", async (confirmPassword) => {
       await api.post("/update/apply", { confirmPassword });
       return true;
@@ -87,6 +100,13 @@ export function UpdatesTab() {
           )}
         </p>
       </div>
+
+      {phase === "failed" && (
+        <div role="alert" className="rounded-xl border border-danger/40 bg-danger/10 p-4 text-sm">
+          <p className="font-medium text-danger">The update didn&apos;t go through — nothing was changed.</p>
+          <p className="mt-1 break-words text-foreground-muted">{failure} Check the internet connection and try again.</p>
+        </div>
+      )}
 
       {phase === "updating" ? (
         <div className="flex items-start gap-3 rounded-xl border border-brand/30 bg-brand-soft p-4 text-sm">

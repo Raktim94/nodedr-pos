@@ -1,6 +1,6 @@
 const express = require('express');
 const { requireAuth, requireAdmin, requirePasswordConfirm } = require('../middleware/auth');
-const { getStatus, applyUpdate } = require('../lib/update');
+const { getStatus, applyUpdate, getProgress } = require('../lib/update');
 
 const router = express.Router();
 
@@ -15,11 +15,17 @@ router.get('/status', requireAuth, requireAdmin, async (req, res) => {
 // sensitive admin actions.
 router.post('/apply', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
   try {
-    await applyUpdate();
-    res.status(202).json({ status: 'updating' });
+    const { version } = await applyUpdate();
+    res.status(202).json({ status: 'updating', version });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// GET /api/update/progress — what the updater is doing right now, so the UI can
+// show a failure (e.g. no internet to pull the images) instead of waiting.
+router.get('/progress', requireAuth, requireAdmin, async (req, res) => {
+  res.json(await getProgress());
 });
 
 module.exports = router;

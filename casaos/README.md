@@ -34,7 +34,7 @@ you don't need to wait for this to land in the official app store:
 
 **Updating:** admins get an "Update available" banner in the app. Open
 **Settings → Updates → Update now** — the bundled `nodedr-pos-updater`
-container pulls the latest images and restarts the app (about a minute).
+container downloads the new version and restarts the app (about a minute).
 Your data is untouched. (It needs the Docker socket, which is why the
 install form lists it.)
 

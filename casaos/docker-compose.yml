@@ -2,12 +2,10 @@ name: nodedr-pos
 
 services:
   backend:
-    image: ghcr.io/raktim94/nodedr-pos-backend:latest
+    image: ghcr.io/raktim94/nodedr-pos-backend:1.4.0
     container_name: nodedr-pos-backend
     hostname: nodedr-pos-backend
     restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
     environment:
       DATABASE_URL: "file:/app/data/pos.db"
       PORT: "4000"
@@ -49,12 +47,10 @@ services:
             en_US: USB passthrough for optional direct-USB thermal receipt printing. Safe to leave as-is with no printer attached.
 
   frontend:
-    image: ghcr.io/raktim94/nodedr-pos-frontend:latest
+    image: ghcr.io/raktim94/nodedr-pos-frontend:1.4.0
     container_name: nodedr-pos-frontend
     hostname: nodedr-pos-frontend
     restart: unless-stopped
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
     ports:
       - target: 3000
         published: "1994"
@@ -71,20 +67,18 @@ services:
           protocol: tcp
 
   # Powers the in-app "Update now" button. Does nothing on its own (no
-  # polling): it only acts when the backend calls it with the token, and only
-  # on the two NodeDR POS containers above (label-scoped). Needs the Docker
-  # socket to pull images and recreate them; data in /DATA/AppData is
-  # untouched.
+  # polling): when an admin presses the button, the backend tells it which
+  # published version to move to, and it pulls that version of the two
+  # NodeDR POS images above and recreates those two containers (nothing else).
+  # Needs the Docker socket to do that; data in /DATA/AppData is untouched.
   updater:
-    image: nickfedor/watchtower:latest
+    image: ghcr.io/raktim94/nodedr-pos-updater:1.4.0
     container_name: nodedr-pos-updater
     hostname: nodedr-pos-updater
     restart: unless-stopped
     environment:
-      WATCHTOWER_HTTP_API_UPDATE: "true"
-      WATCHTOWER_HTTP_API_TOKEN: "nodedr-pos-updater"
-      WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_CLEANUP: "true"
+      UPDATER_TOKEN: "nodedr-pos-updater"
+      TARGET_CONTAINERS: "nodedr-pos-backend,nodedr-pos-frontend"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
@@ -93,7 +87,7 @@ services:
       volumes:
         - container: /var/run/docker.sock
           description:
-            en_US: Docker socket, used only by the in-app "Update now" button to pull the latest NodeDR POS images.
+            en_US: Docker socket, used only by the in-app "Update now" button to move the two NodeDR POS containers to a newer version.
 
 networks:
   nodedr-pos:

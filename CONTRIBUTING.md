@@ -186,6 +186,15 @@ read the relevant section before changing either:
   runs as root (it's required, not an oversight — don't "fix" it by
   adding a `USER` line).
 
+## Releasing a new version
+
+CasaOS can't use `:latest`, so every release must bump the version in
+**one commit**: `backend/package.json` (+ `package-lock.json`), and in
+`casaos/docker-compose.yml` the three image tags, `x-casaos.version`,
+`update_at` and a new release-notes entry. A backend test fails if they
+disagree. CI publishes all three images tagged with that version; the in-app
+update banner appears once the tag exists.
+
 ## Making a change
 
 1. Fork the repo and branch off `master`:

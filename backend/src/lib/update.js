@@ -6,7 +6,7 @@
 // can briefly be ahead of the image — updating in that window would be a no-op).
 //
 // Applying an update is delegated to the `updater` sidecar container
-// (Watchtower in HTTP-API mode) because a container cannot safely replace
+// (updater/server.js) because a container cannot safely replace
 // itself, and giving this API the Docker socket would be far more privilege
 // than a POS backend should hold. The sidecar is reachable only on the
 // internal Docker network and only with UPDATER_TOKEN.
@@ -57,14 +57,14 @@ async function imageTagExists(version) {
 }
 
 async function fetchLatest() {
-  const res = await fetch(`https://raw.githubusercontent.com/${REPO}/${BRANCH}/backend/package.json`, {
+  const res = await fetch(process.env.UPDATE_CHECK_URL || `https://raw.githubusercontent.com/${REPO}/${BRANCH}/backend/package.json`, {
     signal: AbortSignal.timeout(8000),
     headers: { 'Cache-Control': 'no-cache' },
   });
   if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
   const latest = (await res.json()).version;
   if (!parse(latest)) throw new Error('could not read the latest version');
-  if (updaterConfigured() && compareVersions(latest, pkg.version) > 0) {
+  if (updaterConfigured() && !process.env.UPDATE_CHECK_URL && compareVersions(latest, pkg.version) > 0) {
     const published = await imageTagExists(latest).catch(() => null);
     if (published === false) return pkg.version; // announced but image not built yet
   }
@@ -93,54 +93,55 @@ async function getStatus({ force = false } = {}) {
   };
 }
 
-let applying = false;
+function updaterHeaders() {
+  return { Authorization: `Bearer ${process.env.UPDATER_TOKEN || ''}`, 'Content-Type': 'application/json' };
+}
 
-// Kicks the updater and returns once it has clearly accepted the request.
-// The updater pulls new images and recreates this very container, so the
-// HTTP call to it can never complete from our side — we only wait long
-// enough to catch "unreachable" and "wrong token".
+function fail(message, status) {
+  return Object.assign(new Error(message), { status });
+}
+
+// Asks the updater sidecar to move the app's containers to the latest
+// published version. The updater answers 202 right away and carries on in
+// the background (it restarts this very container), so the answer here only
+// means "accepted"; progress is read back through getProgress().
 async function applyUpdate() {
-  if (!updaterConfigured()) {
-    const e = new Error('This install has no updater. Update the app the way you installed it.');
-    e.status = 501;
-    throw e;
-  }
-  if (applying) {
-    const e = new Error('An update is already in progress');
-    e.status = 409;
-    throw e;
-  }
-  applying = true;
-  setTimeout(() => { applying = false; }, 5 * 60 * 1000).unref();
+  if (!updaterConfigured()) throw fail('This install has no updater. Update the app the way you installed it.', 501);
+  const st = await getStatus({ force: true });
+  if (!st.updateAvailable) throw fail('You are already on the latest version', 409);
 
-  const url = `${process.env.UPDATER_URL.replace(/\/$/, '')}/v1/update`;
-  const req = fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.UPDATER_TOKEN || ''}` },
-    signal: AbortSignal.timeout(10 * 60 * 1000),
-  }).then(
-    (r) => ({ status: r.status }),
-    (err) => ({ error: err }),
-  );
-  const first = await Promise.race([req, new Promise((r) => setTimeout(() => r({ pending: true }), 3000))]);
-  if (first.pending) return; // still pulling — expected
+  let res;
+  try {
+    res = await fetch(`${process.env.UPDATER_URL.replace(/\/$/, '')}/v1/update`, {
+      method: 'POST',
+      headers: updaterHeaders(),
+      body: JSON.stringify({ version: st.latest }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    throw fail('Could not reach the updater container. Is "nodedr-pos-updater" running?', 502);
+  }
+  if (res.status === 401) throw fail('The updater rejected the request (UPDATER_TOKEN mismatch)', 502);
+  if (res.status === 409) throw fail('An update is already in progress', 409);
+  if (!res.ok) {
+    const msg = (await res.json().catch(() => ({}))).error;
+    throw fail(`The updater refused: ${msg || res.status}`, 502);
+  }
+  return { version: st.latest };
+}
 
-  applying = false;
-  if (first.error) {
-    const e = new Error('Could not reach the updater container. Is "nodedr-pos-updater" running?');
-    e.status = 502;
-    throw e;
-  }
-  if (first.status === 401 || first.status === 403) {
-    const e = new Error('The updater rejected the request (UPDATER_TOKEN mismatch)');
-    e.status = 502;
-    throw e;
-  }
-  if (first.status >= 400) {
-    const e = new Error(`The updater responded ${first.status}`);
-    e.status = 502;
-    throw e;
+// {state: idle|pulling|restarting|done|error, error?} — or state "unknown" when
+// the updater can't be asked (e.g. no updater at all).
+async function getProgress() {
+  if (!updaterConfigured()) return { state: 'unknown' };
+  try {
+    const res = await fetch(`${process.env.UPDATER_URL.replace(/\/$/, '')}/v1/status`, { headers: updaterHeaders(), signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return { state: 'unknown' };
+    const { state, error, version } = await res.json();
+    return { state, error, version };
+  } catch {
+    return { state: 'unknown' };
   }
 }
 
-module.exports = { getStatus, applyUpdate, compareVersions };
+module.exports = { getStatus, applyUpdate, getProgress, compareVersions };
