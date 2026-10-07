@@ -56,7 +56,7 @@ Every build runs the installer end to end and fails if any of this breaks:
 | Both services registered, running, and set to start at boot |
 | `http://localhost:1994/api/health` returns `{"status":"ok"}` |
 | App shell renders |
-| All 11 Prisma migrations applied |
+| Every Prisma migration in the repo is applied |
 | `backend\data` is a **junction** into `C:\ProgramData\NodeDRPOS` (not a real folder) |
 | Firewall: allow rule on the web port, block rule on the API port |
 | Real sale through the `/api` proxy: register → settings → product → checkout |

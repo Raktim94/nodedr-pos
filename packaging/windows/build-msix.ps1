@@ -32,7 +32,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$Version            = "1.2.0",
+  [string]$Version            = "1.3.0",
   [int]$BackendPort           = 4000,
   [int]$FrontendPort          = 1994,
   [string]$OutDir             = "dist",

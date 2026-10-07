@@ -204,7 +204,8 @@ jobs:
           $js = "const D=require('$bs3');const db=new D('C:/ProgramData/NodeDRPOS/pos.db',{readonly:true});process.stdout.write(String(db.prepare('SELECT COUNT(*) n FROM _prisma_migrations WHERE finished_at IS NOT NULL').get().n));"
           $migrations = & "$env:ProgramFiles\NodeDRPOS\runtime\node.exe" -e $js
           Write-Host "  applied migrations: $migrations"
-          Check "all 11 migrations applied" ("$migrations" -eq "11")
+          $expected = (Get-ChildItem "$env:GITHUB_WORKSPACE\backend\prisma\migrations" -Directory).Count
+          Check "all $expected migrations applied" ("$migrations" -eq "$expected")
 
           if ($fail -gt 0) { throw "$fail check(s) failed" }
 
