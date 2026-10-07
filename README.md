@@ -249,7 +249,7 @@ Security review: [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
   shop's counter machine also runs it unmodified on any VPS/cloud
   provider, if you'd rather manage it remotely or across locations. See
   [Where to run it](#where-to-run-it).
-- **Multi-currency** — over 20 major currencies (₹ INR, $ USD, € EUR, £ GBP,
+- **Multi-currency** — over 20 major currencies (₹ INR, $ USD, € EUR, £ GBP, HK$ HKD,
   and more), switchable in settings; the symbol flows through the whole app
   and onto receipts. One source of truth on the backend
   ([`backend/src/lib/currency.js`](backend/src/lib/currency.js)) so

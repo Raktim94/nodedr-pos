@@ -44,6 +44,21 @@ async function notifyStockChange(changes) {
   }
 }
 
+// Retries a few times with backoff so a storefront that is briefly down (deploy,
+// restart) still receives the status change. Runs in the background only.
+async function sendWithRetry(url, secret, payload, attempts = 4) {
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await sendOne(url, secret, payload);
+    } catch (err) {
+      last = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 2000 * 3 ** i).unref?.());
+    }
+  }
+  throw last;
+}
+
 async function sendOne(url, secret, payload) {
   const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   const res = await fetch(url, {
@@ -77,7 +92,7 @@ async function notifyEvent(event, data, { apiKeyId } = {}) {
   const payload = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
   for (const t of targets) {
     if (!t.webhookUrl || !t.webhookSecret) continue;
-    sendOne(t.webhookUrl, t.webhookSecret, payload).catch((err) => console.error(`notifyEvent: delivery to "${t.name}" failed:`, err.message));
+    sendWithRetry(t.webhookUrl, t.webhookSecret, payload).catch((err) => console.error(`notifyEvent: delivery to "${t.name}" failed:`, err.message));
   }
 }
 

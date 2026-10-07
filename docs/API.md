@@ -29,6 +29,7 @@ product). A product without a SKU is invisible to the API and MCP.
 | `GET /bills/:invoiceNumberOrExternalRef` | Only bills made with this key |
 | `GET /bills/:ref/pdf?layout=a4\|receipt` | PDF bill |
 | `POST /orders` | `{externalId, fulfilment, customer, items:[{sku,quantity}], paid, note}` → reserves stock, returns a `pickupCode`. Idempotent on `externalId` |
+| `GET /orders?status=NEW,READY&updatedSince=ISO&limit=100` | Poll your own orders — newest change first. Use it as a fallback or to catch up after downtime |
 | `GET /orders/:ref`, `POST /orders/:ref/cancel` | Own orders only |
 | `GET /warranty/:serial` | Product, sale date, warranty end, days left, history (buyer name/phone omitted) |
 
@@ -40,6 +41,18 @@ open — share it with the customer.
 HMAC-SHA256 of the raw body in `X-Nodedr-Signature: sha256=<hex>`.
 `stock.updated` (linked products), and — **only to the key that owns the
 order** — `order.created` / `order.updated`.
+
+Every status change made on the Orders board (packing, ready, collected,
+cancelled) fires `order.updated` with the full order plus `previousStatus`, so
+your storefront can flip its own order and tell the customer. Delivery is
+retried 4 times (2 s, 6 s, 18 s apart); after that, `GET /orders?updatedSince=`
+catches you up.
+
+```json
+{ "event": "order.updated", "timestamp": "2026-10-07T09:30:00.000Z",
+  "data": { "id": 41, "externalId": "web-1001", "status": "READY", "previousStatus": "PACKING",
+            "pickupCode": "K7M2QX", "total": 540, "paid": true, "updatedAt": "…", "items": [ … ] } }
+```
 
 ## MCP
 
@@ -62,3 +75,8 @@ money rules are identical.
 Settings → Online stores → Connect. You get a webhook URL and a signing secret
 (shown once). Orders become click-and-collect/delivery orders matched by SKU.
 Stock changes here are pushed back (debounced, one call per SKU per ~2.5 s).
+**Order status is pushed back too:** WooCommerce orders are set to
+`processing` / `completed` / `cancelled` and get a customer note with the
+pickup code when ready; Shopify orders get a `nodedr-packing` / `nodedr-ready` /
+`nodedr-collected` tag (and are cancelled when cancelled here). Needs the
+store's outbound credentials saved on the integration.

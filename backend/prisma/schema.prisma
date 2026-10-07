@@ -468,6 +468,7 @@ model Order {
   paid        Boolean   @default(false)
   paymentRef  String?
   apiKeyId    Int?
+  integrationId Int? // the WooCommerce/Shopify/generic store that sent it — status changes are pushed back
   invoiceId   Int?      @unique
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

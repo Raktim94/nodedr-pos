@@ -243,6 +243,21 @@ router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res
   }
 });
 
+// Poll fallback for stores that can't take webhooks: own orders only, newest
+// first. ?status=NEW,READY&updatedSince=ISO&limit=100
+router.get('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res) => {
+  const statuses = String(req.query.status || '').split(',').filter((x) => ['NEW', 'PACKING', 'READY', 'COLLECTED', 'CANCELLED'].includes(x));
+  const since = req.query.updatedSince ? new Date(String(req.query.updatedSince)) : null;
+  if (since && Number.isNaN(since.getTime())) return res.status(400).json({ error: 'updatedSince must be an ISO date' });
+  const list = await prisma.order.findMany({
+    where: { apiKeyId: req.apiKey.id, ...(statuses.length ? { status: { in: statuses } } : {}), ...(since ? { updatedAt: { gt: since } } : {}) },
+    include: { items: true },
+    orderBy: { updatedAt: 'desc' },
+    take: Math.min(Number(req.query.limit) || 100, 500),
+  });
+  res.json(list.map(orders.publicOrder));
+});
+
 async function findOwnOrder(req) {
   const ref = String(req.params.ref);
   return prisma.order.findFirst({ where: { apiKeyId: req.apiKey.id, OR: [{ externalId: ref }, ...(Number.isInteger(Number(ref)) ? [{ id: Number(ref) }] : [])] }, include: { items: true } });

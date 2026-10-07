@@ -35,7 +35,7 @@ async function reservedByProduct(tx, productIds) {
 
 /** items: [{ productId, quantity }] — prices always come from the catalog. */
 async function createOrder(input) {
-  const { channel, externalId = null, fulfilment = 'PICKUP', customer = {}, items, note = null, paid = false, paymentRef = null, apiKeyId = null } = input;
+  const { channel, externalId = null, fulfilment = 'PICKUP', customer = {}, items, note = null, paid = false, paymentRef = null, apiKeyId = null, integrationId = null } = input;
   if (!items?.length) throw err('Order has no items');
 
   return prisma.$transaction(async (tx) => {
@@ -61,7 +61,7 @@ async function createOrder(input) {
     const total = round2(lines.reduce((s, l) => s + l.price * l.quantity, 0));
     const order = await tx.order.create({
       data: {
-        channel, externalId, fulfilment, pickupCode: pickupCode(), note, paid, paymentRef, apiKeyId, total,
+        channel, externalId, fulfilment, pickupCode: pickupCode(), note, paid, paymentRef, apiKeyId, integrationId, total,
         customerName: customer.name || 'Online Customer', customerPhone: customer.phone || null, customerEmail: customer.email || null,
         items: { create: lines },
       },
@@ -69,16 +69,27 @@ async function createOrder(input) {
     });
     return { order, deduplicated: false };
   }).then((out) => {
-    if (!out.deduplicated) notifyEvent('order.created', publicOrder(out.order), { apiKeyId: out.order.apiKeyId });
+    if (!out.deduplicated) emitOrderEvent('order.created', out.order, null);
     return out;
   });
+}
+
+// One place every status change goes through: tell the API-key owner (signed
+// webhook) and push the new status to the originating WooCommerce/Shopify
+// store. Both are fire-and-forget — the till never waits on a storefront.
+function emitOrderEvent(event, order, previousStatus) {
+  const data = { ...publicOrder(order), previousStatus };
+  notifyEvent(event, data, { apiKeyId: order.apiKeyId });
+  if (order.integrationId && event === 'order.updated') {
+    require('./stores').pushOrderStatus(order).catch((e) => console.error(`order status push to store failed (order ${order.id}): ${e.message}`));
+  }
 }
 
 function publicOrder(o) {
   return {
     id: o.id, channel: o.channel, externalId: o.externalId, status: o.status, fulfilment: o.fulfilment,
     pickupCode: o.pickupCode, customerName: o.customerName, customerPhone: o.customerPhone, total: o.total, paid: o.paid,
-    invoiceId: o.invoiceId, createdAt: o.createdAt,
+    invoiceId: o.invoiceId, createdAt: o.createdAt, updatedAt: o.updatedAt,
     items: (o.items || []).map((i) => ({ productId: i.productId, name: i.name, quantity: i.quantity, price: i.price })),
   };
 }
@@ -88,7 +99,7 @@ async function setStatus(id, status) {
   if (!o) throw err('Order not found', 404);
   if (!(NEXT[o.status] || []).includes(status)) throw err(`Cannot move an order from ${o.status} to ${status}`, 409);
   const updated = await prisma.order.update({ where: { id }, data: { status }, include: { items: true } });
-  notifyEvent('order.updated', publicOrder(updated), { apiKeyId: updated.apiKeyId });
+  emitOrderEvent('order.updated', updated, o.status);
   return updated;
 }
 
@@ -130,7 +141,7 @@ async function billClaimedOrder(o, { paymentMethod, amountPaid, serials, user })
   // Idempotent per order: a double-click can't bill twice.
   const { invoice } = await performCheckout(body, { source: 'ORDER', cashierName: user?.name, user, apiKeyId: null });
   const updated = await prisma.order.update({ where: { id }, data: { status: 'COLLECTED', invoiceId: invoice.id }, include: { items: true } });
-  notifyEvent('order.updated', publicOrder(updated), { apiKeyId: updated.apiKeyId });
+  emitOrderEvent('order.updated', updated, o.status);
   return { order: updated, invoice };
 }
 

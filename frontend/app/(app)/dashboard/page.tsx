@@ -8,7 +8,6 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CircleDollarSign, Download, ShoppingBag, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Delta, PageHeader } from "@/components/ui/Bits";
-import { ShiftTile } from "@/components/pos/ShiftWidget";
 import { useLowStock } from "@/hooks/useProducts";
 import { useInvoices, useSalesAnalytics, useSalesSummary } from "@/hooks/useInvoices";
 import { useDueSummary, useTopDueCustomers } from "@/hooks/useCustomers";
@@ -34,7 +33,7 @@ export default function DashboardPage() {
   const { data: dueSummary } = useDueSummary();
   const { data: topDue } = useTopDueCustomers(5);
   const wantsOrders = can(me, "orders");
-  const { data: orders } = useQuery({ queryKey: ["orders", "open"], queryFn: () => api.get<Order[]>("/orders?status=NEW,PACKING,READY"), enabled: wantsOrders, refetchInterval: 30_000 });
+  const { data: orders } = useQuery({ queryKey: ["orders", "open"], queryFn: () => api.get<Order[]>("/orders?status=NEW,PACKING,READY"), enabled: wantsOrders, refetchInterval: 15_000, refetchOnWindowFocus: true });
 
   // Franchisor accounts only have the consolidated hub views.
   useEffect(() => {
@@ -62,7 +61,7 @@ export default function DashboardPage() {
         actions={<a href="/api/invoices/export.csv" download><Button variant="secondary" type="button"><Download className="h-4 w-4" aria-hidden="true" /> Sales CSV</Button></a>}
       />
 
-      {/* Bento: short KPI tiles, a larger chart, a ring + the register timer, then lists. */}
+      {/* Bento: short KPI tiles, a larger chart, a ring, then lists. */}
       <div className="grid grid-cols-12 gap-4">
         <Kpi i={0} span="col-span-6 lg:col-span-3" accent icon={TrendingUp} label="Today's revenue" value={money(summary?.todaysRevenue ?? 0)} sub={revDelta != null && <span className="text-white/80">{revDelta >= 0 ? "▲" : "▼"} {Math.abs(revDelta)}% vs yesterday</span>} />
         <Kpi i={1} span="col-span-6 lg:col-span-3" icon={ShoppingBag} label="Today's bills" value={String(summary?.todaysCount ?? 0)} sub={salesDelta != null && <Delta value={salesDelta} />} />
@@ -100,7 +99,6 @@ export default function DashboardPage() {
               <p className="text-xs text-foreground-muted">of your usual daily revenue so far today</p>
             </div>
           </section>
-          <ShiftTile sym={sym} />
         </div>
 
         <ListCard i={6} span="lg:col-span-4" title="Low inventory" href="/inventory" empty={`All products are above ${lowStock?.threshold ?? 5}.`} rows={(lowStock?.products ?? []).slice(0, 6).map((p) => ({ k: p.id, a: p.name, b: p.barcode, end: <Badge tone="warn">{Math.round(p.stock * 1000) / 1000} left</Badge> }))} />

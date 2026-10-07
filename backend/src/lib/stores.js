@@ -95,6 +95,7 @@ async function ingest(integration, payload) {
     items,
     note,
     paid: n.paid,
+    integrationId: integration.id,
   });
   return { order, deduplicated };
 }
@@ -169,4 +170,38 @@ async function flush() {
   }
 }
 
-module.exports = { SCHEMES, newWebhookSecret, verifySignature, normalize, ingest, pushStock, encrypt, decrypt };
+// ---------------- outbound order-status push ----------------
+// Keeps the storefront's order in step when the shop moves it on the Orders
+// board. Written against the platforms' public docs; not run on a live store.
+const WOO_STATUS = { PACKING: 'processing', READY: 'processing', COLLECTED: 'completed', CANCELLED: 'cancelled' };
+const READY_NOTE = (o) => `Ready for ${o.fulfilment === 'DELIVERY' ? 'dispatch' : 'pickup'} — code ${o.pickupCode}`;
+
+async function pushOrderStatus(order) {
+  if (!order.integrationId || !order.externalId) return;
+  const it = await prisma.integration.findUnique({ where: { id: order.integrationId } });
+  if (!it || !it.active) return;
+  const cfg = decryptJson(it.configEnc);
+  if (!cfg) return;
+  if (it.platform === 'woocommerce' && cfg.baseUrl) {
+    const base = cfg.baseUrl.replace(/\/$/, '');
+    const headers = { Authorization: 'Basic ' + Buffer.from(`${cfg.consumerKey}:${cfg.consumerSecret}`).toString('base64'), 'Content-Type': 'application/json' };
+    const status = WOO_STATUS[order.status];
+    if (status) await basicFetch(`${base}/wp-json/wc/v3/orders/${encodeURIComponent(order.externalId)}`, { method: 'PUT', headers, body: JSON.stringify({ status }) });
+    const note = order.status === 'READY' ? READY_NOTE(order) : order.status === 'PACKING' ? 'Your order is being packed' : null;
+    if (note) await basicFetch(`${base}/wp-json/wc/v3/orders/${encodeURIComponent(order.externalId)}/notes`, { method: 'POST', headers, body: JSON.stringify({ note, customer_note: true }) });
+  }
+  if (it.platform === 'shopify' && cfg.shopDomain) {
+    const url = `https://${cfg.shopDomain}/admin/api/2024-10/graphql.json`;
+    const headers = { 'X-Shopify-Access-Token': cfg.accessToken, 'Content-Type': 'application/json' };
+    const id = `gid://shopify/Order/${order.externalId}`;
+    if (order.status === 'CANCELLED') {
+      await basicFetch(url, { method: 'POST', headers, body: JSON.stringify({ query: `mutation($id:ID!){orderCancel(orderId:$id,reason:OTHER,refund:false,restock:false){userErrors{message}}}`, variables: { id } }) });
+    } else {
+      // Shopify has no "ready for pickup" order status over this API; a tag the
+      // merchant can filter and automate on is the portable signal.
+      await basicFetch(url, { method: 'POST', headers, body: JSON.stringify({ query: `mutation($id:ID!,$t:[String!]!){tagsAdd(id:$id,tags:$t){userErrors{message}}}`, variables: { id, t: [`nodedr-${order.status.toLowerCase()}`] } }) });
+    }
+  }
+}
+
+module.exports = { pushOrderStatus, SCHEMES, newWebhookSecret, verifySignature, normalize, ingest, pushStock, encrypt, decrypt };

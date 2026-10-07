@@ -11,6 +11,7 @@ const CURRENCIES = {
   AUD: { symbol: 'A$', label: 'Australian Dollar' },
   CAD: { symbol: 'C$', label: 'Canadian Dollar' },
   SGD: { symbol: 'S$', label: 'Singapore Dollar' },
+  HKD: { symbol: 'HK$', label: 'Hong Kong Dollar' },
   JPY: { symbol: '¥', label: 'Japanese Yen' },
   CNY: { symbol: '¥', label: 'Chinese Yuan' },
   CHF: { symbol: 'Fr.', label: 'Swiss Franc' },

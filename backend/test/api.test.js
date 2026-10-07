@@ -318,6 +318,11 @@ test('orders: API order reserves stock, kanban status, collect bills it', async 
 
   const id = o.data.order.id;
   assert.equal((await admin.patch(`/api/orders/${id}/status`, { status: 'READY' })).status, 200);
+  // the store sees the new status by polling, too (webhooks are the push path)
+  const polled = await api.get('/api/external/orders?status=READY&updatedSince=2020-01-01T00:00:00Z', hdr);
+  assert.equal(polled.status, 200);
+  assert.equal(polled.data.find((x) => x.id === id)?.status, 'READY');
+  assert.equal((await api.get('/api/external/orders?updatedSince=nope', hdr)).status, 400);
   assert.equal((await admin.get(`/api/orders/by-code/${o.data.order.pickupCode}`)).data.id, id);
   const col = await admin.post(`/api/orders/${id}/collect`, { paymentMethod: 'UPI' });
   assert.equal(col.status, 200, JSON.stringify(col.data));
