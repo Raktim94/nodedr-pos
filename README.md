@@ -1184,3 +1184,5 @@ See [`MAINTAINERS.md`](MAINTAINERS.md) for project maintainers.
 ## Case study
 
 Read the [NodeDR POS case study](https://www.raktimranjit.com/projects/nodedr-pos) for the product background and design decisions.
+
+Maintainer: [Raktim Ranjit](https://www.raktimranjit.com/)
