@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use NodeDR POS in research, teaching, or a public project, please cite it."
+type: software
+title: "NodeDR POS"
+authors:
+  - family-names: Ranjit
+    given-names: Raktim
+    website: https://www.raktimranjit.com/
+repository-code: https://github.com/Raktim94/nodedr-pos
+url: https://pos.nodedr.com/
+license: AGPL-3.0-only
+abstract: "Offline-first, self-hosted point-of-sale and inventory management software for small retail shops."
