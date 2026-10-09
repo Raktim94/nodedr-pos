@@ -1177,3 +1177,8 @@ business tool in the open rather than disappearing into a closed
 commercial fork.
 
 See [`MAINTAINERS.md`](MAINTAINERS.md) for project maintainers.
+
+
+## Case study
+
+Read the [NodeDR POS case study](https://www.raktimranjit.com/projects/nodedr-pos) for the product background and design decisions.
