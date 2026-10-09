@@ -10,6 +10,8 @@
 [![Offline-first](https://img.shields.io/badge/offline--first-yes-success)](#)
 [![CasaOS / ZimaOS](https://img.shields.io/badge/CasaOS%20%2F%20ZimaOS-one--click%20app-1F6FEB)](casaos/README.md)
 
+**[Project website](https://pos.nodedr.com/)** · **[Case study](https://www.raktimranjit.com/projects/nodedr-pos)** · **[Maintainer: Raktim Ranjit](https://www.raktimranjit.com/)**
+
 A free, open-source, **offline-first** Point of Sale and inventory
 management system for small retail shops. It runs entirely via Docker
 Compose, so by default it lives on a machine in the shop — no internet
