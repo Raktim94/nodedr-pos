@@ -15,6 +15,8 @@ import { api, ApiError } from "@/lib/api";
 import { gstStateFromGstin, isValidGstinFormat, isValidPanFormat } from "@/lib/masters";
 import type { PinCodeRecord } from "@/hooks/useMasters";
 import type { ShopSettings } from "@/lib/types";
+import { useTranslation } from "@/components/I18nProvider";
+import type { TranslationKey } from "@/lib/locales/en";
 import { UsersPanel } from "./UsersPanel";
 import { ReferenceDataTab } from "./ReferenceDataTab";
 import { useSaver } from "./useSaver";
@@ -27,11 +29,44 @@ import { FeaturesTab } from "./FeaturesTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { UpdatesTab } from "./UpdatesTab";
 
-const TABS = ["Company", "Tax & Loyalty", "Receipt", "Features", "Invoice & signature", "Payments", "Online stores", "E-mail reports", "Branches", "Reference Data", "Integrations", "Password", "Staff", "Updates"] as const;
+const TABS = [
+  "Company",
+  "Tax & Loyalty",
+  "Receipt",
+  "Features",
+  "Invoice & signature",
+  "Payments",
+  "Online stores",
+  "E-mail reports",
+  "Branches",
+  "Reference Data",
+  "Integrations",
+  "Password",
+  "Staff",
+  "Updates",
+] as const;
 type Tab = (typeof TABS)[number];
+
+const TAB_LABELS: Record<Tab, TranslationKey> = {
+  Company: "settings.tabs.company",
+  "Tax & Loyalty": "settings.tabs.taxLoyalty",
+  Receipt: "settings.tabs.receipt",
+  Features: "settings.tabs.features",
+  "Invoice & signature": "settings.tabs.invoiceSignature",
+  Payments: "settings.tabs.payments",
+  "Online stores": "settings.tabs.onlineStores",
+  "E-mail reports": "settings.tabs.emailReports",
+  Branches: "settings.tabs.branches",
+  "Reference Data": "settings.tabs.referenceData",
+  Integrations: "settings.tabs.integrations",
+  Password: "settings.tabs.password",
+  Staff: "settings.tabs.staff",
+  Updates: "settings.tabs.updates",
+};
 
 export default function SettingsPage() {
   const { data: settings, isLoading, isError, error, refetch } = useShopSettings();
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("Company");
 
   // Deep link from the "Update available" banner: /settings?tab=Updates
@@ -41,7 +76,7 @@ export default function SettingsPage() {
   }, []);
 
   if (isLoading) {
-    return <p className="text-sm text-foreground/50">Loading settings…</p>;
+    return <p className="text-sm text-foreground/50">{t("settings.loading")}</p>;
   }
 
   // A successful response can legitimately be `null` (no ShopSettings row
@@ -54,16 +89,16 @@ export default function SettingsPage() {
           {isError
             ? error instanceof ApiError
               ? error.message
-              : "Could not load settings — check your connection and try again"
-            : "This shop hasn't finished setup yet — no company details have been saved."}
+              : t("settings.errors.couldNotLoad")
+            : t("settings.errors.noSetup")}
         </p>
         {isError ? (
           <Button variant="secondary" onClick={() => refetch()}>
-            Retry
+            {t("settings.retry")}
           </Button>
         ) : (
           <Link href="/onboarding">
-            <Button variant="secondary">Finish setup</Button>
+            <Button variant="secondary">{t("settings.finishSetup")}</Button>
           </Link>
         )}
       </div>
@@ -72,20 +107,20 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+      <h1 className="text-2xl font-semibold text-foreground">{t("settings.title")}</h1>
 
       <div className="flex flex-wrap gap-1 border-b border-border">
-        {TABS.map((t) => (
+        {TABS.map((tabId) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tabId}
+            onClick={() => setTab(tabId)}
             className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              tab === t
+              tab === tabId
                 ? "border-brand text-brand"
                 : "border-transparent text-foreground/60 hover:text-foreground"
             }`}
           >
-            {t}
+            {t(TAB_LABELS[tabId])}
           </button>
         ))}
       </div>
@@ -122,6 +157,7 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
   }));
   const set = (k: keyof ShopSettings, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
+  const { t } = useTranslation();
   // Only works once PIN codes have been imported on the Reference Data tab
   // — no PIN database ships with the app (see README).
   async function lookupPincode() {
@@ -131,9 +167,18 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
     try {
       const record = await api.get<PinCodeRecord>(`/masters/pincodes/${encodeURIComponent(pin)}`);
       setForm((f) => ({ ...f, city: record.district || f.city, state: record.state || f.state }));
-      show(`${record.area || record.district}, ${record.state}`, "success");
+      show(
+        t("settings.company.pincodeFound", {
+          area: record.area || record.district || "",
+          state: record.state || "",
+        }),
+        "success",
+      );
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "PIN code not found — import PIN codes in Reference Data first", "info");
+      show(
+        err instanceof ApiError ? err.message : t("settings.company.pincodeNotFound"),
+        "info",
+      );
     } finally {
       setLookingUp(false);
     }
@@ -161,40 +206,40 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
         }}
         className="flex flex-col gap-4"
       >
-        <Field label="Shop name" value={form.shopName} onChange={(e) => set("shopName", e.target.value)} />
-        <Field label="Legal name" value={form.legalName ?? ""} onChange={(e) => set("legalName", e.target.value)} />
-        <Field label="Address line 1" value={form.address1} onChange={(e) => set("address1", e.target.value)} />
-        <Field label="Address line 2" value={form.address2 ?? ""} onChange={(e) => set("address2", e.target.value)} />
+        <Field label={t("settings.company.shopName")} value={form.shopName} onChange={(e) => set("shopName", e.target.value)} />
+        <Field label={t("settings.company.legalName")} value={form.legalName ?? ""} onChange={(e) => set("legalName", e.target.value)} />
+        <Field label={t("settings.company.address1")} value={form.address1} onChange={(e) => set("address1", e.target.value)} />
+        <Field label={t("settings.company.address2")} value={form.address2 ?? ""} onChange={(e) => set("address2", e.target.value)} />
         <div className="flex items-end gap-2">
           <div className="flex-1">
             <Field
-              label="PIN code"
+              label={t("settings.company.pincode")}
               value={form.pincode ?? ""}
               onChange={(e) => set("pincode", e.target.value)}
-              placeholder="Auto-fills city/state below, if imported"
+              placeholder={t("settings.company.pincodePlaceholder")}
             />
           </div>
-          <Button type="button" variant="secondary" onClick={lookupPincode} disabled={lookingUp} aria-label="Look up PIN code">
+          <Button type="button" variant="secondary" onClick={lookupPincode} disabled={lookingUp} aria-label={t("settings.company.lookupPincode")}>
             <Search className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="City" value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
-          <Field label="State" value={form.state ?? ""} onChange={(e) => set("state", e.target.value)} />
+          <Field label={t("settings.company.city")} value={form.city ?? ""} onChange={(e) => set("city", e.target.value)} />
+          <Field label={t("settings.company.state")} value={form.state ?? ""} onChange={(e) => set("state", e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Phone" value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} />
-          <Field label="Email" value={form.email ?? ""} onChange={(e) => set("email", e.target.value)} />
+          <Field label={t("settings.company.phone")} value={form.phone ?? ""} onChange={(e) => set("phone", e.target.value)} />
+          <Field label={t("settings.company.email")} value={form.email ?? ""} onChange={(e) => set("email", e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <Select
-            label="Currency"
+            label={t("settings.company.currency")}
             options={currencyOptions}
             value={form.currencyCode}
             onChange={(e) => set("currencyCode", e.target.value)}
           />
           <Field
-            label="Low stock alert"
+            label={t("settings.company.lowStockAlert")}
             type="number"
             min={0}
             value={form.lowStockAlert}
@@ -202,12 +247,12 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
           />
         </div>
         <Toggle
-          label="Allow selling below zero stock"
-          description="Checkout won't be blocked when a scanned item's stock is already at 0 or lower than the quantity sold — useful if you sell faster than you update counts and reconcile later"
+          label={t("settings.company.allowNegativeStock")}
+          description={t("settings.company.allowNegativeStockDesc")}
           checked={form.allowNegativeStock}
           onChange={(v) => setForm((f) => ({ ...f, allowNegativeStock: v }))}
         />
-        <Button type="submit" className="self-start">Save company details</Button>
+        <Button type="submit" className="self-start">{t("settings.company.save")}</Button>
       </form>
     </Card>
   );
@@ -216,42 +261,45 @@ function CompanyTab({ settings }: { settings: ShopSettings }) {
 function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
   const save = useSaver();
   const [form, setForm] = useState(settings);
+  const { t } = useTranslation();
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <Card className="p-6">
-        <h2 className="mb-4 text-base font-semibold text-foreground">GST / Tax</h2>
+        <h2 className="mb-4 text-base font-semibold text-foreground">{t("settings.tax.title")}</h2>
         <div className="flex flex-col gap-4">
           <Toggle
-            label="Enable GST"
-            description="Apply per-product GST and show tax on receipts"
+            label={t("settings.tax.enableGst")}
+            description={t("settings.tax.enableGstDesc")}
             checked={form.gstEnabled}
             onChange={(v) => setForm((f) => ({ ...f, gstEnabled: v }))}
           />
           {form.gstEnabled && (
             <>
               <Toggle
-                label="Show GST breakdown on receipt"
+                label={t("settings.tax.showGstBreakdown")}
                 checked={form.showGst}
                 onChange={(v) => setForm((f) => ({ ...f, showGst: v }))}
               />
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Field
-                    label="GSTIN"
+                    label={t("settings.tax.gstin")}
                     value={form.gstNumber ?? ""}
                     onChange={(e) => setForm((f) => ({ ...f, gstNumber: e.target.value.toUpperCase() }))}
                   />
                   {form.gstNumber && (
                     <p className={`mt-1 text-xs ${isValidGstinFormat(form.gstNumber) ? "text-success" : "text-warning"}`}>
                       {isValidGstinFormat(form.gstNumber)
-                        ? `Looks valid · ${gstStateFromGstin(form.gstNumber) ?? "unknown state code"}`
-                        : "Doesn't match the standard 15-character GSTIN format — double-check it"}
+                        ? t("settings.tax.gstinValid", {
+                            state: gstStateFromGstin(form.gstNumber) ?? t("settings.tax.unknownState"),
+                          })
+                        : t("settings.tax.gstinInvalid")}
                     </p>
                   )}
                 </div>
                 <Field
-                  label="Default GST rate %"
+                  label={t("settings.tax.defaultGstRate")}
                   type="number"
                   min={0}
                   step="0.01"
@@ -261,13 +309,13 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
               </div>
               <div>
                 <Field
-                  label="PAN"
+                  label={t("settings.tax.pan")}
                   value={form.panNumber ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, panNumber: e.target.value.toUpperCase() }))}
                 />
                 {form.panNumber && (
                   <p className={`mt-1 text-xs ${isValidPanFormat(form.panNumber) ? "text-success" : "text-warning"}`}>
-                    {isValidPanFormat(form.panNumber) ? "Looks valid" : "Doesn't match the standard 10-character PAN format — double-check it"}
+                    {isValidPanFormat(form.panNumber) ? t("settings.tax.panValid") : t("settings.tax.panInvalid")}
                   </p>
                 )}
               </div>
@@ -285,24 +333,24 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
               })
             }
           >
-            Save tax settings
+            {t("settings.tax.save")}
           </Button>
         </div>
       </Card>
 
       <Card className="p-6">
-        <h2 className="mb-4 text-base font-semibold text-foreground">Loyalty program</h2>
+        <h2 className="mb-4 text-base font-semibold text-foreground">{t("settings.loyalty.title")}</h2>
         <div className="flex flex-col gap-4">
           <Toggle
-            label="Enable loyalty"
-            description="Customers earn points, redeemable as discounts"
+            label={t("settings.loyalty.enable")}
+            description={t("settings.loyalty.enableDesc")}
             checked={form.loyaltyEnabled}
             onChange={(v) => setForm((f) => ({ ...f, loyaltyEnabled: v }))}
           />
           {form.loyaltyEnabled && (
             <div className="grid grid-cols-2 gap-4">
               <Field
-                label="Points earned per unit spent"
+                label={t("settings.loyalty.pointsPerUnit")}
                 type="number"
                 min={0}
                 step="0.01"
@@ -310,7 +358,7 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
                 onChange={(e) => setForm((f) => ({ ...f, pointsPerUnit: Number(e.target.value) }))}
               />
               <Field
-                label="Value of 1 point (in currency)"
+                label={t("settings.loyalty.pointValue")}
                 type="number"
                 min={0}
                 step="0.01"
@@ -329,7 +377,7 @@ function TaxLoyaltyTab({ settings }: { settings: ShopSettings }) {
               })
             }
           >
-            Save loyalty settings
+            {t("settings.loyalty.save")}
           </Button>
         </div>
       </Card>
@@ -347,6 +395,7 @@ type PrinterDiag = {
 function ReceiptTab({ settings }: { settings: ShopSettings }) {
   const save = useSaver();
   const { show } = useToast();
+  const { t } = useTranslation();
   const [header, setHeader] = useState(settings.receiptHeader ?? "");
   const [footer, setFooter] = useState(settings.receiptFooter ?? "");
   const [autoPrint, setAutoPrint] = useState(settings.autoPrintReceipt);
@@ -361,7 +410,7 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
     try {
       setDiag(await api.get<PrinterDiag>("/print/diagnostics"));
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not check the printer", "error");
+      show(err instanceof ApiError ? err.message : t("settings.receipt.checkFailed"), "error");
     } finally {
       setChecking(false);
     }
@@ -371,9 +420,9 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
     setTesting(true);
     try {
       await api.post("/print/test");
-      show("Test slip sent to the USB printer", "success");
+      show(t("settings.receipt.testSent"), "success");
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Test print failed", "error");
+      show(err instanceof ApiError ? err.message : t("settings.receipt.testFailed"), "error");
     } finally {
       setTesting(false);
     }
@@ -395,32 +444,28 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
         className="flex flex-col gap-4"
       >
         <Toggle
-          label="Print automatically after every sale"
-          description="Skips the extra click on the checkout page — the receipt sends to your printer the moment a sale completes"
+          label={t("settings.receipt.autoPrint")}
+          description={t("settings.receipt.autoPrintDesc")}
           checked={autoPrint}
           onChange={setAutoPrint}
         />
         {autoPrint && (
           <Select
-            label="Auto-print using"
+            label={t("settings.receipt.autoPrintUsing")}
             value={autoPrintMethod}
             onChange={(e) => setAutoPrintMethod(e.target.value as "browser" | "usb")}
             options={[
-              { value: "browser", label: "Browser print dialog (Windows + printer driver)" },
-              { value: "usb", label: "Direct USB thermal printer (no dialog — for a Debian till)" },
+              { value: "browser", label: t("settings.receipt.browserPrint") },
+              { value: "usb", label: t("settings.receipt.usbPrint") },
             ]}
           />
         )}
         {autoPrint && autoPrintMethod === "usb" && (
-          <p className="-mt-2 text-xs text-foreground/60">
-            Sends the receipt straight to the USB printer with no pop-up. Use this on a till where the
-            browser print dialog has no printer set up — otherwise that dialog can freeze the screen after
-            each sale.
-          </p>
+          <p className="-mt-2 text-xs text-foreground/60">{t("settings.receipt.usbPrintDesc")}</p>
         )}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="rh" className="text-sm font-medium text-foreground">
-            Receipt header (printed above the shop name)
+            {t("settings.receipt.headerLabel")}
           </label>
           <textarea
             id="rh"
@@ -432,7 +477,7 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
         </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="rf" className="text-sm font-medium text-foreground">
-            Receipt footer (thank-you message)
+            {t("settings.receipt.footerLabel")}
           </label>
           <textarea
             id="rf"
@@ -443,31 +488,29 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
           />
         </div>
         <Select
-          label="USB printer paper width (for the 'Print via USB' button)"
+          label={t("settings.receipt.usbWidth")}
           value={usbWidth}
           onChange={(e) => setUsbWidth(e.target.value)}
           options={[
-            { value: "80", label: "80mm (standard)" },
-            { value: "58", label: "58mm (compact)" },
+            { value: "80", label: t("settings.receipt.width80") },
+            { value: "58", label: t("settings.receipt.width58") },
           ]}
         />
-        <Button type="submit" className="self-start">Save receipt settings</Button>
+        <Button type="submit" className="self-start">{t("settings.receipt.save")}</Button>
       </form>
 
       {/* USB printer check — one click to see what the backend detects and to
           send a physical test slip, so a shop can confirm the printer works
           without ringing up a real sale. */}
       <div className="mt-6 border-t border-border pt-5">
-        <h3 className="text-sm font-semibold text-foreground">USB printer check</h3>
-        <p className="mt-1 text-xs text-foreground/60">
-          Confirms the &ldquo;Print via USB&rdquo; button can reach a thermal printer on this machine.
-        </p>
+        <h3 className="text-sm font-semibold text-foreground">{t("settings.receipt.usbCheck")}</h3>
+        <p className="mt-1 text-xs text-foreground/60">{t("settings.receipt.usbCheckDesc")}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" variant="secondary" onClick={checkPrinter} disabled={checking}>
-            {checking ? "Checking…" : "Check printer"}
+            {checking ? t("settings.receipt.checking") : t("settings.receipt.checkPrinter")}
           </Button>
           <Button type="button" variant="secondary" onClick={testPrint} disabled={testing}>
-            {testing ? "Printing…" : "Print test slip"}
+            {testing ? t("settings.receipt.printing") : t("settings.receipt.printTest")}
           </Button>
         </div>
         {diag && (
@@ -477,11 +520,19 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
             }`}
           >
             <p className="font-semibold">
-              {diag.canPrint ? "Printer detected — direct USB printing should work." : "No USB printer detected."}
+              {diag.canPrint ? t("settings.receipt.printerDetected") : t("settings.receipt.noPrinter")}
             </p>
             <ul className="mt-1.5 space-y-0.5 text-foreground/70">
-              <li>Kernel printer nodes: {diag.lpDevices.length > 0 ? diag.lpDevices.join(", ") : "none"}</li>
-              <li>USB printer-class device: {diag.libusbPrinter ? diag.libusbPrinter.id : "none"}</li>
+              <li>
+                {t("settings.receipt.kernelNodes", {
+                  nodes: diag.lpDevices.length > 0 ? diag.lpDevices.join(", ") : t("settings.receipt.nodesNone"),
+                })}
+              </li>
+              <li>
+                {t("settings.receipt.usbDevice", {
+                  device: diag.libusbPrinter ? diag.libusbPrinter.id : t("settings.receipt.deviceNone"),
+                })}
+              </li>
               {diag.notes.map((n, i) => (
                 <li key={i}>{n}</li>
               ))}
@@ -495,6 +546,7 @@ function ReceiptTab({ settings }: { settings: ShopSettings }) {
 
 function PasswordTab() {
   const { show } = useToast();
+  const { t } = useTranslation();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [busy, setBusy] = useState(false);
@@ -504,11 +556,11 @@ function PasswordTab() {
     setBusy(true);
     try {
       await api.post("/auth/change-password", { currentPassword: current, newPassword: next });
-      show("Password changed", "success");
+      show(t("settings.password.changed"), "success");
       setCurrent("");
       setNext("");
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not change password", "error");
+      show(err instanceof ApiError ? err.message : t("settings.password.changeFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -518,20 +570,20 @@ function PasswordTab() {
     <Card className="max-w-md p-6">
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field
-          label="Current password"
+          label={t("settings.password.current")}
           type="password"
           autoComplete="current-password"
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
         />
         <Field
-          label="New password (min 8 chars)"
+          label={t("settings.password.new")}
           type="password"
           autoComplete="new-password"
           value={next}
           onChange={(e) => setNext(e.target.value)}
         />
-        <Button type="submit" disabled={busy} className="self-start">Change password</Button>
+        <Button type="submit" disabled={busy} className="self-start">{t("settings.password.change")}</Button>
       </form>
     </Card>
   );

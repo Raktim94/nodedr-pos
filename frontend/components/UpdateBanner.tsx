@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpCircle, X } from "lucide-react";
+import { useTranslation } from "@/components/I18nProvider";
 import { useUpdateStatus } from "@/hooks/useUpdate";
 
 const DISMISS_KEY = "nodedr-update-dismissed";
@@ -11,6 +12,7 @@ const DISMISS_KEY = "nodedr-update-dismissed";
 // Dismissing hides it for that version only — the next release shows it again,
 // and Settings > Updates always stays available.
 export function UpdateBanner({ isAdmin }: { isAdmin: boolean }) {
+  const { t } = useTranslation();
   const { data } = useUpdateStatus(isAdmin);
   const [dismissed, setDismissed] = useState<string | null>(null);
 
@@ -34,15 +36,15 @@ export function UpdateBanner({ isAdmin }: { isAdmin: boolean }) {
     <div role="status" className="flex items-center gap-3 border-b border-brand/30 bg-brand-soft px-4 py-2.5 text-sm text-foreground sm:px-6">
       <ArrowUpCircle className="h-4 w-4 shrink-0 text-brand" aria-hidden="true" />
       <p className="min-w-0 flex-1">
-        <span className="font-medium">Update available:</span> NodeDR POS {data.latest} is ready (you have {data.current}).
+        <span className="font-medium">{t("updateBanner.availableLabel")}</span>{t("updateBanner.ready", { version: data.latest, current: data.current })}
       </p>
       <Link
         href="/settings?tab=Updates"
         className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-opacity hover:opacity-90"
       >
-        {data.canUpdate ? "Update now" : "View"}
+        {data.canUpdate ? t("updateBanner.updateNow") : t("updateBanner.view")}
       </Link>
-      <button type="button" onClick={dismiss} aria-label="Dismiss update notice" className="shrink-0 rounded-md p-1 text-foreground-muted hover:bg-surface-muted hover:text-foreground">
+      <button type="button" onClick={dismiss} aria-label={t("updateBanner.dismissAria")} className="shrink-0 rounded-md p-1 text-foreground-muted hover:bg-surface-muted hover:text-foreground">
         <X className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>

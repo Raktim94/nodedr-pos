@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { Camera, ImagePlus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useTranslation } from "@/components/I18nProvider";
 import { useToast } from "@/components/Toast";
 import { compressImage } from "@/lib/productImage";
 
@@ -12,6 +13,7 @@ import { compressImage } from "@/lib/productImage";
 export function ProductImageField({ src, onChange }: { src: string | null; onChange: (dataUrl: string | null) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { show } = useToast();
+  const { t } = useTranslation();
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -20,16 +22,16 @@ export function ProductImageField({ src, onChange }: { src: string | null; onCha
     try {
       onChange(await compressImage(file));
     } catch (err) {
-      show(err instanceof Error ? err.message : "Could not use that image", "error");
+      show(err instanceof Error ? err.message : t("productImage.errUse"), "error");
     }
   }
 
   return (
-    <section aria-label="Product photo" className="flex items-center gap-4">
+    <section aria-label={t("productImage.aria")} className="flex items-center gap-4">
       <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-surface-muted">
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt="Product" className="h-full w-full object-cover" />
+          <img src={src} alt={t("productImage.alt")} className="h-full w-full object-cover" />
         ) : (
           <ImagePlus className="h-7 w-7 text-foreground/30" aria-hidden="true" />
         )}
@@ -38,16 +40,16 @@ export function ProductImageField({ src, onChange }: { src: string | null; onCha
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()}>
             <Camera className="h-4 w-4" aria-hidden="true" />
-            {src ? "Change photo" : "Add photo"}
+            {src ? t("productImage.changePhoto") : t("productImage.addPhoto")}
           </Button>
           {src && (
             <Button type="button" variant="ghost" onClick={() => onChange(null)}>
-              <Trash2 className="h-4 w-4" aria-hidden="true" /> Remove
+              <Trash2 className="h-4 w-4" aria-hidden="true" /> {t("productImage.remove")}
             </Button>
           )}
         </div>
-        <p className="text-xs text-foreground-muted">Pick a file or take a photo on a phone. Resized automatically.</p>
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Product photo file" onChange={onFile} />
+        <p className="text-xs text-foreground-muted">{t("productImage.hint")}</p>
+        <input ref={inputRef} type="file" accept="image/*" capture="environment" className="sr-only" aria-label={t("productImage.fileAria")} onChange={onFile} />
       </div>
     </section>
   );

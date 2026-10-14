@@ -14,6 +14,7 @@ import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
+import { useTranslation } from "@/components/I18nProvider";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { api, ApiError, describeApiError } from "@/lib/api";
 import { formatMoney, round2 } from "@/lib/format";
@@ -27,6 +28,7 @@ import { UpiQr } from "@/components/pos/UpiQr";
 import { CustomerDisplayLink } from "@/components/pos/CustomerDisplayLink";
 import { TerminalCharge } from "@/components/pos/TerminalCharge";
 import { ShareActions } from "@/components/pos/ShareActions";
+import { paymentMethodKey } from "@/lib/enumLabels";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
 
 const FRACTIONAL_UNITS = ["KGS", "GMS", "LTR", "MLT", "MTR", "CMS", "SQM", "CBM"];
@@ -36,6 +38,7 @@ const r3 = (n: number) => Math.round(n * 1000) / 1000;
 export default function PosPage() {
   const { data: shop } = useShopSettings();
   const { show } = useToast();
+  const { t } = useTranslation();
   const { withPasswordConfirm } = usePasswordConfirm();
   const queryClient = useQueryClient();
 
@@ -144,7 +147,7 @@ export default function PosPage() {
         const existing = prev.find((item) => item.product.id === product.id);
         if (asksSerial && serial) {
           if (existing?.serials?.includes(serial)) {
-            show(`${serial} is already on this bill`, "error");
+            show(t("pos.serialAlready", { serial }), "error");
             return prev;
           }
           if (!existing) return [...prev, { product, quantity: 1, serials: [serial] }];
@@ -152,13 +155,13 @@ export default function PosPage() {
         }
         if (!existing) return [...prev, { product, quantity: 1 }];
         if (!shop?.allowNegativeStock && existing.quantity + 1 > product.stock + 1e-9) {
-          show(`Only ${r3(product.stock)} in stock for "${product.name}"`, "error");
+          show(t("pos.onlyInStock", { count: r3(product.stock), name: product.name }), "error");
           return prev;
         }
         return prev.map((item) => (item.product.id === product.id ? { ...item, quantity: r3(item.quantity + 1) } : item));
       });
     },
-    [show, shop?.allowNegativeStock, shop?.serialTracking]
+    [show, shop?.allowNegativeStock, shop?.serialTracking, t]
   );
 
   const handleScan = useCallback(
@@ -175,16 +178,16 @@ export default function PosPage() {
             setCustomer(c);
             setCustomerName(c.name);
             setCustomerPhone(c.phone);
-            show(`${c.name} — ${c.loyaltyPoints} points`, "success");
+            show(t("pos.pointsToast", { name: c.name, points: c.loyaltyPoints }), "success");
             return;
           } catch {
             /* fall through */
           }
-          show("Nothing matches that code. Add it to inventory first.", "error");
-        } else show("Lookup failed", "error");
+          show(t("pos.nothingMatches"), "error");
+        } else show(t("pos.lookupFailed"), "error");
       }
     },
-    [addToCart, show]
+    [addToCart, show, t]
   );
 
   async function lookupCustomer(phoneOverride?: string) {
@@ -195,13 +198,13 @@ export default function PosPage() {
       setCustomer(c);
       setCustomerName(c.name);
       setDuePaid("");
-      show(`${c.name} — ${c.loyaltyPoints} points`, "success");
+      show(t("pos.pointsToast", { name: c.name, points: c.loyaltyPoints }), "success");
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
         setCustomer(null);
-        show("New customer — will be created on checkout", "info");
+        show(t("pos.newCustomer"), "info");
       } else {
-        show("Customer lookup failed", "error");
+        show(t("pos.customerLookupFailed"), "error");
       }
     }
   }
@@ -285,15 +288,15 @@ export default function PosPage() {
       // so this only prompts when returnsPayload actually has lines in it.
       const invoice =
         returnsPayload.length > 0
-          ? await withPasswordConfirm("process this refund", (confirmPassword) => submitCheckout(confirmPassword))
+          ? await withPasswordConfirm(t("pos.passwordPrompt"), (confirmPassword) => submitCheckout(confirmPassword))
           : await submitCheckout();
       if (!invoice) return; // cancelled the password prompt
 
       const parts = [`${invoice.invoiceNumber} · ${money(invoice.totalAmount)}`];
-      if (invoice.previousDuePaid > 0) parts.push(`${money(invoice.previousDuePaid)} due cleared`);
+      if (invoice.previousDuePaid > 0) parts.push(t("pos.dueClearedPart", { amount: money(invoice.previousDuePaid) }));
       if (invoice.refundValue > 0)
-        parts.push(`${money(invoice.refundValue)} refunded (${invoice.refundMode === "CREDIT" ? "store credit" : "cash"})`);
-      show(`Done — ${parts.join(" · ")}`, "success");
+        parts.push(t("pos.refundedPart", { amount: money(invoice.refundValue), mode: invoice.refundMode === "CREDIT" ? t("pos.storeCredit") : t("pos.cash") }));
+      show(`${t("pos.done")} — ${parts.join(" · ")}`, "success");
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -314,7 +317,7 @@ export default function PosPage() {
           // has no dialog to hang on. Fire-and-forget with a toast on failure
           // so a printer problem never blocks the next customer.
           api.post(`/print/${invoice.id}/usb`).catch((err) =>
-            show(err instanceof ApiError ? err.message : "Auto-print to USB printer failed", "error")
+            show(err instanceof ApiError ? err.message : t("pos.autoPrintFail"), "error")
           );
         } else {
           // Deferred one tick so the "Sale complete" card is definitely
@@ -326,12 +329,12 @@ export default function PosPage() {
         }
       }
     } catch (err) {
-      show(describeApiError(err, "Checkout failed"), "error");
+      show(describeApiError(err, t("pos.checkoutFailed")), "error");
     } finally {
       setIsCheckingOut(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gstin, payCurrency, fxRate, terminalPaymentId, shop?.cashDrawer, cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, withPasswordConfirm, shop?.autoPrintReceipt, shop?.autoPrintMethod]);
+  }, [gstin, payCurrency, fxRate, terminalPaymentId, shop?.cashDrawer, cart, returnLines, refundMode, creditUse, customerName, customerPhone, discountType, discountValue, pointsRedeemed, paymentMethod, amountPaid, dueToClear, canFinalize, isCheckingOut, queryClient, show, withPasswordConfirm, shop?.autoPrintReceipt, shop?.autoPrintMethod, t]);
 
   useBarcodeScanner({
     onScan: handleScan,
@@ -350,7 +353,7 @@ export default function PosPage() {
           if (item.product.id !== productId || (item.serials && item.serials.length > 0)) return item;
           const q = r3(qty);
           if (q > 0 && !shop?.allowNegativeStock && q > item.product.stock + 1e-9) {
-            show(`Only ${r3(item.product.stock)} in stock for "${item.product.name}"`, "error");
+            show(t("pos.onlyInStock", { count: r3(item.product.stock), name: item.product.name }), "error");
             return item;
           }
           return { ...item, quantity: q };
@@ -368,7 +371,7 @@ export default function PosPage() {
     try {
       setQuantity(productId, await readScaleKg());
     } catch (e) {
-      show(e instanceof Error ? e.message : "Could not read the scale", "error");
+      show(e instanceof Error ? e.message : t("pos.couldNotReadScale"), "error");
     } finally {
       setScaleBusy(null);
     }
@@ -395,22 +398,22 @@ export default function PosPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">POS Checkout</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{t("pos.title")}</h1>
           <p className="flex items-center gap-1.5 text-sm text-foreground/60">
             <ScanBarcode className="h-4 w-4" aria-hidden="true" />
-            Scan a barcode to add items. Press Enter to finalize.
+            {t("pos.subtitle")}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={() => setDisplayLinkOpen(true)}>
             <Monitor className="h-4 w-4" aria-hidden="true" />
-            Customer display
+            {t("pos.customerDisplay")}
           </Button>
           <Button
             type="button"
             variant="secondary"
             aria-pressed={soundOn}
-            title="Chime and spoken confirmation when a sale is completed"
+            title={t("pos.soundTitle")}
             onClick={() => {
               const next = !soundOn;
               setSoundOn(next);
@@ -419,11 +422,11 @@ export default function PosPage() {
             }}
           >
             {soundOn ? <Volume2 className="h-4 w-4" aria-hidden="true" /> : <VolumeX className="h-4 w-4" aria-hidden="true" />}
-            Payment sound {soundOn ? "on" : "off"}
+            {soundOn ? t("pos.paymentSoundOn") : t("pos.paymentSoundOff")}
           </Button>
           <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)}>
             <Camera className="h-4 w-4" aria-hidden="true" />
-            Scan with camera
+            {t("pos.scanWithCamera")}
           </Button>
         </div>
       </div>
@@ -463,7 +466,7 @@ export default function PosPage() {
                 {completedSale.invoiceNumber} · {money(completedSale.totalAmount)}
               </p>
               <p className="text-xs text-foreground/60">
-                {shop?.autoPrintReceipt ? "Sale complete — receipt sent to print." : "Sale complete — print or download the receipt below."}
+                {shop?.autoPrintReceipt ? t("pos.saleCompleteAutoPrint") : t("pos.saleCompleteManual")}
               </p>
             </div>
           </div>
@@ -471,7 +474,7 @@ export default function PosPage() {
             <ReceiptActions invoiceId={completedSale.id} />
             <ShareActions invoiceId={completedSale.id} />
             <Button type="button" variant="ghost" onClick={() => setCompletedSale(null)}>
-              Dismiss
+              {t("pos.dismiss")}
             </Button>
           </div>
         </Card>
@@ -480,7 +483,7 @@ export default function PosPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Cart */}
         <Card className="p-5 lg:col-span-2">
-          <h2 className="mb-4 text-base font-semibold text-foreground">Cart</h2>
+          <h2 className="mb-4 text-base font-semibold text-foreground">{t("pos.cart")}</h2>
 
           {/* Manual add — the scanner fallback. Always visible so a cashier can
               still bill by typing a product name or barcode when the barcode
@@ -492,14 +495,14 @@ export default function PosPage() {
                 type="text"
                 value={manualQuery}
                 onChange={(e) => setManualQuery(e.target.value)}
-                placeholder="Scanner not working? Type a product name or barcode to add…"
-                aria-label="Add product manually"
+                placeholder={t("pos.manualPlaceholder")}
+                aria-label={t("pos.manualAria")}
                 className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/40"
               />
               {manualQuery && (
                 <button
                   type="button"
-                  aria-label="Clear search"
+                  aria-label={t("pos.clearSearch")}
                   onClick={() => setManualQuery("")}
                   className="text-foreground/40 hover:text-foreground"
                 >
@@ -510,9 +513,9 @@ export default function PosPage() {
             {committedQuery && (
               <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-surface shadow-lg">
                 {!manualResults ? (
-                  <p className="px-3 py-2.5 text-sm text-foreground/50">Searching…</p>
+                  <p className="px-3 py-2.5 text-sm text-foreground/50">{t("pos.searching")}</p>
                 ) : manualResults.length === 0 ? (
-                  <p className="px-3 py-2.5 text-sm text-foreground/50">No products match &ldquo;{committedQuery}&rdquo;.</p>
+                  <p className="px-3 py-2.5 text-sm text-foreground/50">{t("pos.noMatch", { query: committedQuery })}</p>
                 ) : (
                   manualResults.slice(0, 8).map((p) => {
                     const outOfStock = p.stock <= 0 && !shop?.allowNegativeStock;
@@ -534,7 +537,7 @@ export default function PosPage() {
                         </span>
                         <span className="shrink-0 text-foreground/70">{money(effectivePrice(p))}</span>
                         <span className={`shrink-0 text-xs ${outOfStock ? "text-danger" : "text-foreground/40"}`}>
-                          {outOfStock ? "Out of stock" : `${r3(p.stock)} in stock`}
+                          {outOfStock ? t("pos.outOfStock") : t("pos.inStock", { count: r3(p.stock) })}
                         </span>
                       </button>
                     );
@@ -545,17 +548,17 @@ export default function PosPage() {
           </div>
 
           {cart.length === 0 ? (
-            <p className="py-10 text-center text-sm text-foreground/50">Cart is empty. Scan a product to begin.</p>
+            <p className="py-10 text-center text-sm text-foreground/50">{t("pos.cartEmpty")}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-max text-left text-sm">
                 <thead>
                   <tr className="text-xs uppercase text-foreground/50">
-                    <th className="py-2 pr-4">Item</th>
-                    <th className="py-2 pr-4">Qty</th>
-                    <th className="py-2 pr-4 text-right">Price</th>
-                    {shop?.gstEnabled && <th className="py-2 pr-4 text-right">GST</th>}
-                    <th className="py-2 pr-4 text-right">Total</th>
+                    <th className="py-2 pr-4">{t("pos.colItem")}</th>
+                    <th className="py-2 pr-4">{t("pos.colQty")}</th>
+                    <th className="py-2 pr-4 text-right">{t("pos.colPrice")}</th>
+                    {shop?.gstEnabled && <th className="py-2 pr-4 text-right">{t("pos.colGst")}</th>}
+                    <th className="py-2 pr-4 text-right">{t("pos.colTotal")}</th>
                     <th className="py-2" />
                   </tr>
                 </thead>
@@ -579,7 +582,7 @@ export default function PosPage() {
                       <td className="py-2.5 pr-4">
                         {item.serials && item.serials.length > 0 ? (
                           <button type="button" onClick={() => setSerialFor(item.product)} className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-muted">
-                            {item.quantity} unit{item.quantity === 1 ? "" : "s"} · edit
+                            {t("pos.editUnits", { count: item.quantity })}
                           </button>
                         ) : isFractional(item.product) ? (
                           <div className="flex items-center gap-1.5">
@@ -587,13 +590,13 @@ export default function PosPage() {
                               type="number"
                               min={0}
                               step="0.001"
-                              aria-label={`Quantity of ${item.product.name}`}
+                              aria-label={t("pos.qtyAria", { name: item.product.name })}
                               value={item.quantity}
                               onChange={(e) => setQuantity(item.product.id, Number(e.target.value) || 0)}
                               className="tabular w-24 rounded-md border border-border bg-surface px-2 py-1 text-sm"
                             />
                             {scaleSupported() && (
-                              <button type="button" aria-label={`Read weight for ${item.product.name} from scale`} disabled={scaleBusy === item.product.id} onClick={() => weigh(item.product.id)} className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted">
+                              <button type="button" aria-label={t("pos.readWeightAria", { name: item.product.name })} disabled={scaleBusy === item.product.id} onClick={() => weigh(item.product.id)} className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted">
                                 <Scale className="h-3.5 w-3.5" aria-hidden="true" />
                               </button>
                             )}
@@ -602,7 +605,7 @@ export default function PosPage() {
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              aria-label={`Decrease ${item.product.name}`}
+                              aria-label={t("pos.decreaseAria", { name: item.product.name })}
                               onClick={() => updateQuantity(item.product.id, -1)}
                               className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
                             >
@@ -611,7 +614,7 @@ export default function PosPage() {
                             <span className="tabular w-6 text-center">{item.quantity}</span>
                             <button
                               type="button"
-                              aria-label={`Increase ${item.product.name}`}
+                              aria-label={t("pos.increaseAria", { name: item.product.name })}
                               onClick={() => updateQuantity(item.product.id, 1)}
                               className="flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-surface-muted"
                             >
@@ -637,7 +640,7 @@ export default function PosPage() {
                       <td className="py-2.5 text-right">
                         <button
                           type="button"
-                          aria-label={`Remove ${item.product.name}`}
+                          aria-label={t("pos.removeAria", { name: item.product.name })}
                           onClick={() => setCart((p) => p.filter((i) => i.product.id !== item.product.id))}
                           className="text-foreground/40 hover:text-danger"
                         >
@@ -656,38 +659,38 @@ export default function PosPage() {
         <div className="flex flex-col gap-4">
           {/* Customer */}
           <Card className="flex flex-col gap-3 p-5">
-            <h2 className="text-base font-semibold text-foreground">Customer</h2>
+            <h2 className="text-base font-semibold text-foreground">{t("pos.customer")}</h2>
             <div className="flex items-end gap-2">
               <div className="flex-1">
                 <Field
-                  label="Phone"
+                  label={t("pos.phone")}
                   value={customerPhone}
                   onChange={(e) => {
                     setCustomerPhone(e.target.value);
                     setCustomer(null);
                     setPointsRedeemed(0);
                   }}
-                  placeholder="For loyalty"
+                  placeholder={t("pos.phonePlaceholder")}
                 />
               </div>
-              <Button type="button" variant="secondary" onClick={() => lookupCustomer()} aria-label="Find customer">
+              <Button type="button" variant="secondary" onClick={() => lookupCustomer()} aria-label={t("pos.findCustomer")}>
                 <Search className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
             <Field
-              label="Name (optional)"
+              label={t("pos.nameOptional")}
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              placeholder="Walk-in Customer"
+              placeholder={t("pos.walkIn")}
             />
             {shop?.gstEnabled && (
-              <Field label="Customer GSTIN (B2B, optional)" value={gstin} maxLength={15} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="22AAAAA0000A1Z5" />
+              <Field label={t("pos.customerGstin")} value={gstin} maxLength={15} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="22AAAAA0000A1Z5" />
             )}
           </Card>
 
           {/* Returns / exchange */}
           <Card className="flex flex-col gap-3 p-5">
-            <h2 className="text-base font-semibold text-foreground">Return / Exchange</h2>
+            <h2 className="text-base font-semibold text-foreground">{t("pos.returnExchange")}</h2>
             <ReturnPanel
               sym={sym}
               drafted={returnLines}
@@ -705,7 +708,7 @@ export default function PosPage() {
                     <span className="text-foreground">- {money(l.refundAmount)}</span>
                     <button
                       type="button"
-                      aria-label={`Remove return of ${l.name}`}
+                      aria-label={t("pos.removeReturnAria", { name: l.name })}
                       onClick={() => setReturnLines((prev) => prev.filter((x) => !(x.invoiceId === l.invoiceId && x.invoiceItemId === l.invoiceItemId)))}
                       className="text-foreground/40 hover:text-danger"
                     >
@@ -714,15 +717,15 @@ export default function PosPage() {
                   </div>
                 ))}
                 <div className="flex items-center justify-between pt-1 text-sm font-medium">
-                  <span className="text-foreground/60">Return total</span>
+                  <span className="text-foreground/60">{t("pos.returnTotal")}</span>
                   <span className="text-foreground">- {money(returnTotal)}</span>
                 </div>
               </div>
             )}
             {refundValue > 0 && (
               <div className="rounded-lg bg-warning/10 p-3">
-                <p className="text-sm font-medium text-warning">Refund due to customer: {money(refundValue)}</p>
-                <p className="mb-2 mt-0.5 text-xs text-foreground/60">The return is worth more than the purchase — settle the difference:</p>
+                <p className="text-sm font-medium text-warning">{t("pos.refundDue", { amount: money(refundValue) })}</p>
+                <p className="mb-2 mt-0.5 text-xs text-foreground/60">{t("pos.refundMore")}</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -731,18 +734,18 @@ export default function PosPage() {
                       refundMode === "CASH" ? "border-brand bg-brand text-brand-foreground" : "border-border text-foreground/70 hover:bg-surface-muted"
                     }`}
                   >
-                    Cash refund
+                    {t("pos.cashRefund")}
                   </button>
                   <button
                     type="button"
                     disabled={!customer}
                     onClick={() => setRefundMode("CREDIT")}
-                    title={!customer ? "Add a customer to store credit" : undefined}
+                    title={!customer ? t("pos.addCustomerToCredit") : undefined}
                     className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
                       refundMode === "CREDIT" ? "border-brand bg-brand text-brand-foreground" : "border-border text-foreground/70 hover:bg-surface-muted"
                     }`}
                   >
-                    Store credit
+                    {t("pos.storeCreditBtn")}
                   </button>
                 </div>
               </div>
@@ -751,15 +754,15 @@ export default function PosPage() {
 
           {/* Discount + payment */}
           <Card className="flex flex-col gap-3 p-5">
-            <h2 className="text-base font-semibold text-foreground">Discount</h2>
+            <h2 className="text-base font-semibold text-foreground">{t("pos.discount")}</h2>
             <div className="flex gap-2">
               <select
-                aria-label="Discount type"
+                aria-label={t("pos.discountTypeAria")}
                 value={discountType ?? ""}
                 onChange={(e) => setDiscountType((e.target.value || null) as "percent" | "amount" | null)}
                 className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground"
               >
-                <option value="">None</option>
+                <option value="">{t("pos.none")}</option>
                 <option value="percent">%</option>
                 <option value="amount">{sym}</option>
               </select>
@@ -770,13 +773,13 @@ export default function PosPage() {
                 disabled={!discountType}
                 value={discountValue || ""}
                 onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
-                placeholder="Discount value"
-                aria-label="Discount value"
+                placeholder={t("pos.discountValuePlaceholder")}
+                aria-label={t("pos.discountValueAria")}
                 className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground disabled:opacity-50"
               />
             </div>
 
-            <h2 className="mt-2 text-base font-semibold text-foreground">Payment</h2>
+            <h2 className="mt-2 text-base font-semibold text-foreground">{t("pos.payment")}</h2>
             <div className="grid grid-cols-3 gap-2">
               {(["CASH", "UPI", "CARD"] as PaymentMethod[]).map((m) => (
                 <button
@@ -792,7 +795,10 @@ export default function PosPage() {
                       : "border-border text-foreground/70 hover:bg-surface-muted"
                   }`}
                 >
-                  {m}
+                  {(() => {
+                    const key = paymentMethodKey(m);
+                    return key ? t(key) : m;
+                  })()}
                 </button>
               ))}
             </div>
@@ -803,8 +809,8 @@ export default function PosPage() {
             {paymentMethod === "CASH" && fxCodes.length > 0 && (
               <label className="flex items-center gap-2 text-sm">
                 <Smartphone className="h-4 w-4 text-foreground-muted" aria-hidden="true" />
-                <span className="text-foreground-muted">Customer pays in</span>
-                <select aria-label="Payment currency" value={payCurrency} onChange={(e) => { setPayCurrency(e.target.value); setAmountPaid(""); }} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm">
+                <span className="text-foreground-muted">{t("pos.customerPaysIn")}</span>
+                <select aria-label={t("pos.paymentCurrencyAria")} value={payCurrency} onChange={(e) => { setPayCurrency(e.target.value); setAmountPaid(""); }} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm">
                   <option value="">{fx?.base}</option>
                   {fxCodes.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -821,7 +827,7 @@ export default function PosPage() {
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <Field
-                    label={payCurrency && fxRate ? `Amount received (${payCurrency})` : "Amount received"}
+                    label={payCurrency && fxRate ? t("pos.amountReceivedCurrency", { currency: payCurrency }) : t("pos.amountReceived")}
                     type="number"
                     min={0}
                     step="0.01"
@@ -836,7 +842,7 @@ export default function PosPage() {
                   onClick={() => setAmountPaid(String(payCurrency && fxRate ? round2(collectTotal / fxRate) : collectTotal))}
                   disabled={collectTotal === 0}
                 >
-                  Paid in full
+                  {t("pos.paidInFull")}
                 </Button>
               </div>
             )}
@@ -848,12 +854,12 @@ export default function PosPage() {
               const adjusted = returnTotal > 0 || creditUse > 0 || dueToClear > 0;
               return (
                 <>
-                  <Row label={adjusted ? "This sale" : "Subtotal"} value={money(adjusted ? quote.total : quote.subtotal)} />
-                  {!adjusted && quote.discountAmount > 0 && <Row label="Discount" value={`- ${money(quote.discountAmount)}`} />}
-                  {!adjusted && shop?.gstEnabled && quote.taxAmount > 0 && <Row label="GST (included)" value={money(quote.taxAmount)} />}
-                  {!adjusted && quote.loyaltyDiscount > 0 && <Row label="Loyalty" value={`- ${money(quote.loyaltyDiscount)}`} />}
-                  {returnTotal > 0 && <Row label="Returns" value={`- ${money(returnTotal)}`} />}
-                  {creditUse > 0 && <Row label="Store credit used" value={`- ${money(creditUse)}`} />}
+                  <Row label={adjusted ? t("pos.thisSale") : t("pos.subtotal")} value={money(adjusted ? quote.total : quote.subtotal)} />
+                  {!adjusted && quote.discountAmount > 0 && <Row label={t("pos.discount")} value={`- ${money(quote.discountAmount)}`} />}
+                  {!adjusted && shop?.gstEnabled && quote.taxAmount > 0 && <Row label={t("pos.gstIncluded")} value={money(quote.taxAmount)} />}
+                  {!adjusted && quote.loyaltyDiscount > 0 && <Row label={t("pos.loyalty")} value={`- ${money(quote.loyaltyDiscount)}`} />}
+                  {returnTotal > 0 && <Row label={t("pos.returns")} value={`- ${money(returnTotal)}`} />}
+                  {creditUse > 0 && <Row label={t("pos.storeCreditUsed")} value={`- ${money(creditUse)}`} />}
                   {/* Show what will ACTUALLY clear given the tender so far
                       (duePaidFinal), not the intended amount (dueToClear) —
                       on a cash bill that's still short, the due hasn't been
@@ -862,7 +868,7 @@ export default function PosPage() {
                       backend correctly left it standing. */}
                   {dueToClear > 0 && (
                     <Row
-                      label={duePaidFinal < dueToClear ? "Due to clear (needs full payment)" : "Previous due cleared"}
+                      label={duePaidFinal < dueToClear ? t("pos.dueNeedsFull") : t("pos.previousDueCleared")}
                       value={money(duePaidFinal)}
                     />
                   )}
@@ -872,29 +878,29 @@ export default function PosPage() {
             <div className="my-1 border-t border-border" />
             {refundValue > 0 ? (
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-warning">Refund ({refundMode === "CREDIT" ? "store credit" : "cash"})</span>
+                <span className="text-sm font-semibold text-warning">{t("pos.refundLabel", { mode: refundMode === "CREDIT" ? t("pos.storeCredit") : t("pos.cash") })}</span>
                 <span className="text-xl font-semibold text-warning">{money(refundValue)}</span>
               </div>
             ) : (
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-foreground/70">
-                  {returnTotal > 0 || creditUse > 0 || dueToClear > 0 ? "To Collect" : "Grand Total"}
+                  {returnTotal > 0 || creditUse > 0 || dueToClear > 0 ? t("pos.toCollect") : t("pos.grandTotal")}
                 </span>
                 <span className="text-xl font-semibold text-foreground">{money(collectTotal)}</span>
               </div>
             )}
             {paymentMethod === "CASH" && Number(amountPaid) > 0 && changeDue > 0 && (
-              <Row label="Change" value={money(changeDue)} />
+              <Row label={t("pos.change")} value={money(changeDue)} />
             )}
             {shortNow > 0 && (
               <p className={`rounded-lg px-3 py-2 text-xs font-medium ${customer ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"}`}>
                 {customer
-                  ? `${money(shortNow)} short — the unpaid part stays on ${customer.name}'s due balance`
-                  : `${money(shortNow)} short — add a customer (phone) to record this as a due, or collect the full amount`}
+                  ? t("pos.shortWithCustomer", { amount: money(shortNow), name: customer.name })
+                  : t("pos.shortNoCustomer", { amount: money(shortNow) })}
               </p>
             )}
             {shop?.loyaltyEnabled && customer && quote.pointsEarned > 0 && (
-              <p className="text-xs text-foreground/50">Earns {quote.pointsEarned} points</p>
+              <p className="text-xs text-foreground/50">{t("pos.earnsPoints", { count: quote.pointsEarned })}</p>
             )}
             <Button
               onClick={finalizeSale}
@@ -902,12 +908,12 @@ export default function PosPage() {
               className="mt-2 w-full"
             >
               {isCheckingOut
-                ? "Processing…"
+                ? t("pos.processing")
                 : refundValue > 0 && cart.length === 0
-                  ? "Process Return (Enter)"
+                  ? t("pos.processReturn")
                   : cart.length === 0 && returnLines.length === 0 && dueToClear > 0
-                    ? "Collect Due (Enter)"
-                    : "Finalize Sale (Enter)"}
+                    ? t("pos.collectDue")
+                    : t("pos.finalizeSale")}
             </Button>
           </Card>
         </div>

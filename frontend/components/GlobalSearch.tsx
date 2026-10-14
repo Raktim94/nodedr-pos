@@ -12,18 +12,19 @@ import {
   Search,
   CornerDownLeft,
 } from "lucide-react";
+import { useTranslation } from "@/components/I18nProvider";
 import { useProducts } from "@/hooks/useProducts";
 import { effectivePrice } from "@/lib/quote";
 import { formatMoney } from "@/lib/format";
 
 const SHORTCUTS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/pos", label: "POS Checkout", icon: ScanBarcode },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/customers", label: "Customers", icon: Users },
-  { href: "/sales", label: "Sales", icon: ReceiptText },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+  { href: "/dashboard", labelKey: "globalSearch.navDashboard", icon: LayoutDashboard },
+  { href: "/pos", labelKey: "globalSearch.navPos", icon: ScanBarcode },
+  { href: "/inventory", labelKey: "globalSearch.navInventory", icon: Package },
+  { href: "/customers", labelKey: "globalSearch.navCustomers", icon: Users },
+  { href: "/sales", labelKey: "globalSearch.navSales", icon: ReceiptText },
+  { href: "/settings", labelKey: "globalSearch.navSettings", icon: Settings },
+] as const;
 
 // Mount this component only while it should be visible (e.g.
 // `{searchOpen && <GlobalSearch ... />}`) rather than keeping it always
@@ -31,6 +32,7 @@ const SHORTCUTS = [
 // query with no reset-on-open effect needed.
 export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: string }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [committed, setCommitted] = useState("");
@@ -54,14 +56,14 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  const shortcuts = SHORTCUTS.filter((s) => s.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const shortcuts = SHORTCUTS.filter((s) => t(s.labelKey).toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-[12vh] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Global search"
+      aria-label={t("globalSearch.aria")}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -74,8 +76,8 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search products, or jump to a page…"
-            aria-label="Global search"
+            placeholder={t("globalSearch.placeholder")}
+            aria-label={t("globalSearch.aria")}
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground-muted"
           />
           <kbd className="hidden shrink-0 rounded-md border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-foreground-muted sm:block">
@@ -86,7 +88,7 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
         <div className="max-h-[60vh] overflow-y-auto p-2">
           {shortcuts.length > 0 && (
             <div className="mb-1">
-              <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Go to</p>
+              <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">{t("globalSearch.goTo")}</p>
               {shortcuts.map((s) => {
                 const Icon = s.icon;
                 return (
@@ -100,7 +102,7 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
                     className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-brand-soft"
                   >
                     <Icon className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden="true" />
-                    {s.label}
+                    {t(s.labelKey)}
                     <CornerDownLeft className="ml-auto h-3.5 w-3.5 shrink-0 text-foreground-muted opacity-0 group-hover:opacity-100" aria-hidden="true" />
                   </button>
                 );
@@ -110,11 +112,11 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
 
           {committed && (
             <div>
-              <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Products</p>
+              <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">{t("globalSearch.products")}</p>
               {!results ? (
-                <p className="px-2.5 py-2 text-sm text-foreground-muted">Searching…</p>
+                <p className="px-2.5 py-2 text-sm text-foreground-muted">{t("globalSearch.searching")}</p>
               ) : results.length === 0 ? (
-                <p className="px-2.5 py-2 text-sm text-foreground-muted">No products match &ldquo;{committed}&rdquo;.</p>
+                <p className="px-2.5 py-2 text-sm text-foreground-muted">{t("globalSearch.noMatch", { query: committed })}</p>
               ) : (
                 results.slice(0, 8).map((p) => (
                   <button

@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { DISPLAY_CHANNEL, type DisplayState } from "@/lib/display";
+import { useTranslation } from "@/components/I18nProvider";
 
 // Second-screen display for the customer. Mirrors the cashier's cart via
 // BroadcastChannel (same browser, same machine) — open it from POS Checkout
 // and drag the window to the customer-facing monitor.
 export default function CustomerDisplay() {
   const [s, setS] = useState<DisplayState | null>(null);
+  const { t } = useTranslation();
 
   const [link, setLink] = useState<"local" | "connecting" | "live" | "offline" | "invalid">("local");
 
@@ -78,45 +80,45 @@ export default function CustomerDisplay() {
   return (
     <main className="flex min-h-screen flex-col bg-[var(--green-950)] p-8 text-white">
       <header className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">{s?.shopName || "Welcome"}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{s?.shopName || t("display.welcome")}</h1>
         <p className="text-sm text-white/60">
-          {link === "offline" && <span className="mr-3 text-amber-300">Reconnecting…</span>}
+          {link === "offline" && <span className="mr-3 text-amber-300">{t("display.reconnecting")}</span>}
           {new Date().toLocaleDateString()}
         </p>
       </header>
 
       {link === "invalid" && (
         <div role="alert" className="flex flex-1 items-center justify-center text-center">
-          <p className="max-w-md text-2xl text-white/80">This display link is not valid. Open the link again from the POS &ldquo;Customer display&rdquo; button.</p>
+          <p className="max-w-md text-2xl text-white/80">{t("display.invalidLink")}</p>
         </div>
       )}
 
       {link === "invalid" ? null : s?.thankYou ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="text-5xl font-semibold tracking-tight">Thank you!</p>
-          <p className="text-lg text-white/70">Please visit again.</p>
+          <p className="text-5xl font-semibold tracking-tight">{t("display.thankYou")}</p>
+          <p className="text-lg text-white/70">{t("display.visitAgain")}</p>
         </div>
       ) : upiUri ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center">
-          <p className="text-2xl text-white/70">Scan to pay with any UPI app</p>
+          <p className="text-2xl text-white/70">{t("display.scanToPay")}</p>
           <p className="tabular text-6xl font-semibold tracking-[-0.03em]">{money(qrAmount)}</p>
           <div className="rounded-3xl bg-white p-5">
             {qr ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={qr} alt={`UPI payment QR for ${money(qrAmount)}`} width={320} height={320} />
+              <img src={qr} alt={t("display.qrPaymentAlt", { amount: money(qrAmount) })} width={320} height={320} />
             ) : (
               <div className="h-80 w-80 animate-pulse rounded bg-neutral-200" />
             )}
           </div>
-          <p className="text-sm text-white/60">The amount is filled in for you — just confirm in your app.</p>
+          <p className="text-sm text-white/60">{t("display.amountPrefilled")}</p>
         </div>
       ) : idle ? (
         <div className="flex flex-1 items-center justify-center text-center">
-          <p className="text-3xl text-white/70">Hello 👋 — your items will appear here.</p>
+          <p className="text-3xl text-white/70">{t("display.hello")}</p>
         </div>
       ) : (
         <>
-          <ul className="my-6 flex-1 divide-y divide-white/10 overflow-y-auto" aria-label="Items">
+          <ul className="my-6 flex-1 divide-y divide-white/10 overflow-y-auto" aria-label={t("display.items")}>
             {s!.lines.map((l, i) => (
               <li key={i} className="flex items-baseline justify-between gap-4 py-3 text-xl">
                 <span className="min-w-0 flex-1 truncate">{l.name}</span>
@@ -130,18 +132,18 @@ export default function CustomerDisplay() {
           <footer className="rounded-2xl bg-white/10 p-6">
             {s!.discount > 0 && (
               <p className="tabular flex justify-between text-lg text-white/70">
-                <span>Discount</span>
+                <span>{t("display.discount")}</span>
                 <span>- {money(s!.discount)}</span>
               </p>
             )}
             {s!.tax > 0 && (
               <p className="tabular flex justify-between text-lg text-white/70">
-                <span>GST (included)</span>
+                <span>{t("display.gstIncluded")}</span>
                 <span>{money(s!.tax)}</span>
               </p>
             )}
             <p className="tabular mt-1 flex justify-between text-5xl font-semibold tracking-[-0.03em]">
-              <span>Total</span>
+              <span>{t("display.total")}</span>
               <span>{money(s!.total)}</span>
             </p>
           </footer>
