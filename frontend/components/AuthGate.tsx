@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useTranslation } from "@/components/I18nProvider";
 import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/types";
 
@@ -13,6 +14,7 @@ const isPublic = (p: string) => PUBLIC_PREFIXES.some((x) => p === x || p.startsW
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { t } = useTranslation();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         <div
           className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-brand"
           role="status"
-          aria-label="Loading"
+          aria-label={t("common.loading")}
         />
       </div>
     );

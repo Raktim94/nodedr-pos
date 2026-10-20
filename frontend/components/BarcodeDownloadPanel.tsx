@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { BarcodeCanvas } from "@/components/BarcodeCanvas";
+import { useTranslation } from "@/components/I18nProvider";
 
 // Shared by BarcodeLabelModal (Inventory row, after a product is saved) and
 // ProductModal (right where the barcode is generated, before saving) — one
@@ -12,6 +13,7 @@ import { BarcodeCanvas } from "@/components/BarcodeCanvas";
 // that file with their own label software (no in-app print — it opened an
 // extra browser tab and clipped on thermal label printers).
 export function BarcodeDownloadPanel({ value }: { value: string }) {
+  const { t } = useTranslation();
   const canvasId = useId();
   const [format, setFormat] = useState<"EAN13" | "QR">("EAN13");
   const [imageType, setImageType] = useState<"png" | "jpg">("png");
@@ -56,7 +58,7 @@ export function BarcodeDownloadPanel({ value }: { value: string }) {
             format === "EAN13" ? "border-brand bg-brand text-brand-foreground" : "border-border text-foreground/70 hover:bg-surface-muted"
           }`}
         >
-          Barcode
+          {t("barcodePanel.barcode")}
         </button>
         <button
           type="button"
@@ -65,7 +67,7 @@ export function BarcodeDownloadPanel({ value }: { value: string }) {
             format === "QR" ? "border-brand bg-brand text-brand-foreground" : "border-border text-foreground/70 hover:bg-surface-muted"
           }`}
         >
-          QR code
+          {t("barcodePanel.qrCode")}
         </button>
       </div>
 
@@ -74,7 +76,7 @@ export function BarcodeDownloadPanel({ value }: { value: string }) {
       </div>
 
       <div className="flex items-center justify-center gap-3 text-sm">
-        <span className="text-foreground/60">Download as</span>
+        <span className="text-foreground/60">{t("barcodePanel.downloadAs")}</span>
         <label className="flex items-center gap-1.5">
           <input type="radio" name={`${canvasId}-image-type`} checked={imageType === "png"} onChange={() => setImageType("png")} />
           PNG
@@ -87,7 +89,7 @@ export function BarcodeDownloadPanel({ value }: { value: string }) {
 
       <Button type="button" variant="secondary" onClick={download} className="w-full">
         <Download className="h-4 w-4" aria-hidden="true" />
-        Download {imageType.toUpperCase()}
+        {t("barcodePanel.download", { format: imageType.toUpperCase() })}
       </Button>
     </div>
   );

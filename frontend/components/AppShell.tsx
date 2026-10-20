@@ -40,25 +40,35 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useUpdateStatus } from "@/hooks/useUpdate";
 import { can } from "@/lib/perm";
+import { LanguageToggle } from "@/components/LanguageToggle";
+import { useTranslation } from "@/components/I18nProvider";
+import { roleKey } from "@/lib/enumLabels";
+import type { TranslationKey } from "@/lib/i18n";
 import type { Permission } from "@/lib/types";
 
-type NavItem = { href: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean; perm?: Permission; hubOnly?: boolean; staffOnly?: boolean; primary?: boolean; serialOnly?: boolean };
+const roleLabel = (t: (key: TranslationKey) => string, role: string | undefined) => {
+  if (!role) return "";
+  const key = roleKey(role);
+  return key ? t(key) : role;
+};
+
+type NavItem = { href: string; labelKey: TranslationKey; shortKey?: TranslationKey; icon: typeof LayoutDashboard; adminOnly?: boolean; perm?: Permission; hubOnly?: boolean; staffOnly?: boolean; primary?: boolean; serialOnly?: boolean };
 
 // staffOnly = hidden from read-only franchisor accounts (they get Reports +
 // Branches only). perm = needs that granular right (admins always pass).
 const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, staffOnly: true, primary: true },
-  { href: "/pos", label: "POS Checkout", icon: ScanBarcode, staffOnly: true, primary: true },
-  { href: "/orders", label: "Online orders", icon: ShoppingBag, perm: "orders", primary: true },
-  { href: "/inventory", label: "Inventory", icon: Package, staffOnly: true, primary: true },
-  { href: "/purchasing", label: "Purchasing", icon: Truck, perm: "purchasing" },
-  { href: "/customers", label: "Customers", icon: Users, staffOnly: true },
-  { href: "/sales", label: "Sales", icon: ReceiptText, staffOnly: true },
-  { href: "/warranty", label: "Warranty", icon: ShieldCheck, staffOnly: true, serialOnly: true },
-  { href: "/reports", label: "Reports", icon: BarChart3, perm: "reports" },
-  { href: "/team", label: "Team", icon: UserCog, adminOnly: true },
-  { href: "/branches", label: "Branches", icon: Network, hubOnly: true },
-  { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
+  { href: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, staffOnly: true, primary: true },
+  { href: "/pos", labelKey: "nav.pos", shortKey: "nav.posShort", icon: ScanBarcode, staffOnly: true, primary: true },
+  { href: "/orders", labelKey: "nav.orders", shortKey: "nav.ordersShort", icon: ShoppingBag, perm: "orders", primary: true },
+  { href: "/inventory", labelKey: "nav.inventory", icon: Package, staffOnly: true, primary: true },
+  { href: "/purchasing", labelKey: "nav.purchasing", icon: Truck, perm: "purchasing" },
+  { href: "/customers", labelKey: "nav.customers", icon: Users, staffOnly: true },
+  { href: "/sales", labelKey: "nav.sales", icon: ReceiptText, staffOnly: true },
+  { href: "/warranty", labelKey: "nav.warranty", icon: ShieldCheck, staffOnly: true, serialOnly: true },
+  { href: "/reports", labelKey: "nav.reports", icon: BarChart3, perm: "reports" },
+  { href: "/team", labelKey: "nav.team", icon: UserCog, adminOnly: true },
+  { href: "/branches", labelKey: "nav.branches", icon: Network, hubOnly: true },
+  { href: "/settings", labelKey: "nav.settings", icon: Settings, adminOnly: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -73,6 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
 
   async function handleLogout() {
     await api.post("/auth/logout");
@@ -123,16 +134,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-1">
           <button
             type="button"
-            aria-label="Search"
+            aria-label={t("shell.search")}
             onClick={() => setSearchOpen(true)}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground-muted hover:bg-surface-muted"
           >
             <Search className="h-5 w-5" aria-hidden="true" />
           </button>
+          <LanguageToggle />
           <ThemeToggle />
           <button
             type="button"
-            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-label={navOpen ? t("shell.closeMenu") : t("shell.openMenu")}
             onClick={() => setNavOpen((v) => !v)}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground-muted hover:bg-surface-muted"
           >
@@ -179,9 +191,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
               >
                 <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
-                {item.label}
+                {t(item.labelKey)}
                 {item.href === "/settings" && update?.updateAvailable && (
-                  <span className="ml-auto h-2 w-2 rounded-full bg-brand shadow-[0_0_6px_var(--brand-glow)]" aria-label="Update available" />
+                  <span className="ml-auto h-2 w-2 rounded-full bg-brand shadow-[0_0_6px_var(--brand-glow)]" aria-label={t("shell.updateAvailable")} />
                 )}
               </Link>
             );
@@ -191,7 +203,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {me && (
             <div className="mb-2 px-3 py-1.5">
               <p className="truncate text-sm font-medium text-foreground">{me.name}</p>
-              <p className="text-xs capitalize text-foreground-muted">{me.role}</p>
+              <p className="text-xs capitalize text-foreground-muted">{roleLabel(t, me.role)}</p>
             </div>
           )}
           <button
@@ -199,7 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-muted hover:text-foreground"
           >
             <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
-            Log out
+            {t("shell.logout")}
           </button>
           <div className="mt-3 flex items-center gap-1.5 px-3 text-[11px] text-foreground-muted">
             {isOnline ? (
@@ -207,7 +219,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : (
               <CloudOff className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
             )}
-            {isOnline ? "Synced with local server" : "Local server unreachable"}
+            {isOnline ? t("shell.synced") : t("shell.unreachable")}
           </div>
           <BrandFooter className="mt-2" />
         </div>
@@ -233,7 +245,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="flex flex-1 max-w-md items-center gap-2 rounded-lg border border-border-subtle bg-surface-muted/60 px-3 py-2 text-sm text-foreground-muted transition-colors hover:border-border hover:text-foreground"
           >
             <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="flex-1 text-left">Search products, jump to a page…</span>
+            <span className="flex-1 text-left">{t("shell.searchPlaceholder")}</span>
             <kbd className="rounded-md border border-border-subtle bg-surface px-1.5 py-0.5 text-[10px] font-medium">⌘K</kbd>
           </button>
 
@@ -245,7 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
             <Link
               href="/inventory"
-              aria-label={`${lowStock?.products.length ?? 0} low-stock alerts`}
+              aria-label={t("shell.lowStockAlerts", { count: lowStock?.products.length ?? 0 })}
               className="relative flex h-9 w-9 items-center justify-center rounded-lg text-foreground-muted transition-colors hover:bg-surface-muted hover:text-foreground"
             >
               <Bell className="h-[18px] w-[18px]" aria-hidden="true" />
@@ -254,13 +266,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </Link>
 
+            <LanguageToggle />
             <ThemeToggle />
 
             <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
                 onClick={() => setUserMenuOpen((v) => !v)}
-                aria-label="Account menu"
+                aria-label={t("shell.accountMenu")}
                 aria-expanded={userMenuOpen}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand transition-transform hover:scale-105"
               >
@@ -270,7 +283,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="glass-panel absolute right-0 top-11 z-10 w-48 overflow-hidden rounded-xl bg-surface-elevated shadow-2xl">
                   <div className="border-b border-border-subtle px-3.5 py-3">
                     <p className="truncate text-sm font-medium text-foreground">{me?.name}</p>
-                    <p className="text-xs capitalize text-foreground-muted">{me?.role}</p>
+                    <p className="text-xs capitalize text-foreground-muted">{roleLabel(t, me?.role)}</p>
                   </div>
                   {me?.role === "admin" && (
                     <Link
@@ -279,7 +292,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-foreground transition-colors hover:bg-surface-muted"
                     >
                       <Settings className="h-4 w-4 text-foreground-muted" aria-hidden="true" />
-                      Settings
+                      {t("nav.settings")}
                     </Link>
                   )}
                   <button
@@ -288,7 +301,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-surface-muted"
                   >
                     <LogOut className="h-4 w-4 text-foreground-muted" aria-hidden="true" />
-                    Log out
+                    {t("shell.logout")}
                   </button>
                 </div>
               )}
@@ -301,20 +314,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="mx-auto w-full max-w-[1440px] flex-1 overflow-y-auto bg-background p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">{children}</main>
 
         {/* Compact bottom navigation on phones/tablets — 44px+ touch targets. */}
-        <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <nav aria-label={t("shell.primaryNav")} className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] lg:hidden">
           {primaryItems.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href);
             return (
               <Link key={item.href} href={item.href} className={clsx("flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium", active ? "text-brand" : "text-foreground-muted")}>
                 <Icon className="h-5 w-5" aria-hidden="true" />
-                {item.label.replace("POS Checkout", "POS").replace("Online orders", "Orders")}
+                {t(item.shortKey ?? item.labelKey)}
               </Link>
             );
           })}
           <button type="button" onClick={() => setNavOpen(true)} className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-foreground-muted">
             <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
-            More
+            {t("nav.more")}
           </button>
         </nav>
       </div>

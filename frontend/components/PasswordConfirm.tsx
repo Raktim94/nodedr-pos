@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Card } from "@/components/ui/Card";
+import { useTranslation } from "@/components/I18nProvider";
 import { ApiError } from "@/lib/api";
 
 interface PendingConfirm {
@@ -25,6 +26,7 @@ interface PasswordConfirmContextValue {
 const PasswordConfirmContext = createContext<PasswordConfirmContextValue | null>(null);
 
 export function PasswordConfirmProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function PasswordConfirmProvider({ children }: { children: ReactNode }) {
       pending.resolve(result);
       setPending(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "That didn't work — try again");
+      setError(err instanceof ApiError ? err.message : t("passwordConfirm.error"));
     } finally {
       setSubmitting(false);
     }
@@ -73,12 +75,12 @@ export function PasswordConfirmProvider({ children }: { children: ReactNode }) {
         >
           <Card className="w-full max-w-sm p-6">
             <h2 id="password-confirm-title" className="text-base font-semibold text-foreground">
-              Confirm your password
+              {t("passwordConfirm.title")}
             </h2>
-            <p className="mt-1 text-sm text-foreground/60">Re-enter your password to {pending.actionLabel}.</p>
+            <p className="mt-1 text-sm text-foreground/60">{t("passwordConfirm.prompt", { action: pending.actionLabel })}</p>
             <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
               <Field
-                label="Password"
+                label={t("passwordConfirm.password")}
                 type="password"
                 autoFocus
                 autoComplete="current-password"
@@ -88,10 +90,10 @@ export function PasswordConfirmProvider({ children }: { children: ReactNode }) {
               />
               <div className="mt-1 flex gap-3">
                 <Button type="button" variant="secondary" className="flex-1" onClick={cancel} disabled={submitting}>
-                  Cancel
+                  {t("passwordConfirm.cancel")}
                 </Button>
                 <Button type="submit" className="flex-1" disabled={submitting || !password}>
-                  {submitting ? "Confirming…" : "Confirm"}
+                  {submitting ? t("passwordConfirm.confirming") : t("passwordConfirm.confirm")}
                 </Button>
               </div>
             </form>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Download, Printer, Usb } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
+import { useTranslation } from "@/components/I18nProvider";
 import { openReceiptPrint } from "@/lib/print";
 import { api, ApiError } from "@/lib/api";
 
@@ -18,18 +19,19 @@ import { api, ApiError } from "@/lib/api";
 //     the backend's USB device passthrough (see docker-compose.yml).
 export function ReceiptActions({ invoiceId, className }: { invoiceId: number; className?: string }) {
   const { show } = useToast();
+  const { t } = useTranslation();
   const [printingUsb, setPrintingUsb] = useState(false);
 
   async function printViaUsb() {
     setPrintingUsb(true);
     try {
       await api.post(`/print/${invoiceId}/usb`);
-      show("Sent to USB printer", "success");
+      show(t("receipt.sentUsb"), "success");
     } catch (err) {
       show(
         err instanceof ApiError
           ? err.message
-          : "Could not print to USB printer",
+          : t("receipt.usbFailed"),
         "error"
       );
     } finally {
@@ -41,17 +43,17 @@ export function ReceiptActions({ invoiceId, className }: { invoiceId: number; cl
     <div className={`flex flex-wrap gap-2 ${className || ""}`}>
       <Button type="button" variant="secondary" onClick={() => openReceiptPrint(invoiceId)}>
         <Printer className="h-4 w-4" aria-hidden="true" />
-        Print
+        {t("receipt.print")}
       </Button>
       <a href={`/api/print/${invoiceId}/pdf`} download className="contents">
         <Button type="button" variant="secondary">
           <Download className="h-4 w-4" aria-hidden="true" />
-          Download PDF
+          {t("receipt.downloadPdf")}
         </Button>
       </a>
       <Button type="button" variant="secondary" onClick={printViaUsb} disabled={printingUsb}>
         <Usb className="h-4 w-4" aria-hidden="true" />
-        {printingUsb ? "Printing…" : "Print via USB"}
+        {printingUsb ? t("receipt.printing") : t("receipt.printUsb")}
       </Button>
     </div>
   );
