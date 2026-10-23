@@ -40,7 +40,7 @@
     "qrcode": "^1.5.4",
     "read-excel-file": "^9.3.10",
     "usb": "2.18.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "prisma": "^7.8.0"
