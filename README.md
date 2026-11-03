@@ -1287,3 +1287,7 @@ See [`MAINTAINERS.md`](MAINTAINERS.md) for project maintainers.
 Read the [NodeDR POS case study](https://www.raktimranjit.com/projects/nodedr-pos) for the product background and design decisions.
 
 Maintainer: [Raktim Ranjit](https://www.raktimranjit.com/)
+
+## Commercial licence
+
+Licensed under the AGPL-3.0. A [commercial licence](COMMERCIAL-LICENSE.md) is available on request for use without the AGPL obligations. The NodeDR POS name and logo are not covered by the AGPL.
