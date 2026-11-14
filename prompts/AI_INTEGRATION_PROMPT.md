@@ -1,6 +1,6 @@
-# Nodedr POS — AI integration prompt
+# NodeDR POS — AI integration prompt
 
-Paste into a coding agent with your task, e.g. "Build a Next.js online store for my shop that reads live stock from Nodedr POS and sends click-and-collect orders, following `prompts/AI_INTEGRATION_PROMPT.md`."
+Paste into a coding agent with your task, e.g. "Build a Next.js online store for my shop that reads live stock from NodeDR POS and sends click-and-collect orders, following `prompts/AI_INTEGRATION_PROMPT.md`."
 
 Verified against `docs/API.md`, `docs/CUSTOM_STORE.md` and `backend/src/mcp/`. Code wins over this file; report mismatches.
 
@@ -8,10 +8,10 @@ Verified against `docs/API.md`, `docs/CUSTOM_STORE.md` and `backend/src/mcp/`. C
 Self-hosted retail POS: barcode checkout, inventory, returns, customer credit, GST/currencies, warranty by IMEI. Runs on the shop's own machine.
 
 ## Use it when
-A shop that runs Nodedr POS wants a website/store/dashboard backed by its real catalogue and stock, or wants online orders reserved and billed at the till.
+A shop that runs NodeDR POS wants a website/store/dashboard backed by its real catalogue and stock, or wants online orders reserved and billed at the till.
 
 ## Do not use it when
-- No Nodedr POS instance exists. It is self-hosted; ask for the shop URL.
+- No NodeDR POS instance exists. It is self-hosted; ask for the shop URL.
 - You need payment gateway capture: the API creates bills/orders with a declared payment method; it does not charge cards.
 - You need sales reports, customer records, tax filings or returns via API: **not exposed** (scopes below are the entire surface).
 - Products have no SKU: they are invisible to the API and MCP.
@@ -47,7 +47,7 @@ NODEDR_POS_WEBHOOK_SECRET=...
 4. Order status: webhook `order.updated` (fields `status`, `previousStatus`) and/or poll `GET /orders?updatedSince=`. Retries: 4 attempts (2 s, 6 s, 18 s), so keep polling as fallback.
 5. Webhook receiver: verify `X-Nodedr-Signature: sha256=<hex>` = HMAC-SHA256 of the **raw** body, constant-time compare, de-duplicate on order id + `updatedAt`, 2xx fast. Endpoint must be `https`.
 6. In-person billing (`POST /bills`) is for trusted back-office tools only; keep that key off public sites.
-7. MCP: remote `claude mcp add --transport http nodedr-pos https://SHOP/mcp --header "Authorization: Bearer $NODEDR_POS_API_KEY"` (the `claude mcp add --transport http … --header "Authorization: Bearer …"` form was run against a live HTTP MCP server of the same family and showed connected; not run against a Nodedr POS). `adjust_stock` and `create_bill` change real stock/money: confirm with the user first. Tools: `search_products`, `get_stock`, `adjust_stock`, `create_bill`, `get_bill`, `create_order`, `get_order`, `check_warranty`.
+7. MCP: remote `claude mcp add --transport http nodedr-pos https://SHOP/mcp --header "Authorization: Bearer $NODEDR_POS_API_KEY"` (the `claude mcp add --transport http … --header "Authorization: Bearer …"` form was run against a live HTTP MCP server of the same family and showed connected; not run against a NodeDR POS). `adjust_stock` and `create_bill` change real stock/money: confirm with the user first. Tools: `search_products`, `get_stock`, `adjust_stock`, `create_bill`, `get_bill`, `create_order`, `get_order`, `check_warranty`.
 
 ## Verify
 Real test key on a **non-production** shop: list products, place and cancel an order, confirm stock reserve/release, replay the same `externalId` (no duplicate), tamper a webhook (rejected), grep the bundle for the key, report what you could not test.

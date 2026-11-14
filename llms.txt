@@ -1,4 +1,4 @@
-# Nodedr POS
+# NodeDR POS
 
 > Self-hosted retail point-of-sale by NodeDR: barcode checkout, inventory, returns, customer credit, configurable currencies and GST. A scoped REST API and MCP endpoint let an online store read SKU-linked stock and send click-and-collect orders or bills. Requires the shop to run its own instance.
 
