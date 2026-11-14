@@ -34,6 +34,10 @@ label, right from the app.
 Access it at **`http://<machine>:1994`** — from the shop's own machine or any
 tablet/phone on the same network.
 
+## Integrate with AI Coding Agents
+
+Use [`prompts/AI_INTEGRATION_PROMPT.md`](prompts/AI_INTEGRATION_PROMPT.md) to have a coding agent connect a store or dashboard to this POS (scoped API keys, SKU-linked stock, click-and-collect orders, MCP). See [`AGENTS.md`](AGENTS.md) and [`llms.txt`](llms.txt).
+
 ## Install
 
 <p align="center">
