@@ -28,6 +28,8 @@ A shop that runs Nodedr POS wants a website/store/dashboard backed by its real c
 | MCP | `POST https://<shop>/mcp` (Streamable HTTP, stateless) or local stdio `backend/src/mcp/stdio.js` | tools appear only if the key has the scope |
 Not available: OpenAPI spec, official SDK, customer list, sales summary, inventory valuation. `available` = stock minus open-order reservations: sell against `available`, not `stock`.
 
+Tested live (local build 1.6.2, 2026-11-14): `GET /products` returns `available` (10 stock, 3 reserved by an order → 7) but **`GET /products/:sku` does not include `available`**, so use the list endpoint when you need it. A product without a SKU is `404` by barcode. Missing scope gives `403` (`PATCH …/stock`, `POST /bills` with a products+orders key), bad key `401`, a repeated `externalId` returns the first order with `deduplicated:true`. Remote MCP at `POST /mcp` listed only `search_products`, `get_stock`, `create_order`, `get_order` for a key with `products:read` + `orders:write`, and `401` without a key. Not verified: webhook delivery, bills, stock writes, warranty, stdio MCP.
+
 ## Credentials
 Settings → Integrations → create key, tick scopes (least privilege; a storefront normally needs `products:read` + `orders:write`). Webhook signing secret is shown once.
 ```env
