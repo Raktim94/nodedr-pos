@@ -145,17 +145,21 @@ Check "node.exe children exit by themselves when the app is killed" (Wait-Gone 2
 EndGroup
 
 Group "6. Occupied ports: never attach to an unrelated service"
-$squat = Start-Job -ScriptBlock {
-  $ls = foreach ($p in 19940..19949) { $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse("127.0.0.1"), $p); $l.Start(); $l }
-  Start-Sleep -Seconds 600
-}
-Start-Sleep 3
+$squatScript = Join-Path $env:TEMP "nodedr-squat.ps1"
+@'
+$ls = foreach ($p in 19940..19949) { $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse("127.0.0.1"), $p); $l.ExclusiveAddressUse = $true; $l.Start(); $l }
+Start-Sleep -Seconds 900
+'@ | Set-Content $squatScript -Encoding UTF8
+$squat = Start-Process pwsh -ArgumentList "-NoProfile", "-File", $squatScript -PassThru -WindowStyle Hidden
+$held = 0
+foreach ($i in 1..20) { $held = (Get-NetTCPConnection -State Listen -LocalAddress 127.0.0.1 -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 19940..19949 } | Measure-Object).Count; if ($held -ge 10) { break }; Start-Sleep 1 }
+Check "test squatter holds all preferred ports" ($held -ge 10) "(holds $held)"
 Launch
 $rt = Wait-Ready
 Check "app picked a free port instead of a busy one" ($rt.gatewayPort -notin 19940..19949) "(port $($rt.gatewayPort))"
 Check "app works on the fallback port" ((Invoke-RestMethod "$(Base $rt)/api/health").status -eq "ok")
 Check "closed cleanly" (Close-Gracefully)
-Stop-Job $squat -ErrorAction SilentlyContinue; Remove-Job $squat -Force -ErrorAction SilentlyContinue
+Stop-Process -Id $squat.Id -Force -ErrorAction SilentlyContinue
 EndGroup
 
 Group "7. Offline start and operation"
