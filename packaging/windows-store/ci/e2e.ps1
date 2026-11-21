@@ -186,13 +186,17 @@ EndGroup
 Group "8. Migrating an older database (pre-migration backup, data kept)"
 Stop-Everything
 $be = Join-Path $install "resources\nodedr\backend"
+# Unpackaged helpers cannot load native addons from WindowsApps either: run from a copy of the backend.
+$beCopy = Join-Path $env:TEMP "nodedr-backend-copy"
+if (Test-Path $beCopy) { Remove-Item $beCopy -Recurse -Force }
+Copy-Item $be $beCopy -Recurse
 $scratch = Join-Path $env:TEMP "nodedr-old-db"
 if (Test-Path $scratch) { Remove-Item $scratch -Recurse -Force }
 $trim = Join-Path $env:TEMP "nodedr-trimmed-migrations"
 if (Test-Path $trim) { Remove-Item $trim -Recurse -Force }
-Copy-Item (Join-Path $be "prisma\migrations") $trim -Recurse
+Copy-Item (Join-Path $beCopy "prisma\migrations") $trim -Recurse
 Get-ChildItem $trim -Directory | Sort-Object Name | Select-Object -Skip 10 | Remove-Item -Recurse -Force
-& $nodeCopy (Join-Path $be "src\desktop\dbtool.js") prepare --data $scratch --migrations $trim | Out-Null
+& $nodeCopy (Join-Path $beCopy "src\desktop\dbtool.js") prepare --data $scratch --migrations $trim | Out-Null
 $seedJs = Join-Path $env:TEMP "nodedr-seed.js"
 @'
 const D = require(process.argv[2]);
@@ -200,7 +204,7 @@ const d = new D(process.argv[3]);
 d.prepare("INSERT INTO User (name,email,password,role) VALUES ('Old Owner','old@test.local','x','admin')").run();
 d.pragma('wal_checkpoint(TRUNCATE)'); d.close();
 '@ | Set-Content $seedJs -Encoding UTF8
-& $nodeCopy $seedJs (Join-Path $be "node_modules\better-sqlite3") (Join-Path $scratch "pos.db")
+& $nodeCopy $seedJs (Join-Path $beCopy "node_modules\better-sqlite3") (Join-Path $scratch "pos.db")
 $keep = "$data.keep"
 if (Test-Path $keep) { Remove-Item $keep -Recurse -Force }
 Move-Item $data $keep
