@@ -7,7 +7,7 @@ const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 // prebuilt binaries for linux-musl (Alpine), so this needs no native
 // build toolchain in the Docker image.
 const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL || 'file:./data/pos.db',
+  url: process.env.DATABASE_URL || 'file:./data/pos.db', // Store edition: absolute file: URL under NODEDR_DATA_DIR
 });
 
 const prisma = new PrismaClient({ adapter });

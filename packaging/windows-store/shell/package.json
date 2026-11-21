@@ -1,0 +1,18 @@
+{
+  "name": "nodedr-pos-desktop",
+  "productName": "NodeDR POS",
+  "version": "1.6.2",
+  "private": true,
+  "description": "Desktop shell for the NodeDR POS Microsoft Store edition: starts the local backend and web server, shows the app in a normal window.",
+  "author": "Raktim Ranjit <mail@raktimranjit.com> (https://github.com/Raktim94)",
+  "license": "AGPL-3.0-only",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "devDependencies": {
+    "@electron/fuses": "2.1.3",
+    "electron": "45.4.1",
+    "rcedit": "5.0.2"
+  }
+}

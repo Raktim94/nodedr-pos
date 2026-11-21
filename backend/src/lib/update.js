@@ -33,8 +33,11 @@ function compareVersions(a, b) {
   return 0;
 }
 
+// The Windows Store edition is updated by the Microsoft Store only.
+const STORE_EDITION = process.env.NODEDR_EDITION === 'store';
+
 function updaterConfigured() {
-  return !!process.env.UPDATER_URL;
+  return !STORE_EDITION && !!process.env.UPDATER_URL;
 }
 
 async function imageTagExists(version) {
@@ -85,8 +88,10 @@ async function getStatus({ force = false } = {}) {
   return {
     current: pkg.version,
     latest,
-    updateAvailable: !!latest && compareVersions(latest, pkg.version) > 0,
+    // Store installs are updated by the Microsoft Store, never from inside the app.
+    updateAvailable: !STORE_EDITION && !!latest && compareVersions(latest, pkg.version) > 0,
     canUpdate: updaterConfigured(),
+    edition: STORE_EDITION ? 'store' : 'self-hosted',
     checkedAt: new Date(cache.at).toISOString(),
     checkError: error,
     releaseUrl: `https://github.com/${REPO}/releases`,
@@ -106,7 +111,7 @@ function fail(message, status) {
 // the background (it restarts this very container), so the answer here only
 // means "accepted"; progress is read back through getProgress().
 async function applyUpdate() {
-  if (!updaterConfigured()) throw fail('This install has no updater. Update the app the way you installed it.', 501);
+  if (!updaterConfigured()) throw fail(STORE_EDITION ? 'Updates for this edition are delivered by the Microsoft Store.' : 'This install has no updater. Update the app the way you installed it.', 501);
   const st = await getStatus({ force: true });
   if (!st.updateAvailable) throw fail('You are already on the latest version', 409);
 
