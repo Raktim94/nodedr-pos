@@ -184,8 +184,14 @@ if (Test-Path $trim) { Remove-Item $trim -Recurse -Force }
 Copy-Item (Join-Path $be "prisma\migrations") $trim -Recurse
 Get-ChildItem $trim -Directory | Sort-Object Name | Select-Object -Skip 10 | Remove-Item -Recurse -Force
 & $nodeExe (Join-Path $be "src\desktop\dbtool.js") prepare --data $scratch --migrations $trim | Out-Null
-$seed = "const D=require('better-sqlite3');const d=new D(process.argv[1]);d.prepare(\"INSERT INTO User (name,email,password,role) VALUES ('Old Owner','old@test.local','x','admin')\").run();d.pragma('wal_checkpoint(TRUNCATE)');d.close();"
-Push-Location $be; & $nodeExe -e $seed (Join-Path $scratch "pos.db"); Pop-Location
+$seedJs = Join-Path $env:TEMP "nodedr-seed.js"
+@'
+const D = require(process.argv[2]);
+const d = new D(process.argv[3]);
+d.prepare("INSERT INTO User (name,email,password,role) VALUES ('Old Owner','old@test.local','x','admin')").run();
+d.pragma('wal_checkpoint(TRUNCATE)'); d.close();
+'@ | Set-Content $seedJs -Encoding UTF8
+& $nodeExe $seedJs (Join-Path $be "node_modules\better-sqlite3") (Join-Path $scratch "pos.db")
 $keep = "$data.keep"
 if (Test-Path $keep) { Remove-Item $keep -Recurse -Force }
 Move-Item $data $keep
