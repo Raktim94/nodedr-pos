@@ -130,6 +130,7 @@ if (-not $Repack) {
   Push-Location $FeWork
   try {
     $env:NEXT_TELEMETRY_DISABLED = "1"
+    $env:NODEDR_STORE_BUILD = "1"   # unoptimised images: the install folder is read-only
     Run npm @("ci", "--no-audit", "--no-fund")
     Run npm @("run", "build")
   } finally { Pop-Location }

@@ -29,6 +29,8 @@ $localRoot = Join-Path $env:LOCALAPPDATA "Packages\$pfn"
 $data = Join-Path $localRoot "LocalState\NodeDRPOS"
 $aumid = "$pfn!NodeDRPOS"
 $nodeExe = Join-Path $install "resources\nodedr\runtime\node.exe"
+# Unpackaged processes cannot execute binaries inside WindowsApps; run test helpers from a copy.
+$nodeCopy = Join-Path $env:TEMP "nodedr-test-node.exe"; Copy-Item $nodeExe $nodeCopy -Force -ErrorAction SilentlyContinue
 Write-Host "package family: $pfn`ninstall:        $install`ndata folder:    $data"
 
 function Launch { Remove-Item (Join-Path $data "runtime.json") -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe "shell:AppsFolder\$aumid" }
@@ -91,6 +93,8 @@ $listen = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Whe
 Check "listening sockets exist" (($listen | Measure-Object).Count -ge 3)
 Check "every listener is loopback only (no firewall prompt, no LAN exposure)" (-not ($listen | Where-Object { $_.LocalAddress -notin @("127.0.0.1", "::1") })) "($(($listen | ForEach-Object { "$($_.LocalAddress):$($_.LocalPort)" }) -join ', '))"
 $h = Invoke-RestMethod "$(Base $rt)/api/health" -TimeoutSec 20
+$feLog = Get-Content (Join-Path $data "logs\frontend.log") -Raw -ErrorAction SilentlyContinue
+Check "frontend log shows no write errors into the install folder" (($feLog -notmatch "EPERM") -and ($feLog -notmatch "WindowsApps.*\.next.cache")) "(frontend.log mentions EPERM)"
 Check "health through the gateway reports ok" ($h.status -eq "ok")
 $page = Invoke-WebRequest "$(Base $rt)/" -UseBasicParsing
 Check "web UI is served" ($page.StatusCode -eq 200 -and $page.Content.Length -gt 500)
@@ -188,7 +192,7 @@ $trim = Join-Path $env:TEMP "nodedr-trimmed-migrations"
 if (Test-Path $trim) { Remove-Item $trim -Recurse -Force }
 Copy-Item (Join-Path $be "prisma\migrations") $trim -Recurse
 Get-ChildItem $trim -Directory | Sort-Object Name | Select-Object -Skip 10 | Remove-Item -Recurse -Force
-& $nodeExe (Join-Path $be "src\desktop\dbtool.js") prepare --data $scratch --migrations $trim | Out-Null
+& $nodeCopy (Join-Path $be "src\desktop\dbtool.js") prepare --data $scratch --migrations $trim | Out-Null
 $seedJs = Join-Path $env:TEMP "nodedr-seed.js"
 @'
 const D = require(process.argv[2]);
@@ -196,7 +200,7 @@ const d = new D(process.argv[3]);
 d.prepare("INSERT INTO User (name,email,password,role) VALUES ('Old Owner','old@test.local','x','admin')").run();
 d.pragma('wal_checkpoint(TRUNCATE)'); d.close();
 '@ | Set-Content $seedJs -Encoding UTF8
-& $nodeExe $seedJs (Join-Path $be "node_modules\better-sqlite3") (Join-Path $scratch "pos.db")
+& $nodeCopy $seedJs (Join-Path $be "node_modules\better-sqlite3") (Join-Path $scratch "pos.db")
 $keep = "$data.keep"
 if (Test-Path $keep) { Remove-Item $keep -Recurse -Force }
 Move-Item $data $keep
