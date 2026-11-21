@@ -162,7 +162,10 @@ if (-not $Repack) {
   } finally { Pop-Location }
   $electronDist = Join-Path $ShellWork "node_modules\electron\dist"
   if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) { Die "electron.exe not downloaded" }
-  Copy-Item (Join-Path $electronDist "*") $Stage -Recurse
+  # merge into $Stage (resources\ already holds our payload); robocopy handles the existing folder
+  robocopy $electronDist $Stage /E /NFL /NDL /NJH /NJS /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { Die "robocopy of Electron failed ($LASTEXITCODE)" }
+  $global:LASTEXITCODE = 0
   Move-Item (Join-Path $Stage "electron.exe") (Join-Path $Stage "NodeDRPOS.exe")
   Remove-Item (Join-Path $Stage "resources\default_app.asar") -Force -ErrorAction SilentlyContinue
   $appDir = Join-Path $Stage "resources\app"
