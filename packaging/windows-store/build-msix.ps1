@@ -155,7 +155,11 @@ if (-not $Repack) {
   Step "Electron shell"
   $ShellWork = Join-Path $Here "shell"
   Push-Location $ShellWork
-  try { Run npm @("ci", "--no-audit", "--no-fund") } finally { Pop-Location }
+  try {
+    Run npm @("ci", "--no-audit", "--no-fund")
+    # npm may skip install scripts; fetch the Electron binary explicitly (checksum-verified by @electron/get).
+    if (-not (Test-Path "node_modules\electron\dist\electron.exe")) { Run node @("node_modules\electron\install.js") }
+  } finally { Pop-Location }
   $electronDist = Join-Path $ShellWork "node_modules\electron\dist"
   if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) { Die "electron.exe not downloaded" }
   Copy-Item (Join-Path $electronDist "*") $Stage -Recurse
