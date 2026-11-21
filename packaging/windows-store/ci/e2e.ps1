@@ -95,7 +95,8 @@ Check "health through the gateway reports ok" ($h.status -eq "ok")
 $page = Invoke-WebRequest "$(Base $rt)/" -UseBasicParsing
 Check "web UI is served" ($page.StatusCode -eq 200 -and $page.Content.Length -gt 500)
 Check "not yet onboarded (fresh install shows onboarding, no default password)" ((Invoke-RestMethod "$(Base $rt)/api/auth/status").onboarded -eq $false)
-Check "other Host headers are refused" ((try { (Invoke-WebRequest "http://127.0.0.1:$($rt.gatewayPort)/" -Headers @{ Host = "evil.example" } -UseBasicParsing -SkipHttpErrorCheck).StatusCode } catch { 0 }) -eq 421)
+$hostResp = Invoke-WebRequest "http://127.0.0.1:$($rt.gatewayPort)/" -Headers @{ Host = "evil.example" } -UseBasicParsing -SkipHttpErrorCheck
+Check "other Host headers are refused" ($hostResp.StatusCode -eq 421) "(status $($hostResp.StatusCode))"
 EndGroup
 
 Group "2. Onboarding + a real sale through the app's own origin"
@@ -114,7 +115,7 @@ Check "receipt renders" ($rc.Content -match "window.print|Test Widget")
 $pdfPath = Join-Path $env:TEMP "nodedr-r.pdf"
 Invoke-WebRequest "$(Base $rt)/api/print/$($sale.id)/pdf" -WebSession $s -UseBasicParsing -OutFile $pdfPath
 Check "receipt PDF is a PDF" ([System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($pdfPath)[0..3]) -eq "%PDF")
-$unmatched = try { Invoke-WebRequest "$(Base $rt)/api/products/scan/9999999999999" -WebSession $s -UseBasicParsing -SkipHttpErrorCheck } catch { $null }
+$unmatched = Invoke-WebRequest "$(Base $rt)/api/products/scan/9999999999999" -WebSession $s -UseBasicParsing -SkipHttpErrorCheck
 Check "unknown barcode is a clean 404" ($unmatched.StatusCode -eq 404)
 EndGroup
 
