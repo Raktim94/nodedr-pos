@@ -434,7 +434,7 @@ The backend and frontend are two separate containers, neither of which needs
 elevated privileges or host device access — everything still comes up with a
 single `docker compose up`.
 
-The Windows Store app runs the same two-process split natively. Docker Compose
+The Windows Store app runs the same two-process split natively, inside one desktop window (see [docs/WINDOWS-STORE.md](docs/WINDOWS-STORE.md)). Docker Compose
 deployments use separate frontend and backend containers, each supervised and
 updated independently.
 
