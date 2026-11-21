@@ -100,7 +100,17 @@ if (-not $Repack) {
     if (-not (Test-Path (Join-Path $gen "client"))) { Copy-Item (Join-Path $OutPath "prisma-client-keep") $gen -Recurse -Force }
     Remove-Item (Join-Path $OutPath "prisma-client-keep") -Recurse -Force
   } finally { Pop-Location }
-  if (Test-Path (Join-Path $BackendWork "node_modules\.bin\prisma.cmd")) { Die "Prisma CLI is still in the production tree" }
+  # @prisma/client depends on the `prisma` CLI package, so `npm prune` keeps it (~200 MB: schema engine,
+  # Studio, local Postgres). Nothing at runtime uses it (queries go through the better-sqlite3 adapter and
+  # migrations through src/desktop/migrate.js), so remove the CLI-only packages. Verified by starting the
+  # backend without them (test/desktop.process.test.js runs against the full tree; CI e2e runs this trimmed one).
+  foreach ($d in "prisma", "effect", "elkjs", "@electric-sql", "@prisma\engines", "@prisma\studio-core", "@prisma\dev",
+                 "@prisma\fetch-engine", "@prisma\query-plan-executor", "@prisma\streams-local", "@prisma\config") {
+    $p = Join-Path $BackendWork "node_modules\$d"
+    if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+  }
+  Get-ChildItem (Join-Path $BackendWork "node_modules\.bin") -Filter "prisma*" -ErrorAction SilentlyContinue | Remove-Item -Force
+  if (-not (Test-Path (Join-Path $BackendWork "node_modules\@prisma\client"))) { Die "@prisma/client missing after trimming" }
   # keep only the Windows x64 native binaries
   $usbPre = Join-Path $BackendWork "node_modules\usb\prebuilds"
   if (Test-Path $usbPre) { Get-ChildItem $usbPre -Directory | Where-Object { $_.Name -ne "win32-x64" } | Remove-Item -Recurse -Force }
