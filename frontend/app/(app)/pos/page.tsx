@@ -21,6 +21,7 @@ import { openReceiptPrint } from "@/lib/print";
 import { effectivePrice, quoteSale } from "@/lib/quote";
 import { postDisplay } from "@/lib/display";
 import { paymentSoundEnabled, playPaymentConfirmation, setPaymentSoundEnabled } from "@/lib/paymentSound";
+import { resolveScan } from "@/lib/scanResolve";
 import { readScaleKg, scaleSupported } from "@/lib/scale";
 import { SerialPrompt } from "@/components/pos/SerialPrompt";
 import { UpiQr } from "@/components/pos/UpiQr";
@@ -163,26 +164,18 @@ export default function PosPage() {
 
   const handleScan = useCallback(
     async (code: string) => {
-      try {
-        // One lookup resolves a barcode or an external SKU.
-        const r = await api.get<{ type: "product"; product: Product }>(`/products/scan/${encodeURIComponent(code)}`);
-        addToCart(r.product);
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) {
-          // Not a product: an NFC loyalty card tap types its UID like a scanner.
-          try {
-            const c = await api.get<Customer>(`/customers/by-card/${encodeURIComponent(code)}`);
-            setCustomer(c);
-            setCustomerName(c.name);
-            setCustomerPhone(c.phone);
-            show(`${c.name} — ${c.loyaltyPoints} points`, "success");
-            return;
-          } catch {
-            /* fall through */
-          }
-          show("Nothing matches that code. Add it to inventory first.", "error");
-        } else show("Lookup failed", "error");
-      }
+      // One lookup resolves a barcode or an external SKU.
+      const r = await resolveScan<Product, Customer>(code, {
+        product: async (c) => (await api.get<{ type: "product"; product: Product }>(`/products/scan/${encodeURIComponent(c)}`)).product,
+        customerByCard: (c) => api.get<Customer>(`/customers/by-card/${encodeURIComponent(c)}`),
+      });
+      if (r.type === "product") addToCart(r.product);
+      else if (r.type === "customer") {
+        setCustomer(r.customer);
+        setCustomerName(r.customer.name);
+        setCustomerPhone(r.customer.phone);
+        show(`${r.customer.name} — ${r.customer.loyaltyPoints} points`, "success");
+      } else show(r.message, "error");
     },
     [addToCart, show]
   );

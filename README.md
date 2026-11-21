@@ -556,12 +556,15 @@ above; the VPS option trades a bit of that isolation for remote reach.
 
 ### Barcode scanner
 
-No configuration needed. Any USB barcode scanner that acts as a HID
-keyboard (i.e. "just types" the barcode followed by Enter — this is true of
-the vast majority of consumer scanners) works out of the box. The frontend's
-[`useBarcodeScanner`](frontend/hooks/useBarcodeScanner.ts) hook listens for
-keystrokes and, based on inter-keystroke timing, tells scanner input apart
-from a human typing so it never interferes with normal form fields.
+No configuration needed for the usual setup. Any USB or Bluetooth scanner in
+**HID keyboard mode** (it "types" the barcode, then a suffix key) works on POS
+Checkout without focusing any field first. Enter and Tab suffixes are both
+supported, and the scanner may pause between keys or send its suffix late.
+Ordinary typing is not mistaken for a scan, and a scan only ever adds the
+item to the cart — it never finalizes the sale. Timing rules live in
+[`lib/scanDetector.ts`](frontend/lib/scanDetector.ts).
+
+Scanner not adding items? See the [scanner troubleshooting note](docs/SCANNER.md).
 
 ### Camera barcode & QR scanning
 

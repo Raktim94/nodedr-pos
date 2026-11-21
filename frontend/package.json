@@ -12,7 +12,8 @@
     "dev": "next dev -p 1994",
     "build": "next build",
     "start": "next start -p 1994",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
