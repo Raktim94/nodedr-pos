@@ -31,7 +31,7 @@ $aumid = "$pfn!NodeDRPOS"
 $nodeExe = Join-Path $install "resources\nodedr\runtime\node.exe"
 Write-Host "package family: $pfn`ninstall:        $install`ndata folder:    $data"
 
-function Launch { Start-Process explorer.exe "shell:AppsFolder\$aumid" }
+function Launch { Remove-Item (Join-Path $data "runtime.json") -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe "shell:AppsFolder\$aumid" }
 function Dump-Logs {
   foreach ($f in "shell.log", "backend.log", "frontend.log", "migration.log") {
     $p = Join-Path $data "logs\$f"
@@ -66,7 +66,7 @@ function Hard-Kill { App-Procs | Where-Object { $_.MainWindowHandle -ne 0 } | Se
 function Stop-Everything { App-Procs | Stop-Process -Force -ErrorAction SilentlyContinue; Node-Procs | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep 2 }
 function Base($rt) { "http://127.0.0.1:$($rt.gatewayPort)" }
 function Api($rt, $method, $path, $body, $session) {
-  $a = @{ Uri = "$(Base $rt)/api$path"; Method = $method; ContentType = "application/json"; WebSession = $session; UseBasicParsing = $true }
+  $a = @{ Uri = "$(Base $rt)/api$path"; Method = $method; ContentType = "application/json"; WebSession = $session; UseBasicParsing = $true; TimeoutSec = 20 }
   if ($body) { $a.Body = $body }
   Invoke-RestMethod @a
 }
@@ -90,7 +90,7 @@ $ids = @(App-Procs | ForEach-Object { $_.Id }) + @(Node-Procs | ForEach-Object {
 $listen = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess }
 Check "listening sockets exist" (($listen | Measure-Object).Count -ge 3)
 Check "every listener is loopback only (no firewall prompt, no LAN exposure)" (-not ($listen | Where-Object { $_.LocalAddress -notin @("127.0.0.1", "::1") })) "($(($listen | ForEach-Object { "$($_.LocalAddress):$($_.LocalPort)" }) -join ', '))"
-$h = Invoke-RestMethod "$(Base $rt)/api/health"
+$h = Invoke-RestMethod "$(Base $rt)/api/health" -TimeoutSec 20
 Check "health through the gateway reports ok" ($h.status -eq "ok")
 $page = Invoke-WebRequest "$(Base $rt)/" -UseBasicParsing
 Check "web UI is served" ($page.StatusCode -eq 200 -and $page.Content.Length -gt 500)
@@ -157,7 +157,7 @@ Check "test squatter holds all preferred ports" ($held -ge 10) "(holds $held)"
 Launch
 $rt = Wait-Ready
 Check "app picked a free port instead of a busy one" ($rt.gatewayPort -notin 19940..19949) "(port $($rt.gatewayPort))"
-Check "app works on the fallback port" ((Invoke-RestMethod "$(Base $rt)/api/health").status -eq "ok")
+Check "app works on the fallback port" ((Invoke-RestMethod "$(Base $rt)/api/health" -TimeoutSec 20).status -eq "ok")
 Check "closed cleanly" (Close-Gracefully)
 Stop-Process -Id $squat.Id -Force -ErrorAction SilentlyContinue
 EndGroup
@@ -204,7 +204,7 @@ New-Item -ItemType Directory -Force -Path $data | Out-Null
 Copy-Item (Join-Path $scratch "pos.db") (Join-Path $data "pos.db")
 Launch
 $rt = Wait-Ready
-Check "old database upgraded and the app is up" ((Invoke-RestMethod "$(Base $rt)/api/health").status -eq "ok")
+Check "old database upgraded and the app is up" ((Invoke-RestMethod "$(Base $rt)/api/health" -TimeoutSec 20).status -eq "ok")
 Check "existing user survived the upgrade (no onboarding shown)" ((Invoke-RestMethod "$(Base $rt)/api/auth/status").onboarded -eq $true)
 $bk = Get-ChildItem (Join-Path $data "backups") -Filter "pos-pre-migration-*.db" -ErrorAction SilentlyContinue
 Check "a verified pre-migration backup was written" (($bk | Measure-Object).Count -ge 1)

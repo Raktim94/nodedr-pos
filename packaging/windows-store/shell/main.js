@@ -49,6 +49,9 @@ const DB_FILE = path.join(DATA_DIR, 'pos.db');
 app.setPath('userData', path.join(DATA_DIR, 'electron'));
 try { app.setPath('logs', LOG_DIR); } catch { /* ignore */ }
 
+// A crash/kill leaves runtime.json behind; never let a stale one pass for a live instance.
+try { fs.rmSync(path.join(DATA_DIR, 'runtime.json'), { force: true }); } catch { /* ignore */ }
+
 const NONCE = crypto.randomBytes(16).toString('hex');
 const redact = makeRedactor([NONCE]);
 const log = createLogger(LOG_DIR, redact);
