@@ -14,8 +14,8 @@ import { useDueSummary, useTopDueCustomers } from "@/hooks/useCustomers";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useMe } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
-import { can } from "@/lib/perm";
-import { formatMoney } from "@/lib/format";
+import { can, isFranchisor } from "@/lib/perm";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { useTranslation } from "@/components/I18nProvider";
 import { orderStatusKey } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
@@ -47,10 +47,10 @@ export default function DashboardPage() {
 
   // Franchisor accounts only have the consolidated hub views.
   useEffect(() => {
-    if (me?.role === "franchisor") router.replace("/branches");
+    if (isFranchisor(me)) router.replace("/branches");
   }, [me, router]);
 
-  const sym = shop?.currencySymbol || "Rs.";
+  const sym = currencySymbolOf(shop);
   const money = (n: number) => formatMoney(n, sym);
   const trend = analytics?.trend ?? [];
   const today = trend.at(-1);

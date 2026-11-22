@@ -8,9 +8,10 @@ import { Field } from "@/components/ui/Field";
 import { Badge, EmptyState, PageHeader, StatCard } from "@/components/ui/Bits";
 import { Modal } from "@/components/ui/Modal";
 import { api, describeApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useMe } from "@/hooks/useAuth";
+import { isFranchisor } from "@/lib/perm";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
@@ -31,9 +32,9 @@ const transferLabel = (t: (key: TranslationKey) => string, status: string) => {
 // refuses writes regardless).
 export default function BranchesPage() {
   const { data: shop } = useShopSettings();
-  const sym = shop?.currencySymbol ?? "Rs.";
+  const sym = currencySymbolOf(shop);
   const { data: me } = useMe();
-  const readOnly = me?.role === "franchisor";
+  const readOnly = isFranchisor(me);
   const { show } = useToast();
   const { t } = useTranslation();
   const { withPasswordConfirm } = usePasswordConfirm();

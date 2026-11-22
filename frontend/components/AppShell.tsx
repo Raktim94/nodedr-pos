@@ -39,12 +39,13 @@ import { GlobalSearch } from "@/components/GlobalSearch";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useUpdateStatus } from "@/hooks/useUpdate";
-import { can } from "@/lib/perm";
+import { can, isAdmin, isFranchisor } from "@/lib/perm";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { useTranslation } from "@/components/I18nProvider";
 import { roleKey } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 import type { Permission } from "@/lib/types";
+import { currencySymbolOf } from "@/lib/format";
 
 const roleLabel = (t: (key: TranslationKey) => string, role: string | undefined) => {
   if (!role) return "";
@@ -78,7 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { data: me } = useMe();
   const { data: lowStock } = useLowStock();
   const { data: health } = useSyncStatus();
-  const { data: update } = useUpdateStatus(me?.role === "admin");
+  const { data: update } = useUpdateStatus(isAdmin(me));
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -113,15 +114,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!me) return false;
     if (item.serialOnly && !shop?.serialTracking) return false;
-    if (item.hubOnly) return isHub && (me.role === "admin" || me.role === "franchisor");
-    if (item.adminOnly) return me.role === "admin";
+    if (item.hubOnly) return isHub && (isAdmin(me) || isFranchisor(me));
+    if (item.adminOnly) return isAdmin(me);
     if (item.staffOnly) return me.role !== "franchisor";
     if (item.perm) return can(me, item.perm);
     return true;
   });
   const primaryItems = visibleItems.filter((i) => i.primary);
   const isOnline = health?.status === "ok";
-  const sym = shop?.currencySymbol || "Rs.";
+  const sym = currencySymbolOf(shop);
 
   return (
     <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
@@ -227,14 +228,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Utility top bar (desktop) */}
         <header className="hidden items-center gap-4 border-b border-border-subtle bg-surface/80 px-6 py-3 backdrop-blur-md lg:flex">
           <Link
-            href={me?.role === "admin" ? "/settings" : "#"}
+            href={isAdmin(me) ? "/settings" : "#"}
             className={clsx(
               "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-foreground transition-colors",
-              me?.role === "admin" && "hover:bg-surface-muted"
+              isAdmin(me) && "hover:bg-surface-muted"
             )}
           >
             <span className="truncate">{shop?.shopName || "nodedr-pos"}</span>
-            {me?.role === "admin" && <ChevronDown className="h-3.5 w-3.5 text-foreground-muted" aria-hidden="true" />}
+            {isAdmin(me) && <ChevronDown className="h-3.5 w-3.5 text-foreground-muted" aria-hidden="true" />}
           </Link>
 
           <button
@@ -283,7 +284,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <p className="truncate text-sm font-medium text-foreground">{me?.name}</p>
                     <p className="text-xs capitalize text-foreground-muted">{roleLabel(t, me?.role)}</p>
                   </div>
-                  {me?.role === "admin" && (
+                  {isAdmin(me) && (
                     <Link
                       href="/settings"
                       onClick={() => setUserMenuOpen(false)}
@@ -307,7 +308,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <UpdateBanner isAdmin={me?.role === "admin"} />
+        <UpdateBanner isAdmin={isAdmin(me)} />
 
         <main className="mx-auto w-full max-w-[1440px] flex-1 overflow-y-auto bg-background p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">{children}</main>
 

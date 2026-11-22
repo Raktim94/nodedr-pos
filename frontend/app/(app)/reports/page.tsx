@@ -7,7 +7,7 @@ import { Badge, Delta, PageHeader, StatCard } from "@/components/ui/Bits";
 import { Button } from "@/components/ui/Button";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useCompare, useOverview, type Row } from "@/hooks/useReports";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { CATEGORY_COLORS } from "@/components/ReportsCharts";
 import { useTranslation } from "@/components/I18nProvider";
 import type { TranslationKey } from "@/lib/i18n";
@@ -21,7 +21,7 @@ const PERIOD_KEYS = { day: "reports.periodDay", week: "reports.periodWeek", mont
 export default function ReportsPage() {
   const { data: shop } = useShopSettings();
   const { t } = useTranslation();
-  const sym = shop?.currencySymbol ?? "Rs.";
+  const sym = currencySymbolOf(shop);
   const money = (n: number) => formatMoney(n, sym);
   const [days, setDays] = useState(30);
   const [cmp, setCmp] = useState<"day" | "week" | "month">("week");

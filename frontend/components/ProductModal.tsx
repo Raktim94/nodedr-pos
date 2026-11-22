@@ -22,7 +22,7 @@ import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { generateEan13 } from "@/lib/barcode";
 import type { TranslationKey } from "@/lib/i18n";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { GENERIC_PRODUCT_CATEGORIES, GST_RATES, UQC_UNITS } from "@/lib/masters";
 import { productCategoryKey, unitNameKey } from "@/lib/enumLabels";
 import type { Product } from "@/lib/types";
@@ -154,7 +154,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
   const sellingPrice = useWatch({ control, name: "sellingPrice" });
   const discountType = useWatch({ control, name: "discountType" });
   const discountValue = useWatch({ control, name: "discountValue" });
-  const sym = shop?.currencySymbol ?? "Rs.";
+  const sym = currencySymbolOf(shop);
   const trackSerial = useWatch({ control, name: "trackSerial" });
   const { data: suppliers } = useQuery({ queryKey: ["suppliers"], queryFn: () => api.get<{ id: number; name: string }[]>("/purchasing/suppliers").catch(() => []) });
   const discountedPrice = (() => {

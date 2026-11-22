@@ -14,7 +14,7 @@ import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
 import { paymentMethodKey } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import type { RefundMethod } from "@/lib/types";
 
@@ -29,7 +29,7 @@ export default function SalesPage() {
   const { data: invoices, isLoading } = useInvoices(search);
   const { data: shop } = useShopSettings();
   const { t } = useTranslation();
-  const sym = shop?.currencySymbol || "Rs.";
+  const sym = currencySymbolOf(shop);
 
   return (
     <div className="flex flex-col gap-6">

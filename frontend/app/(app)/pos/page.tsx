@@ -17,7 +17,7 @@ import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { api, ApiError, describeApiError } from "@/lib/api";
-import { formatMoney, round2 } from "@/lib/format";
+import { formatMoney, round2, currencySymbolOf } from "@/lib/format";
 import { openReceiptPrint } from "@/lib/print";
 import { effectivePrice, quoteSale } from "@/lib/quote";
 import { postDisplay } from "@/lib/display";
@@ -86,7 +86,7 @@ export default function PosPage() {
   }, [manualQuery]);
   const { data: manualResults } = useProducts(committedQuery);
 
-  const sym = shop?.currencySymbol || "Rs.";
+  const sym = currencySymbolOf(shop);
   const money = (n: number) => formatMoney(n, sym);
 
   const quote = useMemo(

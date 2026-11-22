@@ -19,7 +19,7 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
 import { api, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { effectivePrice } from "@/lib/quote";
 import type { Product, ProductLookupResult } from "@/lib/types";
 
@@ -40,7 +40,7 @@ export default function InventoryPage() {
   const { show } = useToast();
   const { t } = useTranslation();
 
-  const sym = shop?.currencySymbol || "Rs.";
+  const sym = currencySymbolOf(shop);
   const money = (n: number) => formatMoney(n, sym);
   const lowStockThreshold = shop?.lowStockAlert ?? 5;
 

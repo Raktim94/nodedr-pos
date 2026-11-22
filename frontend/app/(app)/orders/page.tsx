@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/Bits";
 import { Modal } from "@/components/ui/Modal";
 import { api, describeApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
@@ -39,7 +39,7 @@ const methodLabel = (t: T, method: string) => {
 
 export default function OrdersPage() {
   const { data: shop } = useShopSettings();
-  const sym = shop?.currencySymbol ?? "Rs.";
+  const sym = currencySymbolOf(shop);
   const { show } = useToast();
   const { t } = useTranslation();
   const qc = useQueryClient();

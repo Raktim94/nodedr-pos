@@ -8,7 +8,7 @@ import { Field } from "@/components/ui/Field";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/Bits";
 import { Modal } from "@/components/ui/Modal";
 import { api, describeApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { Select } from "@/components/ui/Select";
@@ -31,7 +31,7 @@ const statusLabel = (t: (key: TranslationKey) => string, status: string) => {
 
 export default function PurchasingPage() {
   const { data: shop } = useShopSettings();
-  const sym = shop?.currencySymbol ?? "Rs.";
+  const sym = currencySymbolOf(shop);
   const { show } = useToast();
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -176,7 +176,7 @@ function NewPoDialog({ suppliers, onCreated, onClose }: { suppliers: Supplier[];
   const { show } = useToast();
   const { t } = useTranslation();
   const { data: shop } = useShopSettings();
-  const sym = shop?.currencySymbol ?? "Rs.";
+  const sym = currencySymbolOf(shop);
   const [supplierId, setSupplierId] = useState(String(suppliers[0]?.id ?? ""));
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");

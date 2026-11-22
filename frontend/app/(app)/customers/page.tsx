@@ -15,7 +15,7 @@ import { SettleDueModal } from "@/components/SettleDueModal";
 import { useToast } from "@/components/Toast";
 import { useCustomers, useCreateCustomer, useSettleDue } from "@/hooks/useCustomers";
 import { useShopSettings } from "@/hooks/useShopSettings";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import { can } from "@/lib/perm";
 import { useMe } from "@/hooks/useAuth";
@@ -44,7 +44,7 @@ export default function CustomersPage() {
       }),
     [t]
   );
-  const sym = shop?.currencySymbol || "Rs.";
+  const sym = currencySymbolOf(shop);
   const { data: me } = useMe();
   const canEdit = can(me, "customers");
   const qc = useQueryClient();
