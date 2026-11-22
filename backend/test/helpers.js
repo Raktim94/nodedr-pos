@@ -66,7 +66,7 @@ function client(base) {
     const data = ct.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
     return { status: res.status, data, headers: res.headers };
   }
-  return { raw, get: (u, h) => call('GET', u, undefined, h), post: (u, b, h) => call('POST', u, b, h), put: (u, b, h) => call('PUT', u, b, h), patch: (u, b, h) => call('PATCH', u, b, h), del: (u, b, h) => call('DELETE', u, b, h) };
+  return { cookie: () => cookie, raw, get: (u, h) => call('GET', u, undefined, h), post: (u, b, h) => call('POST', u, b, h), put: (u, b, h) => call('PUT', u, b, h), patch: (u, b, h) => call('PATCH', u, b, h), del: (u, b, h) => call('DELETE', u, b, h) };
 }
 
 module.exports = { startServer, client };

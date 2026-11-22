@@ -17,4 +17,12 @@ async function writeStockLevel(tx, product, next, insufficientMessage) {
   return tx.product.update({ where: { id: product.id }, data: { stock: Math.max(0, next) } });
 }
 
-module.exports = { lacksStock, writeStockLevel };
+// Total quantity asked for per product across a bill's lines, so the same
+// product repeated on several lines is checked against stock once, as a whole.
+function quantityByProduct(items) {
+  const totals = new Map();
+  for (const { productId, quantity } of items) totals.set(productId, (totals.get(productId) || 0) + quantity);
+  return totals;
+}
+
+module.exports = { lacksStock, writeStockLevel, quantityByProduct };

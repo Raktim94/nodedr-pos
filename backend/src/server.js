@@ -43,9 +43,11 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:1994';
 
 // Behind the Next.js proxy we see its address; trust one hop so rate-limit
 // and IP logging use the real client where a forwarded header is present.
-// Put Caddy or a Cloudflare Tunnel in front of Next.js and the real client is
-// one hop further out: set TRUST_PROXY_HOPS=2 there, or every visitor shares
-// the proxy's address and one login limiter.
+// Next.js passes a client-supplied X-Forwarded-For through unchanged, so with
+// no proxy in front the address is whatever the caller claims; behind Caddy
+// (which overwrites an untrusted header) it is the real client. Per-address
+// limits are therefore best effort. Only raise TRUST_PROXY_HOPS if every extra
+// hop is a proxy of yours that overwrites the header.
 const proxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 1);
 app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 ? proxyHops : 1);
 
@@ -64,13 +66,17 @@ app.use(
   })
 );
 
-// Defense-in-depth: cap overall request volume per IP.
+// Defense-in-depth: cap overall request volume per IP. Best effort only — the
+// address is as honest as the proxy in front (see TRUST_PROXY_HOPS), so the
+// login also has a per-account limit, and signed webhooks are not limited by
+// address at all (the signature is their gate).
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
     limit: 300,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => req.path.startsWith('/api/webhooks/'),
   })
 );
 

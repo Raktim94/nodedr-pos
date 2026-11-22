@@ -106,7 +106,7 @@ function clientView(settings, authed) {
 router.get('/', async (req, res) => {
   const settings = await getSettings();
   if (!settings) return res.json(null);
-  res.json(clientView(settings, Boolean(readSession(req))));
+  res.json(clientView(settings, Boolean(await readSession(req))));
 });
 
 // POST /api/settings — onboarding step 2, only once

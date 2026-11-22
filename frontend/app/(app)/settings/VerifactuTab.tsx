@@ -9,6 +9,8 @@ import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
 import { api, describeApiError } from "@/lib/api";
+import { usePasswordConfirm } from "@/components/PasswordConfirm";
+import { useTranslation } from "@/components/I18nProvider";
 
 interface Cfg {
   enabled: boolean;
@@ -45,6 +47,8 @@ const STATUS: Record<RecordRow["status"], string> = {
 
 export function VerifactuTab() {
   const { show } = useToast();
+  const { t } = useTranslation();
+  const { withPasswordConfirm } = usePasswordConfirm();
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["verifactu"] });
   const { data } = useQuery({ queryKey: ["verifactu", "settings"], queryFn: () => api.get<Cfg>("/verifactu/settings") });
@@ -60,8 +64,9 @@ export function VerifactuTab() {
   const cur = f ?? (data && { enabled: data.enabled, environment: data.environment, nif: data.nif, series: data.series });
 
   const save = useMutation({
-    mutationFn: () => api.put<Cfg>("/verifactu/settings", cur),
-    onSuccess: () => {
+    mutationFn: () => withPasswordConfirm(t("settings.verifactu.confirmSave"), (confirmPassword) => api.put<Cfg>("/verifactu/settings", { ...cur, confirmPassword })),
+    onSuccess: (r) => {
+      if (!r) return;
       show("Saved", "success");
       setF(null);
       refresh();
@@ -69,13 +74,16 @@ export function VerifactuTab() {
     onError: (e) => show(describeApiError(e, "Could not save"), "error"),
   });
   const upload = useMutation({
-    mutationFn: (chosen: File) => {
-      const form = new FormData();
-      form.append("file", chosen);
-      form.append("password", password);
-      return api.upload<Cfg>("/verifactu/certificate", form);
-    },
-    onSuccess: () => {
+    mutationFn: (chosen: File) =>
+      withPasswordConfirm(t("settings.verifactu.confirmCertificate"), (confirmPassword) => {
+        const form = new FormData();
+        form.append("file", chosen);
+        form.append("password", password);
+        form.append("confirmPassword", confirmPassword);
+        return api.upload<Cfg>("/verifactu/certificate", form);
+      }),
+    onSuccess: (r) => {
+      if (!r) return;
       show("Certificate saved", "success");
       setPassword("");
       if (file.current) file.current.value = "";

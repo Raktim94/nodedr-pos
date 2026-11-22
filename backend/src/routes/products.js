@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth, requirePerm, hasPerm } = require('../middleware/auth');
+const { requireAuth, requirePerm } = require('../middleware/auth');
 const { notifyStockChange } = require('../lib/webhooks');
 const { saveProductImage, fetchRemoteProductImage, readProductImage, NAME_RE: IMAGE_NAME_RE } = require('../lib/productImages');
 const { lookupProducts } = require('../lib/productLookup');
@@ -121,9 +121,7 @@ router.get('/', async (req, res) => {
     take: Math.min(Number(req.query.limit) || 2000, 5000),
     skip: Math.max(Number(req.query.offset) || 0, 0),
   });
-  // What stock cost the shop is margin data: only staff who manage stock or read reports see it.
-  const seesCost = hasPerm(req.user, 'reports') || hasPerm(req.user, 'inventory');
-  res.json(seesCost ? products : products.map(({ purchasePrice, ...rest }) => rest));
+  res.json(products.map((p) => productFor(req.user, p)));
 });
 
 // GET /api/products/low-stock — dashboard widget
@@ -134,7 +132,7 @@ router.get('/low-stock', async (req, res) => {
     where: { stock: { lte: threshold } },
     orderBy: { stock: 'asc' },
   });
-  res.json({ threshold, products });
+  res.json({ threshold, products: products.map((p) => productFor(req.user, p)) });
 });
 
 // GET /api/products/lookup?q=<name or barcode> — suggestions from free online
@@ -144,6 +142,7 @@ router.get('/low-stock', async (req, res) => {
 const lookupLimiter = require('express-rate-limit')({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
 const { getSettings } = require('../lib/settings');
 const { httpError } = require('../lib/http');
+const { productFor } = require('../lib/serialize');
 router.get('/lookup', requirePerm('inventory'), lookupLimiter, async (req, res) => {
   try {
     const out = await lookupProducts(req.query.q);
@@ -165,7 +164,7 @@ router.get('/image/:name', serveImage);
 router.get('/barcode/:barcode', async (req, res) => {
   const product = await prisma.product.findUnique({ where: { barcode: req.params.barcode } });
   if (!product) return res.status(404).json({ error: 'Product not found' });
-  res.json(product);
+  res.json(productFor(req.user, product));
 });
 
 // ---- Bulk import (CSV / XLSX) -------------------------------------------
@@ -201,7 +200,7 @@ router.get('/scan/:code', async (req, res) => {
   if (!code || code.length > 64) return res.status(400).json({ error: 'Invalid code' });
   let product = await prisma.product.findUnique({ where: { barcode: code } });
   if (!product) product = await prisma.product.findUnique({ where: { sku: code } });
-  if (product) return res.json({ type: 'product', product });
+  if (product) return res.json({ type: 'product', product: productFor(req.user, product) });
 
   res.status(404).json({ error: 'Nothing matches that code' });
 });

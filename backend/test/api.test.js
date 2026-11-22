@@ -245,9 +245,20 @@ test('permissions: cashier without returns/discount is blocked; discount cap enf
   assert.equal(over.data.code, 'DISCOUNT_LIMIT');
   assert.equal((await c.post('/api/returns', { invoiceId: 1, items: [{ invoiceItemId: 1, quantity: 1 }] })).status, 403);
   assert.equal((await c.get('/api/reports/overview')).status, 403);
+  // The same product on two lines is checked as one quantity, not twice against the same stock.
+  const stockNow = (await admin.get('/api/products')).data.find((p) => p.id === rice.id).stock;
+  const split = await admin.post('/api/invoices', { items: [{ productId: rice.id, quantity: stockNow }, { productId: rice.id, quantity: stockNow }], paymentMethod: 'UPI' });
+  assert.equal(split.status, 409, JSON.stringify(split.data));
   // Cost and margin data stays with staff who manage stock or read reports.
   assert.ok(!('purchasePrice' in (await c.get('/api/products')).data[0]));
   assert.ok('purchasePrice' in (await admin.get('/api/products')).data[0]);
+  assert.ok(ok.data.items.every((i) => !('costPrice' in i)), 'POST /invoices response');
+  const riceFull = (await admin.get('/api/products')).data.find((p) => p.name === 'Loose Rice');
+  for (const path of [`/api/products/barcode/${riceFull.barcode}`, `/api/products/scan/${riceFull.barcode}`]) {
+    const body = (await c.get(path)).data;
+    assert.ok(!('purchasePrice' in (body.product ?? body)), path);
+  }
+  assert.ok((await c.get('/api/products/low-stock')).data.products.every((p) => !('purchasePrice' in p)));
   const billed = (await c.get(`/api/invoices/${ok.data.id}`)).data;
   assert.ok(billed.items.every((i) => !('costPrice' in i)));
   assert.equal((await c.post('/api/products', { barcode: 'x', name: 'x', purchasePrice: 1, sellingPrice: 2, taxRate: 0 })).status, 403);
@@ -387,7 +398,7 @@ test('UPI uri, FX rates + multi-currency sale, label ZPL', async () => {
   const upi = await admin.get('/api/payments/upi?amount=11800&ref=INV1');
   assert.match(upi.data.uri, /^upi:\/\/pay\?pa=shop%40okbank/);
   assert.match(upi.data.uri, /am=11800\.00/);
-  assert.equal((await admin.put('/api/payments/fx', { rates: { USD: 80 } })).status, 200);
+  assert.equal((await admin.put('/api/payments/fx', { rates: { USD: 80 }, confirmPassword: PW })).status, 200);
   const rice = (await admin.get('/api/products')).data.find((p) => p.name === 'Loose Rice');
   const s = await admin.post('/api/invoices', { items: [{ productId: rice.id, quantity: 1 }], paymentMethod: 'CASH', amountPaid: 95, payCurrency: 'USD' });
   assert.equal(s.data.payCurrency, 'USD');
@@ -583,7 +594,7 @@ test('orders: paid on the website -> no POS bill; pay-at-pickup -> billed in the
   assert.equal(skip.data.invoice, undefined, 'bill:false hands over without a POS bill');
 });
 
-test('audit fixes: repeated lines are rejected, webhook limiter is per integration and IP', async () => {
+test('audit fixes: repeated lines are rejected, unsigned webhook floods are refused not throttled', async () => {
   const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
   const sale = await admin.post('/api/invoices', { items: [{ productId: cola.id, quantity: 3 }], paymentMethod: 'UPI' });
   assert.equal(sale.status, 201, JSON.stringify(sale.data));
@@ -604,9 +615,7 @@ test('audit fixes: repeated lines are rejected, webhook limiter is per integrati
   assert.equal((await admin.post(`/api/purchasing/orders/${po.data.id}/receive`, { items: [{ itemId, quantity: 8 }, { itemId, quantity: 8 }] })).status, 400);
   assert.equal((await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock, stockBefore);
 
-  // Junk traffic at one integration id must not use up another id's budget.
+  // Signed webhooks are never throttled by address (it is client-supplied): unsigned junk is simply refused.
   const pub = client(srv.base);
-  for (let i = 0; i < 65; i++) await pub.raw('/api/webhooks/woocommerce/999991', '{}', 'application/json', {});
-  assert.equal((await pub.raw('/api/webhooks/woocommerce/999991', '{}', 'application/json', {})).status, 429);
-  assert.notEqual((await pub.raw('/api/webhooks/woocommerce/999992', '{}', 'application/json', {})).status, 429);
+  for (let i = 0; i < 65; i++) assert.equal((await pub.raw('/api/webhooks/woocommerce/999991', '{}', 'application/json', {})).status, 401);
 });

@@ -12,6 +12,7 @@ const { readSheet } = require('read-excel-file/universal');
 const prisma = require('./prisma');
 
 const { httpError } = require('./http');
+const { assertSafeZip } = require('./zipGuard');
 const MAX_ROWS = 5000;
 
 const COLUMNS = [
@@ -32,6 +33,7 @@ const normKey = (k) => String(k ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/
 async function parseRows(buffer, format) {
   let matrix;
   if (format === 'xlsx') {
+    assertSafeZip(buffer);
     const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
     try {
       matrix = await readSheet(ab);

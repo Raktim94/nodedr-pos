@@ -2,28 +2,32 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { startServer, client } = require('./helpers');
 
-// Behind Next.js (and Caddy or a tunnel in front of it) the client's address
-// arrives in X-Forwarded-For. Rate limits must see the real client, which is
-// only true when TRUST_PROXY_HOPS matches the number of proxies in front.
-async function overLimitFor(env, forwardedFor) {
-  const srv = await startServer(0, env);
+// The client address comes from X-Forwarded-For, which a caller can set. Limits
+// that must hold regardless (password guessing, signed webhooks) cannot depend on it.
+test('login attempts are limited per account even when every request claims a different address', async () => {
+  const srv = await startServer(0);
   try {
     const pub = client(srv.base);
-    const hit = (xff) => pub.raw('/api/webhooks/woocommerce/1', '{}', 'application/json', { 'x-forwarded-for': xff });
-    for (let i = 0; i < 65; i++) await hit(forwardedFor('203.0.113.9')); // one noisy visitor
-    return (await hit(forwardedFor('198.51.100.7'))).status === 429; // a different visitor
+    let last;
+    for (let i = 0; i < 12; i++) {
+      last = await pub.post('/api/auth/login', { email: 'victim@example.com', password: 'wrong-password' }, { 'x-forwarded-for': `203.0.113.${i + 1}` });
+    }
+    assert.equal(last.status, 429);
   } finally {
     srv.stop();
   }
-}
-
-test('one proxy hop: behind a second proxy every visitor shares one rate-limit bucket', async () => {
-  // Frontend sees the visitor via the front proxy: "visitor, front-proxy".
-  assert.equal(await overLimitFor({ TRUST_PROXY_HOPS: '1' }, (visitor) => `${visitor}, 10.0.0.2`), true);
 });
 
-test('two proxy hops: each visitor keeps their own bucket', async () => {
-  assert.equal(await overLimitFor({ TRUST_PROXY_HOPS: '2' }, (visitor) => `${visitor}, 10.0.0.2`), false);
+test('webhooks are not throttled by address: unsigned floods get 401, never 429', async () => {
+  const srv = await startServer(0);
+  try {
+    const pub = client(srv.base);
+    let last;
+    for (let i = 0; i < 320; i++) last = await pub.raw('/api/webhooks/woocommerce/1', '{}', 'application/json', { 'x-forwarded-for': '203.0.113.9' });
+    assert.equal(last.status, 401);
+  } finally {
+    srv.stop();
+  }
 });
 
 test('a card-terminal payment can pay for one bill only (unique index on Invoice.paymentRef)', async () => {

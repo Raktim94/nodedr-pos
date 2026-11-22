@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { lacksStock, writeStockLevel } = require('../src/lib/stock');
+const { lacksStock, writeStockLevel, quantityByProduct } = require('../src/lib/stock');
 
 test('lacksStock: refuses oversells unless the shop allows negative stock', () => {
   assert.equal(lacksStock({ allowNegativeStock: false }, 5, 5), false);
@@ -30,4 +30,8 @@ test('writeStockLevel: a negative level is a 409 with the caller message, or cla
   await assert.rejects(writeStockLevel(fakeTx(false), { id: 7 }, -1, 'Insufficient stock (have 0)'), (e) => e.status === 409 && e.message === 'Insufficient stock (have 0)');
   const tx = fakeTx(true);
   assert.deepEqual(await writeStockLevel(tx, { id: 7 }, -3, 'no'), { id: 7, stock: 0 });
+});
+
+test('quantityByProduct: the same product on several lines is summed', () => {
+  assert.deepEqual([...quantityByProduct([{ productId: 1, quantity: 5 }, { productId: 2, quantity: 1 }, { productId: 1, quantity: 5 }])], [[1, 10], [2, 1]]);
 });

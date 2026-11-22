@@ -10,7 +10,7 @@ const terminal = require('./terminal');
 const verifactu = require('./verifactu/service');
 
 const { getSettings } = require('./settings');
-const { lacksStock } = require('./stock');
+const { lacksStock, quantityByProduct } = require('./stock');
 const { netOfSale, allocateTender } = require('./settlement');
 const { httpError } = require('./http');
 const checkoutSchema = z
@@ -180,15 +180,13 @@ async function loadSaleLines(tx, settings, items) {
   const products = await tx.product.findMany({ where: { id: { in: productIds } } });
   const productMap = new Map(products.map((p) => [p.id, p]));
 
+  const wanted = quantityByProduct(items);
   const lines = [];
   for (const item of items) {
     const product = productMap.get(item.productId);
     if (!product) throw httpError(`Product ${item.productId} not found`, 404);
-    if (lacksStock(settings, product.stock, item.quantity)) {
-      throw Object.assign(
-        new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${item.quantity})`),
-        { status: 409 }
-      );
+    if (lacksStock(settings, product.stock, wanted.get(product.id))) {
+      throw httpError(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${wanted.get(product.id)})`, 409);
     }
     lines.push({ product, quantity: item.quantity });
   }

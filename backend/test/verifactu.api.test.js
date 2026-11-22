@@ -55,10 +55,10 @@ test('a sale made before VERI*FACTU is on has no record; turning it on explains 
   assert.equal(s.enabled, false);
   assert.equal(s.status, 'implemented-not-certified');
   assert.ok(s.problems.some((p) => /NIF/.test(p)));
-  const refused = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1' });
+  const refused = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1', confirmPassword: PW });
   assert.equal(refused.status, 400);
   assert.match(refused.data.error, /NIF/);
-  const on = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1', nif: 'b12345678' });
+  const on = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1', nif: 'b12345678', confirmPassword: PW });
   assert.equal(on.status, 200, JSON.stringify(on.data));
   assert.equal(on.data.enabled, true);
   assert.equal(on.data.nif, 'B12345678');
@@ -182,6 +182,7 @@ test('certificate: wrong password refused, secrets never returned, XML exports e
   const body = (password) =>
     Buffer.concat([
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="password"\r\n\r\n${password}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="confirmPassword"\r\n\r\n${PW}\r\n`),
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="c.p12"\r\nContent-Type: application/x-pkcs12\r\n\r\n`),
       p12,
       Buffer.from(`\r\n--${boundary}--\r\n`),

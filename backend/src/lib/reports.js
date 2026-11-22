@@ -6,6 +6,7 @@ const { round2 } = require('./pricing');
 
 const { getSettings } = require('./settings');
 const { httpError } = require('./http');
+const { csvCell } = require('./format');
 const dayKey = (d) => {
   const x = new Date(d);
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
@@ -149,10 +150,6 @@ async function compare(period) {
 
 // ---------------- GSTR-1 / tax summary ----------------
 
-const csvCell = (v) => {
-  const s = String(v ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
 const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 
 async function gstr1(month) {

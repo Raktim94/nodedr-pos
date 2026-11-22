@@ -19,7 +19,7 @@ const { performCheckout, checkoutSchema } = require('./checkout');
 const { notifyEvent, notifyStockChange } = require('./webhooks');
 
 const { getSettings } = require('./settings');
-const { lacksStock } = require('./stock');
+const { lacksStock, quantityByProduct } = require('./stock');
 const { httpError } = require('./http');
 
 
@@ -57,12 +57,13 @@ async function createOrder(input) {
     const map = new Map(products.map((p) => [p.id, p]));
     const reserved = await reservedByProduct(tx, [...map.keys()]);
 
+    const wanted = quantityByProduct(items);
     const lines = [];
     for (const it of items) {
       const p = map.get(it.productId);
       if (!p) throw httpError(`Product ${it.productId} not found`, 404);
       const available = r3(p.stock - (reserved.get(p.id) || 0));
-      if (lacksStock(settings, available, it.quantity)) {
+      if (lacksStock(settings, available, wanted.get(p.id))) {
         throw httpError(`Not enough stock for "${p.name}" (available ${available})`, 409);
       }
       lines.push({ productId: p.id, name: p.name, quantity: it.quantity, price: effectivePrice(p) });

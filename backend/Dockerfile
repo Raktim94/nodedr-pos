@@ -13,7 +13,7 @@ FROM node:24-alpine AS deps
 RUN apk add --no-cache openssl python3 make g++ linux-headers eudev-dev libusb-dev pkgconfig
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
 # --- builder stage: generate Prisma client ---
 FROM node:24-alpine AS builder

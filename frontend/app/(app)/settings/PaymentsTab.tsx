@@ -84,6 +84,7 @@ function FxCard({ base }: { base: string }) {
   const { show } = useToast();
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const { withPasswordConfirm } = usePasswordConfirm();
   const { data: currencies } = useCurrencies();
   const { data: fx } = useQuery({ queryKey: queryKeys.fx, queryFn: () => api.get<{ base: string; rates: Record<string, number>; updatedAt: string | null }>("/payments/fx") });
   const [rates, setRates] = useState<Record<string, string> | null>(null);
@@ -91,8 +92,8 @@ function FxCard({ base }: { base: string }) {
   const cur = rates ?? Object.fromEntries(Object.entries(fx?.rates ?? {}).map(([k, v]) => [k, String(v)]));
 
   const saveRates = useMutation({
-    mutationFn: () => api.put("/payments/fx", { rates: Object.fromEntries(Object.entries(cur).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])) }),
-    onSuccess: () => { show(t("settings.payments.ratesSaved"), "success"); setRates(null); qc.invalidateQueries({ queryKey: queryKeys.fx }); },
+    mutationFn: () => withPasswordConfirm(t("settings.payments.confirmSaveRates"), (confirmPassword) => api.put("/payments/fx", { rates: Object.fromEntries(Object.entries(cur).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])), confirmPassword })),
+    onSuccess: (r) => { if (!r) return; show(t("settings.payments.ratesSaved"), "success"); setRates(null); qc.invalidateQueries({ queryKey: queryKeys.fx }); },
     onError: (e) => show(describeApiError(e, t("settings.payments.saveFailed")), "error"),
   });
   const refresh = useMutation({

@@ -34,7 +34,7 @@ router.get('/fx', async (req, res) => {
 });
 
 const ratesSchema = z.object({ rates: z.record(z.string().regex(/^[A-Z]{3}$/), z.number().positive().max(1e9)) });
-router.put('/fx', requireAdmin, async (req, res) => {
+router.put('/fx', requireAdmin, requirePasswordConfirm, async (req, res) => {
   const parsed = ratesSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid rates' });
   for (const code of Object.keys(parsed.data.rates)) {

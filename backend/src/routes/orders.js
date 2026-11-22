@@ -6,6 +6,7 @@ const orders = require('../lib/orders');
 
 const { httpError } = require('../lib/http');
 const { ORDER_STATUSES } = require('../lib/statuses');
+const { invoiceFor } = require('../lib/serialize');
 const router = express.Router();
 router.use(requireAuth, requirePerm('orders'));
 
@@ -59,7 +60,7 @@ router.post('/:id/collect', wrap(async (req, res) => {
     serials: z.record(z.string(), z.array(z.string().trim().min(1).max(64)).max(1000)).default({}),
   }).parse(req.body ?? {});
   const { order, invoice } = await orders.collect(idOf(req), { ...p, user: req.user });
-  res.json({ order: orders.publicOrder(order), ...(invoice ? { invoice } : {}) });
+  res.json({ order: orders.publicOrder(order), ...(invoice ? { invoice: invoiceFor(req.user, invoice) } : {}) });
 }));
 
 module.exports = router;

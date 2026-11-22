@@ -1,5 +1,4 @@
 const express = require('express');
-const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin, requirePasswordConfirm } = require('../middleware/auth');
@@ -73,20 +72,15 @@ admin.delete('/:id', requirePasswordConfirm, async (req, res) => {
 
 // ---- inbound webhook (public; trust = HMAC) ----
 const hook = express.Router();
-// Keyed by integration id and caller IP: one bucket per id would let anyone
-// who guesses an id lock that store's webhooks out, while per-IP alone would
-// throttle a platform's shared pool.
-const hookLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => `wh:${req.params.id}:${ipKeyGenerator(req.ip)}`,
-});
-
-hook.post('/:platform/:id', hookLimiter, async (req, res) => {
+// No IP-keyed limiter here: the client address comes from X-Forwarded-For, which a
+// caller can set, so a limiter on it could be aimed at a store platform's real
+// address to lock its webhooks out. The HMAC below is the gate, checked before
+// any work is done for the request.
+hook.post('/:platform/:id', async (req, res) => {
   const id = Number(req.params.id);
   const platform = String(req.params.platform);
+  // Unsigned requests are refused before any database work.
+  if (!stores.SCHEMES[platform] || !req.get(stores.SCHEMES[platform].header)) return res.status(401).json({ error: 'Bad signature' });
   // Same 404 whether the id is unknown, inactive, or a different platform.
   const it = Number.isInteger(id) && stores.SCHEMES[platform] ? await prisma.integration.findUnique({ where: { id } }) : null;
   if (!it || !it.active || it.platform !== platform) return res.status(404).json({ error: 'Not found' });
