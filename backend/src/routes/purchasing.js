@@ -6,6 +6,7 @@ const { round2 } = require('../lib/pricing');
 const { qtySchema, r3 } = require('../lib/qty');
 const { buildPurchaseOrderPdf } = require('../lib/pdfPurchaseOrder');
 
+const { getSettings } = require('../lib/settings');
 const router = express.Router();
 router.use(requireAuth, requirePerm('purchasing'));
 
@@ -118,7 +119,7 @@ router.get('/orders/:id', wrap(async (req, res) => {
 }));
 
 router.get('/orders/:id/pdf', wrap(async (req, res) => {
-  const [order, shop] = await Promise.all([prisma.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true, supplier: true } }), prisma.shopSettings.findFirst()]);
+  const [order, shop] = await Promise.all([prisma.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true, supplier: true } }), getSettings()]);
   if (!order || !shop) throw err('Not found', 404);
   res.type('application/pdf').set('Content-Disposition', `attachment; filename="${order.number}.pdf"`).send(await buildPurchaseOrderPdf({ shop, order }));
 }));

@@ -11,6 +11,7 @@ const { receiptUrl } = require('../lib/publicLink');
 const { notifyStockChange } = require('../lib/webhooks');
 const orders = require('../lib/orders');
 
+const { getSettings } = require('../lib/settings');
 const text = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 const fail = (message) => ({ content: [{ type: 'text', text: JSON.stringify({ error: message }) }], isError: true });
 
@@ -82,7 +83,7 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
           if (!p) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
           const next = set !== undefined ? set : p.stock + delta;
           if (next < 0) {
-            const settings = await tx.shopSettings.findFirst();
+            const settings = await getSettings(tx);
             if (!settings?.allowNegativeStock) throw Object.assign(new Error(`Insufficient stock (have ${p.stock})`), { status: 409 });
           }
           return tx.product.update({ where: { id: p.id }, data: { stock: Math.max(0, next) } });

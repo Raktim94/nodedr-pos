@@ -9,13 +9,15 @@ const { encryptJson, decryptJson } = require('../lib/secretBox');
 const terminal = require('../lib/terminal');
 const { receiptUrl } = require('../lib/publicLink');
 
+const { getSettings } = require('../lib/settings');
+const { publicBaseUrl } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth);
 
 // GET /api/payments/upi?amount=&ref= — UPI deep link for the exact sale
 // amount; the POS renders it as a QR the customer scans.
 router.get('/upi', async (req, res) => {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   if (!shop?.upiId) return res.status(409).json({ error: 'Add your UPI id in Settings > Payments first' });
   const amount = Number(req.query.amount);
   if (!(amount > 0) || amount > 10_000_000) return res.status(400).json({ error: 'Invalid amount' });
@@ -26,7 +28,7 @@ router.get('/upi', async (req, res) => {
 // ---- multi-currency --------------------------------------------------------
 
 router.get('/fx', async (req, res) => {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   res.json({ base: s?.currencyCode || 'INR', rates: parseRates(s), updatedAt: s?.fxUpdatedAt || null });
 });
 
@@ -42,7 +44,7 @@ router.put('/fx', requireAdmin, async (req, res) => {
 });
 
 router.post('/fx/refresh', requireAdmin, async (req, res) => {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   if (!s) return res.status(404).json({ error: 'No shop settings' });
   try {
     const rates = await refreshLiveRates(s.currencyCode);
@@ -56,7 +58,7 @@ router.post('/fx/refresh', requireAdmin, async (req, res) => {
 // ---- card terminal -----------------------------------------------------------
 
 router.get('/terminal-config', requireAdmin, async (req, res) => {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   const cfg = decryptJson(s?.terminalConfigEnc) || {};
   // Never echo the secret back — only whether one is stored.
   res.json({ provider: s?.terminalProvider || 'none', configured: Boolean(cfg.secret), readerId: cfg.readerId || '', deviceId: cfg.deviceId || '', sandbox: Boolean(cfg.sandbox) });
@@ -72,7 +74,7 @@ const cfgSchema = z.object({
 router.put('/terminal-config', requireAdmin, requirePasswordConfirm, async (req, res) => {
   const parsed = cfgSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   if (!s) return res.status(404).json({ error: 'No shop settings' });
   const prev = decryptJson(s.terminalConfigEnc) || {};
   const next = { ...prev, ...Object.fromEntries(Object.entries(parsed.data).filter(([k, v]) => k !== 'provider' && v !== undefined)) };
@@ -118,9 +120,9 @@ router.post('/terminal/cancel/:id', async (req, res) => {
 router.get('/share/:invoiceId', async (req, res) => {
   const id = Number(req.params.invoiceId);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });
-  const [inv, shop] = await Promise.all([prisma.invoice.findUnique({ where: { id } }), prisma.shopSettings.findFirst()]);
+  const [inv, shop] = await Promise.all([prisma.invoice.findUnique({ where: { id } }), getSettings()]);
   if (!inv || !shop) return res.status(404).json({ error: 'Invoice not found' });
-  const base = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const base = publicBaseUrl(req);
   const link = receiptUrl(base, inv.id);
   const text = `Thank you for shopping at ${shop.shopName}!\nBill ${inv.invoiceNumber}: ${shop.currencySymbol} ${inv.totalAmount.toFixed(2)}\nYour receipt: ${link}`;
   let phone = String(req.query.phone || inv.customerPhone || '').replace(/\D/g, '');

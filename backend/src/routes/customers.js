@@ -5,6 +5,7 @@ const { requireAuth, requirePerm } = require('../middleware/auth');
 const { makePortalToken } = require('../lib/publicLink');
 const { round2 } = require('../lib/pricing');
 
+const { publicBaseUrl } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth);
 
@@ -97,7 +98,7 @@ router.get('/:id/portal-link', async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid id' });
   const customer = await prisma.customer.findUnique({ where: { id } });
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const origin = publicBaseUrl(req);
   const url = `${origin.replace(/\/$/, '')}/me/${makePortalToken(id)}`;
   res.json({ url, whatsappUrl: `https://wa.me/${customer.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Your loyalty & receipts page: ${url}`)}` });
 });

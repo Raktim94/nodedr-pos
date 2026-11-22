@@ -112,21 +112,6 @@ export const GENERIC_PRODUCT_CATEGORIES = [
   "Other",
 ] as const;
 
-export const BUSINESS_TYPES = [
-  "Proprietorship",
-  "Partnership Firm",
-  "LLP",
-  "Private Limited Company",
-  "Public Limited Company",
-  "One Person Company (OPC)",
-  "Hindu Undivided Family (HUF)",
-  "Trust",
-  "Society",
-  "Cooperative Society",
-  "Government Department",
-  "Individual / Freelancer",
-] as const;
-
 // Structural validation only (regex format), not the GSTIN checksum digit —
 // that algorithm is easy to get subtly wrong from memory and a false
 // "invalid" on a real GSTIN is worse than not checking it. Treat these as

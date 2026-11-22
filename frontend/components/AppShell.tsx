@@ -125,7 +125,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-1 flex-col lg:flex-row">
-      {/* Mobile header */}
       <header className="flex items-center justify-between border-b border-border-subtle bg-surface px-4 py-3 lg:hidden">
         <div className="flex items-center gap-2">
           <Image src="/logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full" aria-hidden="true" />
@@ -161,7 +160,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={clsx(
           "fixed inset-y-0 left-0 z-50 flex w-[232px] flex-col border-r border-border-subtle bg-surface transition-transform duration-300 ease-[var(--ease-out)] lg:static lg:z-auto lg:translate-x-0",

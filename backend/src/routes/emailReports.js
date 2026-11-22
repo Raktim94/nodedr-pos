@@ -5,11 +5,12 @@ const { requireAuth, requireAdmin, requirePasswordConfirm } = require('../middle
 const { encryptJson, decryptJson } = require('../lib/secretBox');
 const { sendReportNow } = require('../lib/scheduler');
 
+const { getSettings } = require('../lib/settings');
 const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
 router.get('/', async (req, res) => {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   const smtp = decryptJson(s?.smtpConfigEnc) || {};
   res.json({
     reportEmail: s?.reportEmail || '',
@@ -36,7 +37,7 @@ const schema = z.object({
 router.put('/', requirePasswordConfirm, async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   if (!s) return res.status(404).json({ error: 'No shop settings' });
   const data = {};
   if (parsed.data.reportEmail !== undefined) data.reportEmail = parsed.data.reportEmail || null;

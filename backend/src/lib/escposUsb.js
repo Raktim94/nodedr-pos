@@ -278,4 +278,4 @@ async function sendRaw(buffer) {
   );
 }
 
-module.exports = { sendRaw, findPrinterInterface, usableLpPaths, probeCharDevices, PrinterNotFoundError };
+module.exports = { sendRaw, findPrinterInterface, probeCharDevices, PrinterNotFoundError };

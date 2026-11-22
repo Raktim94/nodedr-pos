@@ -5,6 +5,7 @@ const { requireAuth, requireAdmin, requirePasswordConfirm, readSession } = requi
 const { CURRENCIES, symbolFor } = require('../lib/currency');
 const { saveSignature } = require('../lib/signatures');
 
+const { getSettings } = require('../lib/settings');
 const router = express.Router();
 
 // Field validators with NO `.default()` — shared by both schemas below.
@@ -103,14 +104,14 @@ function clientView(settings, authed) {
 }
 
 router.get('/', async (req, res) => {
-  const settings = await prisma.shopSettings.findFirst();
+  const settings = await getSettings();
   if (!settings) return res.json(null);
   res.json(clientView(settings, Boolean(readSession(req))));
 });
 
 // POST /api/settings — onboarding step 2, only once
 router.post('/', async (req, res) => {
-  const existing = await prisma.shopSettings.findFirst();
+  const existing = await getSettings();
   if (existing) {
     return res.status(403).json({ error: 'Shop settings already configured; use PUT /api/settings' });
   }
@@ -124,7 +125,7 @@ router.post('/', async (req, res) => {
 
 // PUT /api/settings — admins edit company/currency/tax/loyalty/receipt config
 router.put('/', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
-  const existing = await prisma.shopSettings.findFirst();
+  const existing = await getSettings();
   if (!existing) return res.status(404).json({ error: 'No shop settings to update' });
 
   const parsed = updateSchema.safeParse(req.body);
@@ -141,7 +142,7 @@ router.put('/', requireAuth, requireAdmin, requirePasswordConfirm, async (req, r
 // PUT /api/settings/signature — upload the authorised signatory's signature
 // (PNG/JPEG data URL, max 300 KB). Printed on A4 invoices and receipts.
 router.put('/signature', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
-  const existing = await prisma.shopSettings.findFirst();
+  const existing = await getSettings();
   if (!existing) return res.status(404).json({ error: 'No shop settings' });
   try {
     const file = saveSignature(req.body?.image);
@@ -153,7 +154,7 @@ router.put('/signature', requireAuth, requireAdmin, requirePasswordConfirm, asyn
 });
 
 router.delete('/signature', requireAuth, requireAdmin, requirePasswordConfirm, async (req, res) => {
-  const existing = await prisma.shopSettings.findFirst();
+  const existing = await getSettings();
   if (!existing) return res.status(404).json({ error: 'No shop settings' });
   await prisma.shopSettings.update({ where: { id: existing.id }, data: { signatureFile: null } });
   res.status(204).end();

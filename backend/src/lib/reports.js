@@ -4,6 +4,7 @@
 const prisma = require('./prisma');
 const { round2 } = require('./pricing');
 
+const { getSettings } = require('./settings');
 const dayKey = (d) => {
   const x = new Date(d);
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
@@ -158,7 +159,7 @@ async function gstr1(month) {
   const [y, m] = month.split('-').map(Number);
   const start = new Date(y, m - 1, 1);
   const end = new Date(y, m, 1);
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   const shopState = shop?.gstNumber?.slice(0, 2) || '';
 
   const lines = await prisma.$queryRaw`
@@ -246,4 +247,4 @@ async function taxSummaryCsv(from, to) {
   return toCsv([['Tax rate %', 'Taxable value', 'Tax', 'Gross'], ...rows.map((r) => [r.rate, round2(Number(r.taxable)), round2(Number(r.tax)), round2(Number(r.gross))])]);
 }
 
-module.exports = { overview, compare, gstr1, gstr1Csv, taxSummaryCsv, totalsFor, parseRange, dayKey };
+module.exports = { overview, compare, gstr1, gstr1Csv, taxSummaryCsv, totalsFor, dayKey };

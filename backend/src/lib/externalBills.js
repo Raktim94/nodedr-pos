@@ -111,4 +111,4 @@ function findOwnBill(apiKeyId, ref) {
   });
 }
 
-module.exports = { billSchema, createExternalBill, publicInvoice, findOwnBill };
+module.exports = { createExternalBill, publicInvoice, findOwnBill };

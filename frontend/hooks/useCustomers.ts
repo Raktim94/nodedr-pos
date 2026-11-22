@@ -11,13 +11,6 @@ export function useCustomers(search = "") {
   });
 }
 
-export function useTopLoyaltyCustomers(limit = 5) {
-  return useQuery({
-    queryKey: ["customers", "top-loyalty", limit],
-    queryFn: () => api.get<Customer[]>(`/customers/top-loyalty?limit=${limit}`),
-  });
-}
-
 export interface DueSummary {
   totalDue: number;
   customersWithDue: number;

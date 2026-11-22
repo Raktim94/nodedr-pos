@@ -6,6 +6,7 @@ const prisma = require('./prisma');
 const { totalsFor, overview, dayKey } = require('./reports');
 const { sendMail } = require('./mailer');
 
+const { getSettings } = require('./settings');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function buildSummary(shop, start, end, label) {
@@ -33,7 +34,7 @@ async function buildSummary(shop, start, end, label) {
 }
 
 async function sendReportNow(kind) {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   if (!shop?.reportEmail) throw Object.assign(new Error('Set a report e-mail address first'), { status: 409 });
   const now = new Date();
   const sod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -55,7 +56,7 @@ async function sendReportNow(kind) {
 
 async function tick() {
   try {
-    const shop = await prisma.shopSettings.findFirst();
+    const shop = await getSettings();
     if (!shop || shop.reportFrequency === 'off' || !shop.reportEmail || !shop.smtpConfigEnc) return;
     const now = new Date();
     if (now.getHours() < 8) return;

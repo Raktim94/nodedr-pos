@@ -278,4 +278,4 @@ async function buildInvoicePdf({ shop, invoice }) {
   });
 }
 
-module.exports = { buildInvoicePdf, amountInWords };
+module.exports = { buildInvoicePdf };

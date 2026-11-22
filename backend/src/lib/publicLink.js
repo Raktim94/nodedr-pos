@@ -48,4 +48,4 @@ function receiptUrl(baseUrl, invoiceId) {
   return `${String(baseUrl).replace(/\/$/, '')}/api/public/receipt/${makeReceiptToken(invoiceId)}`;
 }
 
-module.exports = { makeReceiptToken, verifyReceiptToken, makePortalToken, verifyPortalToken, receiptUrl };
+module.exports = { verifyReceiptToken, makePortalToken, verifyPortalToken, receiptUrl };

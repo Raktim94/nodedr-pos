@@ -9,6 +9,7 @@ const { round2 } = require('../lib/pricing');
 const { dayKey } = require('../lib/reports');
 const sync = require('../lib/sync');
 
+const { getSettings } = require('../lib/settings');
 // ---- public ingest endpoint (branches push here) ----
 const ingest = express.Router();
 ingest.use(rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false }));
@@ -137,7 +138,7 @@ views.post('/transfers/:id/cancel', ...adminOnly, async (req, res) => {
 const cfg = express.Router();
 cfg.use(requireAuth, requireAdmin);
 cfg.get('/', async (req, res) => {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   res.json({ role: s?.syncRole || 'none', hubUrl: s?.syncHubUrl || '', branchCode: s?.syncBranchCode || '', secretSet: Boolean(s?.syncSecretEnc), lastSyncAt: s?.syncLastAt || null });
 });
 const cfgSchema = z.object({
@@ -149,7 +150,7 @@ const cfgSchema = z.object({
 cfg.put('/', requirePasswordConfirm, async (req, res) => {
   const p = cfgSchema.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: 'Invalid input' });
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   if (!s) return res.status(404).json({ error: 'No shop settings' });
   if (p.data.role === 'branch') {
     const url = p.data.hubUrl || s.syncHubUrl;

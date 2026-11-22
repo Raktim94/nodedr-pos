@@ -207,4 +207,4 @@ function sampleCsv() {
   return lines.join('\r\n') + '\r\n';
 }
 
-module.exports = { importProducts, sampleCsv, COLUMNS, MAX_ROWS };
+module.exports = { importProducts, sampleCsv, COLUMNS };

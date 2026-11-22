@@ -2,10 +2,11 @@ const nodemailer = require('nodemailer');
 const prisma = require('./prisma');
 const { decryptJson } = require('./secretBox');
 
+const { getSettings } = require('./settings');
 // Builds a transport from the encrypted SMTP settings. Returns null when
 // e-mail isn't configured — callers treat that as "feature off", not an error.
 async function getTransport() {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   const cfg = decryptJson(s?.smtpConfigEnc);
   if (!cfg?.host) return null;
   return {

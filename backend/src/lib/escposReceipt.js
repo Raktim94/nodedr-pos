@@ -235,4 +235,4 @@ function buildReceiptEscPos({ shop, invoice, width = 42 }) {
   return Buffer.concat(segments);
 }
 
-module.exports = { buildReceiptEscPos, toPrinterText, DRAWER_KICK };
+module.exports = { buildReceiptEscPos, DRAWER_KICK };

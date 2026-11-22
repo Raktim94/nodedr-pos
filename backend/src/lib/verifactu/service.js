@@ -8,6 +8,7 @@ const { encrypt, decrypt } = require('../secretBox');
 const dom = require('./domain');
 const aeat = require('./aeat');
 
+const { getSettings: loadShop } = require('../settings');
 const BATCH = 100;
 const RETRY_MS = 5 * 60_000;
 const cents = (n) => Math.round((Number(n) + Number.EPSILON) * 100);
@@ -58,7 +59,7 @@ const issuerName = (shop) => (shop.legalName || shop.shopName).trim();
 const issuerNif = (shop) => (shop.vfNif || '').trim().toUpperCase();
 
 async function getSettings() {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   if (!shop) throw fail('Shop settings not configured');
   const grouped = await prisma.verifactuRecord.groupBy({ by: ['status'], _count: { _all: true } });
   return {
@@ -77,7 +78,7 @@ async function getSettings() {
 }
 
 async function saveSettings(dto) {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   if (!shop) throw fail('Shop settings not configured');
   const series = String(dto.series ?? shop.vfSeries).trim();
   if (!/^[A-Za-z0-9-]{1,12}$/.test(series)) throw fail('The invoice series may use letters, digits and "-" (at most 12 characters).');
@@ -114,7 +115,7 @@ async function uploadCertificate(file, password) {
     throw fail(e.message);
   }
   if (info.expiresAt.getTime() < Date.now()) throw fail('This certificate has expired.');
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   if (!shop) throw fail('Shop settings not configured');
   await prisma.shopSettings.update({
     where: { id: shop.id },
@@ -316,7 +317,7 @@ async function verifyChain() {
 }
 
 async function exportXml() {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   const recs = await prisma.verifactuRecord.findMany({ orderBy: [{ environment: 'asc' }, { seq: 'asc' }] });
   return dom.envelope(issuerName(shop), issuerNif(shop), recs.map((r) => r.xml));
 }
@@ -334,7 +335,7 @@ async function submitChain(nif, environment) {
   if (await prisma.verifactuRecord.findFirst({ where: { ...pending, nextAttemptAt: { gt: new Date() } } })) return 0;
   const recs = await prisma.verifactuRecord.findMany({ where: pending, orderBy: { seq: 'asc' }, take: BATCH });
   if (recs.length === 0) return 0;
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   if (!shop?.vfEnabled || !shop.vfCertEnc || !shop.vfCertPassEnc) return 0; // waits for a certificate
   const p12 = decrypt(shop.vfCertEnc);
   const pass = decrypt(shop.vfCertPassEnc);

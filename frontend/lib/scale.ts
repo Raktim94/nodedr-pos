@@ -18,7 +18,7 @@ interface SerialLike {
 export const scaleSupported = () => typeof navigator !== "undefined" && "serial" in navigator;
 
 // Handles: "ST,GS,   0.250kg", "  0.250 kg", "+000.250 g", "W: 1.05", "0.5\r".
-export function parseWeightKg(text: string): number | null {
+function parseWeightKg(text: string): number | null {
   const lines = text.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     const m = /([+-]?\d+(?:\.\d+)?)\s*(kg|g|lb|oz)?\b/i.exec(lines[i].replace(/^(ST|US),(GS|NT),?/i, ""));

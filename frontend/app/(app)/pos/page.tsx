@@ -474,7 +474,6 @@ export default function PosPage() {
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Cart */}
         <Card className="p-5 lg:col-span-2">
           <h2 className="mb-4 text-base font-semibold text-foreground">{t("pos.cart")}</h2>
 
@@ -648,9 +647,7 @@ export default function PosPage() {
           )}
         </Card>
 
-        {/* Checkout panel */}
         <div className="flex flex-col gap-4">
-          {/* Customer */}
           <Card className="flex flex-col gap-3 p-5">
             <h2 className="text-base font-semibold text-foreground">{t("pos.customer")}</h2>
             <div className="flex items-end gap-2">
@@ -841,7 +838,6 @@ export default function PosPage() {
             )}
           </Card>
 
-          {/* Totals */}
           <Card className="flex flex-col gap-2 p-5">
             {(() => {
               const adjusted = returnTotal > 0 || creditUse > 0 || dueToClear > 0;

@@ -1,6 +1,7 @@
 const prisma = require('./prisma');
 const { CURRENCIES } = require('./currency');
 
+const { getSettings } = require('./settings');
 function parseRates(settings) {
   try {
     return settings?.fxRates ? JSON.parse(settings.fxRates) : {};
@@ -28,7 +29,7 @@ async function refreshLiveRates(base) {
 }
 
 async function saveRates(rates) {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   if (!s) throw new Error('No shop settings');
   return prisma.shopSettings.update({ where: { id: s.id }, data: { fxRates: JSON.stringify(rates), fxUpdatedAt: new Date() } });
 }

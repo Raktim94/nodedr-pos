@@ -9,6 +9,7 @@ const { parseRates } = require('./fx');
 const terminal = require('./terminal');
 const verifactu = require('./verifactu/service');
 
+const { getSettings } = require('./settings');
 const checkoutSchema = z
   .object({
     customerName: z.string().trim().max(200).optional().or(z.literal('')),
@@ -134,7 +135,7 @@ async function performCheckoutOnce(body, ctx = {}) {
 
   {
     const result = await prisma.$transaction(async (tx) => {
-      const settings = await tx.shopSettings.findFirst();
+      const settings = await getSettings(tx);
       if (!settings) throw Object.assign(new Error('Shop settings not configured'), { status: 400 });
 
       const productIds = body.items.map((i) => i.productId);

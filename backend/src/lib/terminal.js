@@ -10,12 +10,13 @@
 const prisma = require('./prisma');
 const { decryptJson } = require('./secretBox');
 
+const { getSettings } = require('./settings');
 const ZERO_DECIMAL = new Set(['JPY', 'KRW', 'VND']);
 const toMinor = (amount, currency) => (ZERO_DECIMAL.has(currency) ? Math.round(amount) : Math.round(amount * 100));
 const fromMinor = (minor, currency) => (ZERO_DECIMAL.has(currency) ? minor : minor / 100);
 
 async function loadConfig() {
-  const settings = await prisma.shopSettings.findFirst();
+  const settings = await getSettings();
   if (!settings || settings.terminalProvider === 'none') {
     throw Object.assign(new Error('No card terminal is configured (Settings > Payments)'), { status: 409 });
   }
@@ -98,4 +99,4 @@ async function cancel(id) {
   }
 }
 
-module.exports = { startCharge, getStatus, cancel, toMinor };
+module.exports = { startCharge, getStatus, cancel };

@@ -126,7 +126,7 @@ router.get('/', async (req, res) => {
 
 // GET /api/products/low-stock — dashboard widget
 router.get('/low-stock', async (req, res) => {
-  const settings = await prisma.shopSettings.findFirst();
+  const settings = await getSettings();
   const threshold = settings?.lowStockAlert ?? 5;
   const products = await prisma.product.findMany({
     where: { stock: { lte: threshold } },
@@ -140,6 +140,7 @@ router.get('/low-stock', async (req, res) => {
 // reviews a suggestion in the product form before anything is saved.
 // `inCatalog` marks barcodes this shop already stocks.
 const lookupLimiter = require('express-rate-limit')({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
+const { getSettings } = require('../lib/settings');
 router.get('/lookup', requirePerm('inventory'), lookupLimiter, async (req, res) => {
   try {
     const out = await lookupProducts(req.query.q);

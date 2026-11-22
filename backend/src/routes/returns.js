@@ -8,6 +8,7 @@ const { normalizeSerial } = require('../lib/serials');
 const { qtySchema } = require('../lib/qty');
 const verifactu = require('../lib/verifactu/service');
 
+const { getSettings } = require('../lib/settings');
 const router = express.Router();
 router.use(requireAuth, requirePerm('returns'));
 
@@ -108,7 +109,7 @@ router.post('/', async (req, res) => {
       });
 
       // Spain VERI*FACTU: a corrective invoice of the original sale, in this same transaction.
-      await verifactu.recordReturn(tx, await tx.shopSettings.findFirst(), created, invoice.items);
+      await verifactu.recordReturn(tx, await getSettings(tx), created, invoice.items);
 
       for (const l of returnLines) {
         for (const u of l.units) {

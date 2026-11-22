@@ -13,6 +13,8 @@ const { buildReceiptPdf } = require('../lib/pdf');
 const verifactu = require('../lib/verifactu/service');
 const { lookupWarranty } = require('../lib/warranty');
 
+const { getSettings } = require('../lib/settings');
+const { publicBaseUrl } = require('../lib/http');
 const router = express.Router();
 
 // This is the one surface in the app meant to be reachable from the public
@@ -46,7 +48,7 @@ function publicProduct(p) {
   };
 }
 
-const baseUrl = (req) => process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+const baseUrl = publicBaseUrl;
 
 // GET /api/external/products — every product linked to an external SKU.
 // Read-only: any valid, non-revoked key can call this.
@@ -139,7 +141,7 @@ router.patch('/products/:sku/stock', requireApiKey({ scope: 'stock:write' }), as
 
       const nextStock = set !== undefined ? set : product.stock + delta;
       if (nextStock < 0) {
-        const settings = await tx.shopSettings.findFirst();
+        const settings = await getSettings(tx);
         if (!settings?.allowNegativeStock) {
           throw Object.assign(
             new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, requested change ${delta ?? `set ${set}`})`),
@@ -198,7 +200,7 @@ router.get('/bills/:ref', requireApiKey({ scope: 'bills:read' }), async (req, re
 router.get('/bills/:ref/pdf', requireApiKey({ scope: 'bills:read' }), async (req, res) => {
   const inv = await findOwnBill(req.apiKey.id, req.params.ref);
   if (!inv) return res.status(404).json({ error: 'Bill not found' });
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   const layout = req.query.layout === 'receipt' ? 'receipt' : req.query.layout === 'a4' ? 'a4' : shop?.invoiceLayout;
   const withQr = await verifactu.withQr(inv);
   const pdf = layout === 'a4' ? await buildInvoicePdf({ shop, invoice: withQr }) : await buildReceiptPdf({ shop, invoice: withQr });

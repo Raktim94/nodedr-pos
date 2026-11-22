@@ -18,6 +18,7 @@ const { r3 } = require('./qty');
 const { performCheckout, checkoutSchema } = require('./checkout');
 const { notifyEvent, notifyStockChange } = require('./webhooks');
 
+const { getSettings } = require('./settings');
 const OPEN = ['NEW', 'PACKING', 'READY'];
 const NEXT = { NEW: ['PACKING', 'READY', 'CANCELLED'], PACKING: ['READY', 'CANCELLED'], READY: ['CANCELLED'] };
 
@@ -51,7 +52,7 @@ async function createOrder(input) {
       const prior = await tx.order.findUnique({ where: { channel_dedupScope_externalId: { channel, dedupScope, externalId } }, include: { items: true } });
       if (prior) return { order: prior, deduplicated: true };
     }
-    const settings = await tx.shopSettings.findFirst();
+    const settings = await getSettings(tx);
     const products = await tx.product.findMany({ where: { id: { in: items.map((i) => i.productId) } } });
     const map = new Map(products.map((p) => [p.id, p]));
     const reserved = await reservedByProduct(tx, [...map.keys()]);
@@ -167,7 +168,7 @@ async function handOverWithoutBill(o) {
   const updated = await prisma.$transaction(async (tx) => {
     const claimed = await tx.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
     if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
-    const settings = await tx.shopSettings.findFirst();
+    const settings = await getSettings(tx);
     for (const it of o.items) {
       const p = await tx.product.findUnique({ where: { id: it.productId } });
       if (!p) continue; // product deleted since the order — nothing to take out

@@ -10,6 +10,7 @@ const { decrypt } = require('./secretBox');
 const { round2 } = require('./pricing');
 const { dayKey } = require('./reports');
 
+const { getSettings } = require('./settings');
 const MAX_SKEW_MS = 10 * 60 * 1000;
 
 const keyFor = (secret) => crypto.createHash('sha256').update(`nodedr-sync-v1:${secret}`).digest();
@@ -87,7 +88,7 @@ async function applyTransfers(transfers) {
 let pendingAcks = [];
 
 async function pushToHub() {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   if (!shop || shop.syncRole !== 'branch' || !shop.syncHubUrl || !shop.syncBranchCode) return { skipped: true };
   const secret = decrypt(shop.syncSecretEnc);
   if (!secret) throw new Error('Sync secret is missing or unreadable');

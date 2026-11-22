@@ -6,11 +6,12 @@ const { requireAuth, requireAdmin, requirePasswordConfirm } = require('../middle
 const stores = require('../lib/stores');
 const { encryptJson, decryptJson, decrypt } = require('../lib/secretBox');
 
+const { publicBaseUrl } = require('../lib/http');
 // ---- admin management (session auth) ----
 const admin = express.Router();
 admin.use(requireAuth, requireAdmin);
 
-const base = (req) => process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+const base = publicBaseUrl;
 const view = (i, req) => {
   const cfg = decryptJson(i.configEnc) || {};
   return {
