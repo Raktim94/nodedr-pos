@@ -7,6 +7,7 @@ const { readSignature } = require('./signatures');
 const { drawQrPdf } = require('./verifactu/qr');
 
 const { formatMoney } = require('./format');
+const { usesSpanishInvoices } = require('./region');
 // A drawn horizontal rule spanning the content width. Earlier this used
 // repeated '-'/'=' characters via doc.text(), but at this page width that
 // wraps onto multiple lines instead of drawing a single separator.
@@ -40,7 +41,7 @@ function wrappedLines(text, charsPerLine) {
 }
 
 function estimateHeight({ shop, invoice }) {
-  const es = !!shop.vfEnabled;
+  const es = usesSpanishInvoices(shop);
   let h = 40; // top/bottom margins + rounding buffer
   h += 16; // shop name
   if (shop.legalName) h += 10;
@@ -83,7 +84,7 @@ function estimateHeight({ shop, invoice }) {
 }
 
 function buildReceiptPdf({ shop, invoice }) {
-  const es = !!shop.vfEnabled; // Spain: IVA wording and the NIF instead of India's GST
+  const es = usesSpanishInvoices(shop); // Spain: IVA wording and the NIF instead of India's GST
   return new Promise((resolve, reject) => {
     const height = estimateHeight({ shop, invoice });
     const doc = new PDFDocument({ size: [227, height], margin: 16 }); // ~80mm wide, height fit to this receipt

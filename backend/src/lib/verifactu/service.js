@@ -10,6 +10,7 @@ const aeat = require('./aeat');
 
 const { getSettings: loadShop } = require('../settings');
 const { httpError } = require('../http');
+const { SPAIN_CURRENCY, verifactuActive } = require('../region');
 const BATCH = 100;
 const RETRY_MS = 5 * 60_000;
 const cents = (n) => Math.round((Number(n) + Number.EPSILON) * 100);
@@ -44,7 +45,7 @@ function systemInfo(installationNumber) {
 /** Why this shop cannot issue VERI*FACTU records yet, in plain words. */
 function problems(shop) {
   const out = [];
-  if (shop.currencyCode !== 'EUR') out.push('Set the shop currency to EUR.');
+  if (shop.currencyCode !== SPAIN_CURRENCY) out.push(`Set the shop currency to ${SPAIN_CURRENCY}.`);
   if (!shop.gstEnabled) out.push('Turn tax on (Settings > Tax) and give every product its IVA rate.');
   if ((shop.vfNif || '').trim().length !== 9) out.push('Enter the shop NIF/CIF (9 characters).');
   if (!(shop.legalName || shop.shopName || '').trim()) out.push('Enter the shop legal name.');
@@ -205,7 +206,7 @@ function assertReady(shop) {
  */
 async function recordSale(tx, shop, invoice) {
   // Spain only (euro shops): any other currency never records, even if the switch was left on.
-  if (!shop?.vfEnabled || shop.currencyCode !== 'EUR') return null;
+  if (!verifactuActive(shop)) return null;
   if (!invoice.items?.length || !(invoice.totalAmount > 0)) return null;
   assertReady(shop);
   const dup = await tx.verifactuRecord.findFirst({ where: { invoiceId: invoice.id, invoiceType: 'F2' } });
@@ -225,7 +226,7 @@ async function recordSale(tx, shop, invoice) {
  * sale. `ret` is the created Return with its items; `originalItems` are the original invoice's lines.
  */
 async function recordReturn(tx, shop, ret, originalItems) {
-  if (!shop?.vfEnabled || shop.currencyCode !== 'EUR') return null;
+  if (!verifactuActive(shop)) return null;
   const original = await tx.verifactuRecord.findFirst({
     where: { invoiceId: ret.invoiceId, invoiceType: 'F2', environment: shop.vfEnvironment },
   });

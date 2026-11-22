@@ -11,6 +11,7 @@ const { receiptUrl } = require('../lib/publicLink');
 
 const { getSettings } = require('../lib/settings');
 const { publicBaseUrl } = require('../lib/http');
+const { withCountryPrefix } = require('../lib/region');
 const router = express.Router();
 router.use(requireAuth);
 
@@ -125,8 +126,7 @@ router.get('/share/:invoiceId', async (req, res) => {
   const base = publicBaseUrl(req);
   const link = receiptUrl(base, inv.id);
   const text = `Thank you for shopping at ${shop.shopName}!\nBill ${inv.invoiceNumber}: ${shop.currencySymbol} ${inv.totalAmount.toFixed(2)}\nYour receipt: ${link}`;
-  let phone = String(req.query.phone || inv.customerPhone || '').replace(/\D/g, '');
-  if (phone.length === 10 && shop.currencyCode === 'INR') phone = `91${phone}`;
+  const phone = withCountryPrefix(shop, String(req.query.phone || inv.customerPhone || '').replace(/\D/g, ''));
   const whatsappUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
   res.json({ whatsappUrl, receiptUrl: link, text, hasPhone: Boolean(phone) });
 });
