@@ -4,6 +4,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const orders = require('../lib/orders');
 
+const { httpError } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth, requirePerm('orders'));
 
@@ -18,7 +19,7 @@ const wrap = (fn) => async (req, res) => {
 };
 const idOf = (req) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id)) throw Object.assign(new Error('Invalid id'), { status: 400 });
+  if (!Number.isInteger(id)) throw httpError('Invalid id', 400);
   return id;
 };
 

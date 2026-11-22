@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useTranslation } from "@/components/I18nProvider";
-import { roleKey } from "@/lib/enumLabels";
-import type { TranslationKey } from "@/lib/i18n";
+import { roleLabel } from "@/lib/enumLabels";
 import { useUsers, useCreateUser, useUpdateUser } from "@/hooks/useAuth";
 import { useMe } from "@/hooks/useAuth";
 
@@ -22,11 +21,6 @@ type CreateForm = {
   email: string;
   password: string;
   role: "admin" | "cashier";
-};
-
-const roleLabel = (t: (key: TranslationKey) => string, role: string) => {
-  const key = roleKey(role);
-  return key ? t(key) : role;
 };
 
 export function UsersPanel() {

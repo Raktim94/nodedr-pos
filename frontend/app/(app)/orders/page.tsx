@@ -11,7 +11,7 @@ import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
-import { orderStatusKey, paymentMethodKey } from "@/lib/enumLabels";
+import { orderStatusLabel, paymentMethodLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 import type { Order } from "@/lib/types";
 
@@ -28,14 +28,6 @@ const ALLOWED: Record<string, string[]> = { NEW: ["PACKING", "READY"], PACKING: 
 type T = (key: TranslationKey) => string;
 
 const channelLabel = (t: T, c: string) => ({ API: t("orders.channelApi"), WOOCOMMERCE: "WooCommerce", SHOPIFY: "Shopify", GENERIC: "Webhook" }[c] ?? c);
-const statusLabel = (t: T, status: string) => {
-  const key = orderStatusKey(status);
-  return key ? t(key) : status.toLowerCase();
-};
-const methodLabel = (t: T, method: string) => {
-  const key = paymentMethodKey(method);
-  return key ? t(key) : method;
-};
 
 export default function OrdersPage() {
   const { data: shop } = useShopSettings();
@@ -59,7 +51,7 @@ export default function OrdersPage() {
     mutationFn: ({ id, status }: { id: number; status: string }) => api.patch<Order>(`/orders/${id}/status`, { status }),
     onSuccess: (o) => {
       qc.invalidateQueries({ queryKey: ["orders"] });
-      setAnnounce(t("orders.moved", { code: o.pickupCode, status: statusLabel(t, o.status) }));
+      setAnnounce(t("orders.moved", { code: o.pickupCode, status: orderStatusLabel(t, o.status) }));
     },
     onError: (e) => show(describeApiError(e, t("orders.moveFailed")), "error"),
   });
@@ -82,7 +74,7 @@ export default function OrdersPage() {
       setOver(null);
       if (!o || o.status === col) return;
       if (col === "COLLECTED") return setCollecting(o);
-      if (!ALLOWED[o.status]?.includes(col)) return show(t("orders.invalidMove", { from: statusLabel(t, o.status), to: statusLabel(t, col) }), "error");
+      if (!ALLOWED[o.status]?.includes(col)) return show(t("orders.invalidMove", { from: orderStatusLabel(t, o.status), to: orderStatusLabel(t, col) }), "error");
       move.mutate({ id: o.id, status: col });
     },
     [drag, orders, move, show, t]
@@ -167,7 +159,7 @@ export default function OrdersPage() {
                           className="flex-1 !px-3 !py-1.5 text-xs"
                           onClick={() => (NEXT[o.status] === "COLLECTED" ? setCollecting(o) : move.mutate({ id: o.id, status: NEXT[o.status]! }))}
                         >
-                          {NEXT[o.status] === "COLLECTED" ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {o.paid ? t("orders.handOver") : t("orders.handOverBill")}</> : <>{t("orders.moveTo", { status: NEXT[o.status] ? statusLabel(t, NEXT[o.status]!) : "" })} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></>}
+                          {NEXT[o.status] === "COLLECTED" ? <><CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {o.paid ? t("orders.handOver") : t("orders.handOverBill")}</> : <>{t("orders.moveTo", { status: NEXT[o.status] ? orderStatusLabel(t, NEXT[o.status]!) : "" })} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></>}
                         </Button>
                         <Button variant="ghost" aria-label={t("orders.cancelAria", { code: o.pickupCode })} className="!px-2.5 !py-1.5" onClick={() => move.mutate({ id: o.id, status: "CANCELLED" })}>
                           <XCircle className="h-4 w-4 text-danger" aria-hidden="true" />
@@ -244,7 +236,7 @@ function CollectDialog({ order, sym, onClose, onDone }: { order: Order; sym: str
           <>
             <div className="grid grid-cols-3 gap-2">
               {(["CASH", "UPI", "CARD"] as const).map((m) => (
-                <button key={m} type="button" onClick={() => setMethod(m)} className={`rounded-lg border px-3 py-2 text-sm font-medium ${method === m ? "border-brand bg-brand text-brand-foreground" : "border-border"}`}>{methodLabel(t, m)}</button>
+                <button key={m} type="button" onClick={() => setMethod(m)} className={`rounded-lg border px-3 py-2 text-sm font-medium ${method === m ? "border-brand bg-brand text-brand-foreground" : "border-border"}`}>{paymentMethodLabel(t, m)}</button>
               ))}
             </div>
             {method === "CASH" && (

@@ -17,14 +17,9 @@ import { api } from "@/lib/api";
 import { can, isFranchisor } from "@/lib/perm";
 import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { useTranslation } from "@/components/I18nProvider";
-import { orderStatusKey } from "@/lib/enumLabels";
+import { orderStatusLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 import type { Order } from "@/lib/types";
-
-const statusLabel = (t: (key: TranslationKey) => string, status: string) => {
-  const key = orderStatusKey(status);
-  return key ? t(key) : status.toLowerCase();
-};
 
 const SalesCharts = dynamic(() => import("@/components/SalesCharts").then((m) => m.SalesCharts), { ssr: false, loading: () => <div className="h-64 animate-pulse rounded-2xl bg-surface-muted" /> });
 
@@ -119,7 +114,7 @@ export default function DashboardPage() {
 
         <ListCard i={6} span="lg:col-span-4" title={t("dashboard.lowInventory")} href="/inventory" empty={t("dashboard.allAbove", { threshold: lowStock?.threshold ?? 5 })} rows={(lowStock?.products ?? []).slice(0, 6).map((p) => ({ k: p.id, a: p.name, b: p.barcode, end: <Badge tone="warn">{t("dashboard.left", { count: Math.round(p.stock * 1000) / 1000 })}</Badge> }))} />
         {wantsOrders ? (
-          <ListCard i={7} span="lg:col-span-4" title={t("dashboard.onlineOrders")} href="/orders" empty={t("dashboard.noOpenOrders")} rows={(orders ?? []).slice(0, 6).map((o) => ({ k: o.id, a: o.customerName, b: `${o.pickupCode} · ${t("dashboard.items", { count: o.items.length })}`, end: <Badge tone={o.status === "READY" ? "good" : "brand"}>{statusLabel(t, o.status)}</Badge> }))} />
+          <ListCard i={7} span="lg:col-span-4" title={t("dashboard.onlineOrders")} href="/orders" empty={t("dashboard.noOpenOrders")} rows={(orders ?? []).slice(0, 6).map((o) => ({ k: o.id, a: o.customerName, b: `${o.pickupCode} · ${t("dashboard.items", { count: o.items.length })}`, end: <Badge tone={o.status === "READY" ? "good" : "brand"}>{orderStatusLabel(t, o.status)}</Badge> }))} />
         ) : (
           <ListCard i={7} span="lg:col-span-4" title={t("dashboard.recentInvoices")} href="/sales" empty={t("dashboard.noSales")} rows={(invoices ?? []).slice(0, 6).map((v) => ({ k: v.id, a: v.invoiceNumber, b: v.customerName, end: <span className="tabular text-sm font-semibold">{money(v.totalAmount)}</span> }))} />
         )}

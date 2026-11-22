@@ -7,6 +7,7 @@ const { readSignature } = require('./signatures');
 const { buildUpiUri } = require('./upi');
 const { drawQrPdf } = require('./verifactu/qr');
 
+const { formatMoney } = require('./format');
 const GREEN = '#0d3b28';
 const MUTED = '#66746b';
 const LINE = '#dfe6df';
@@ -40,7 +41,7 @@ async function buildInvoicePdf({ shop, invoice }) {
   const es = !!shop.vfEnabled; // Spain: IVA wording, the NIF and a simplified-invoice title instead of India's GST
   const sym = shop.currencySymbol || 'Rs.';
   // Core fonts have no ₹ glyph; the app's symbol for INR is already "Rs.".
-  const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
+  const money = (n) => formatMoney(sym, n);
 
   let qrPng = null;
   const balance = Math.max(0, invoice.dueAmount || 0);

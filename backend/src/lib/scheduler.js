@@ -7,8 +7,9 @@ const { totalsFor, overview, dayKey } = require('./reports');
 const { sendMail } = require('./mailer');
 
 const { getSettings } = require('./settings');
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const { httpError } = require('./http');
 
+const { esc } = require('./format');
 async function buildSummary(shop, start, end, label) {
   const to = dayKey(new Date(end.getTime() - 1));
   const o = await overview(dayKey(start), to);
@@ -35,7 +36,7 @@ async function buildSummary(shop, start, end, label) {
 
 async function sendReportNow(kind) {
   const shop = await getSettings();
-  if (!shop?.reportEmail) throw Object.assign(new Error('Set a report e-mail address first'), { status: 409 });
+  if (!shop?.reportEmail) throw httpError('Set a report e-mail address first', 409);
   const now = new Date();
   const sod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   let start, end, label;

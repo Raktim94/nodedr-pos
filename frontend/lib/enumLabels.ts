@@ -193,3 +193,20 @@ export function unitNameKey(code: string): TranslationKey | null {
       return null;
   }
 }
+
+// Display labels: the translated text when the value is known, otherwise the
+// raw value in a readable form (so a new server-side value never renders blank).
+type Translate = (key: TranslationKey) => string;
+const labeller = (keyOf: (value: string) => TranslationKey | null, fallback: (value: string) => string) => (t: Translate, value: string): string => {
+  const key = keyOf(value);
+  return key ? t(key) : fallback(value);
+};
+const asIs = (v: string) => v;
+const lower = (v: string) => v.toLowerCase();
+
+export const paymentMethodLabel = labeller(paymentMethodKey, asIs);
+export const roleLabel = labeller(roleKey, asIs);
+export const orderStatusLabel = labeller(orderStatusKey, lower);
+export const purchaseOrderStatusLabel = labeller(purchaseOrderStatusKey, lower);
+export const transferStatusLabel = labeller(transferStatusKey, lower);
+export const warrantyEventLabel = labeller(warrantyEventKey, (v) => v.charAt(0) + v.slice(1).toLowerCase());

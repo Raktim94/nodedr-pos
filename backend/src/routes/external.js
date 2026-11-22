@@ -14,7 +14,7 @@ const verifactu = require('../lib/verifactu/service');
 const { lookupWarranty } = require('../lib/warranty');
 
 const { getSettings } = require('../lib/settings');
-const { publicBaseUrl } = require('../lib/http');
+const { publicBaseUrl, httpError } = require('../lib/http');
 const { writeStockLevel } = require('../lib/stock');
 const router = express.Router();
 
@@ -138,7 +138,7 @@ router.patch('/products/:sku/stock', requireApiKey({ scope: 'stock:write' }), as
   try {
     const updated = await prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { sku: req.params.sku } });
-      if (!product) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
+      if (!product) throw httpError('No product linked to that SKU', 404);
 
       const nextStock = set !== undefined ? set : product.stock + delta;
       return writeStockLevel(
@@ -232,7 +232,7 @@ router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res
     const products = await prisma.product.findMany({ where: { sku: { not: null }, OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] } });
     const items = p.data.items.map((i) => {
       const pr = products.find((x) => (i.sku && x.sku === i.sku) || (i.barcode && x.barcode === i.barcode));
-      if (!pr) throw Object.assign(new Error(`No product found for ${i.sku || i.barcode}`), { status: 404 });
+      if (!pr) throw httpError(`No product found for ${i.sku || i.barcode}`, 404);
       return { productId: pr.id, quantity: i.quantity };
     });
     const { order, deduplicated } = await orders.createOrder({ ...p.data, items, channel: 'API', apiKeyId: req.apiKey.id });

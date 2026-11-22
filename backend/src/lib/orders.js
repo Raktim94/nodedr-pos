@@ -20,10 +20,10 @@ const { notifyEvent, notifyStockChange } = require('./webhooks');
 
 const { getSettings } = require('./settings');
 const { lacksStock } = require('./stock');
+const { httpError } = require('./http');
 const OPEN = ['NEW', 'PACKING', 'READY'];
 const NEXT = { NEW: ['PACKING', 'READY', 'CANCELLED'], PACKING: ['READY', 'CANCELLED'], READY: ['CANCELLED'] };
 
-const err = (m, status = 400) => Object.assign(new Error(m), { status });
 
 // 6 chars, no look-alikes (0/O, 1/I) — read out loud or scanned as Code128.
 function pickupCode() {
@@ -43,7 +43,7 @@ async function reservedByProduct(tx, productIds) {
 /** items: [{ productId, quantity }] — prices always come from the catalog. */
 async function createOrder(input) {
   const { channel, externalId = null, fulfilment = 'PICKUP', customer = {}, items, note = null, paid = false, paymentRef = null, apiKeyId = null, integrationId = null } = input;
-  if (!items?.length) throw err('Order has no items');
+  if (!items?.length) throw httpError('Order has no items');
   // externalId is only unique within its sender (API key / connected store), so
   // one key can neither read nor squat another key's order ids.
   const dedupScope = apiKeyId ? `key:${apiKeyId}` : integrationId ? `store:${integrationId}` : '';
@@ -61,10 +61,10 @@ async function createOrder(input) {
     const lines = [];
     for (const it of items) {
       const p = map.get(it.productId);
-      if (!p) throw err(`Product ${it.productId} not found`, 404);
+      if (!p) throw httpError(`Product ${it.productId} not found`, 404);
       const available = r3(p.stock - (reserved.get(p.id) || 0));
       if (lacksStock(settings, available, it.quantity)) {
-        throw err(`Not enough stock for "${p.name}" (available ${available})`, 409);
+        throw httpError(`Not enough stock for "${p.name}" (available ${available})`, 409);
       }
       lines.push({ productId: p.id, name: p.name, quantity: it.quantity, price: effectivePrice(p) });
     }
@@ -106,8 +106,8 @@ function publicOrder(o) {
 
 async function setStatus(id, status) {
   const o = await prisma.order.findUnique({ where: { id }, include: { items: true } });
-  if (!o) throw err('Order not found', 404);
-  if (!(NEXT[o.status] || []).includes(status)) throw err(`Cannot move an order from ${o.status} to ${status}`, 409);
+  if (!o) throw httpError('Order not found', 404);
+  if (!(NEXT[o.status] || []).includes(status)) throw httpError(`Cannot move an order from ${o.status} to ${status}`, 409);
   const updated = await prisma.order.update({ where: { id }, data: { status }, include: { items: true } });
   emitOrderEvent('order.updated', updated, o.status);
   return updated;
@@ -122,9 +122,9 @@ async function setStatus(id, status) {
  */
 async function collect(id, { bill, paymentMethod = 'CASH', amountPaid = 0, serials = {}, user } = {}) {
   const o = await prisma.order.findUnique({ where: { id }, include: { items: true } });
-  if (!o) throw err('Order not found', 404);
-  if (o.status === 'COLLECTED') throw err('Order was already collected', 409);
-  if (o.status === 'CANCELLED') throw err('Order is cancelled', 409);
+  if (!o) throw httpError('Order not found', 404);
+  if (o.status === 'COLLECTED') throw httpError('Order was already collected', 409);
+  if (o.status === 'CANCELLED') throw httpError('Order is cancelled', 409);
   const doBill = bill === undefined ? !o.paid : bill;
 
   if (!doBill) return handOverWithoutBill(o);
@@ -134,7 +134,7 @@ async function collect(id, { bill, paymentMethod = 'CASH', amountPaid = 0, seria
   // bill — and decrement stock — twice. Only the caller whose conditional
   // update flips the row proceeds; a failed bill releases the claim.
   const claimed = await prisma.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
-  if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
+  if (claimed.count !== 1) throw httpError('Order was already collected or cancelled', 409);
   try {
     return await billClaimedOrder(o, { paymentMethod, amountPaid, serials, user });
   } catch (e) {
@@ -168,13 +168,13 @@ async function handOverWithoutBill(o) {
   const changed = [];
   const updated = await prisma.$transaction(async (tx) => {
     const claimed = await tx.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
-    if (claimed.count !== 1) throw err('Order was already collected or cancelled', 409);
+    if (claimed.count !== 1) throw httpError('Order was already collected or cancelled', 409);
     const settings = await getSettings(tx);
     for (const it of o.items) {
       const p = await tx.product.findUnique({ where: { id: it.productId } });
       if (!p) continue; // product deleted since the order — nothing to take out
       if (lacksStock(settings, p.stock, it.quantity)) {
-        throw err(`Not enough stock for "${p.name}" to hand over (have ${p.stock})`, 409);
+        throw httpError(`Not enough stock for "${p.name}" to hand over (have ${p.stock})`, 409);
       }
       const after = await tx.product.update({ where: { id: p.id }, data: { stock: { decrement: it.quantity } } });
       if (after.sku) changed.push({ sku: after.sku, stock: after.stock });

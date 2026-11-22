@@ -11,6 +11,7 @@ const verifactu = require('./verifactu/service');
 
 const { getSettings } = require('./settings');
 const { lacksStock } = require('./stock');
+const { httpError } = require('./http');
 const checkoutSchema = z
   .object({
     customerName: z.string().trim().max(200).optional().or(z.literal('')),
@@ -129,20 +130,20 @@ async function collectReturns(tx, returns) {
   const returnSerials = [];
   for (const grp of returns) {
     const original = await tx.invoice.findUnique({ where: { id: grp.invoiceId }, include: { items: true } });
-    if (!original) throw Object.assign(new Error(`Invoice ${grp.invoiceId} not found for return`), { status: 404 });
+    if (!original) throw httpError(`Invoice ${grp.invoiceId} not found for return`, 404);
     const itemMap = new Map(original.items.map((it) => [it.id, it]));
     const lines = [];
     let groupRefund = 0;
     for (const rl of grp.items) {
       const invItem = itemMap.get(rl.invoiceItemId);
-      if (!invItem) throw Object.assign(new Error('Return item not found on that invoice'), { status: 404 });
+      if (!invItem) throw httpError('Return item not found on that invoice', 404);
       const already = await tx.returnItem.aggregate({
         where: { invoiceItemId: invItem.id },
         _sum: { quantity: true },
       });
       const returnable = invItem.quantity - (already._sum.quantity || 0);
       if (rl.quantity > returnable + 1e-9) {
-        throw Object.assign(new Error(`Only ${returnable} of "${invItem.name}" can still be returned`), { status: 409 });
+        throw httpError(`Only ${returnable} of "${invItem.name}" can still be returned`, 409);
       }
       const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
       const refund = rl.refundAmount != null ? round2(Math.min(Math.max(0, rl.refundAmount), maxRefund)) : maxRefund;
@@ -155,7 +156,7 @@ async function collectReturns(tx, returns) {
         const sers = new Set((rl.serials || []).map(normalizeSerial));
         const back = soldUnits.filter((u) => sers.has(u.serial));
         if (sers.size !== rl.quantity || back.length !== sers.size) {
-          throw Object.assign(new Error(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
+          throw httpError(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`, 400);
         }
         returnSerials.push(...back.map((u) => ({ id: u.id, invoiceId: original.id })));
       }
@@ -189,17 +190,17 @@ async function performCheckoutOnce(body, ctx = {}) {
   let verifiedTerminal = null;
   if (body.terminalPaymentId) {
     if (await prisma.invoice.findFirst({ where: { paymentRef: body.terminalPaymentId }, select: { id: true } })) {
-      throw Object.assign(new Error('That card payment was already used for another bill'), { status: 409 });
+      throw httpError('That card payment was already used for another bill', 409);
     }
     const st = await terminal.getStatus(body.terminalPaymentId);
-    if (st.status !== 'PAID') throw Object.assign(new Error(`Card payment is not completed (${st.status})`), { status: 402 });
+    if (st.status !== 'PAID') throw httpError(`Card payment is not completed (${st.status})`, 402);
     verifiedTerminal = { id: body.terminalPaymentId, amount: st.amount };
   }
 
   {
     const result = await prisma.$transaction(async (tx) => {
       const settings = await getSettings(tx);
-      if (!settings) throw Object.assign(new Error('Shop settings not configured'), { status: 400 });
+      if (!settings) throw httpError('Shop settings not configured', 400);
 
       const productIds = body.items.map((i) => i.productId);
       const products = await tx.product.findMany({ where: { id: { in: productIds } } });
@@ -208,7 +209,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       const lines = [];
       for (const item of body.items) {
         const product = productMap.get(item.productId);
-        if (!product) throw Object.assign(new Error(`Product ${item.productId} not found`), { status: 404 });
+        if (!product) throw httpError(`Product ${item.productId} not found`, 404);
         if (lacksStock(settings, product.stock, item.quantity)) {
           throw Object.assign(
             new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${item.quantity})`),
@@ -230,19 +231,19 @@ async function performCheckoutOnce(body, ctx = {}) {
         const product = lines[i].product;
         if (!tracking) continue; // feature off: serials are ignored, the product sells like any other
         if (!product.trackSerial) {
-          if (item.serials?.length) throw Object.assign(new Error(`"${product.name}" does not use IMEI / serial numbers`), { status: 400 });
+          if (item.serials?.length) throw httpError(`"${product.name}" does not use IMEI / serial numbers`, 400);
           continue;
         }
         const wanted = (item.serials || []).map((s) => {
           const v = validateSerial(s);
-          if (!v.ok) throw Object.assign(new Error(v.error), { status: 400 });
+          if (!v.ok) throw httpError(v.error, 400);
           return v.serial;
         });
         if (wanted.length !== item.quantity) {
-          throw Object.assign(new Error(`"${product.name}" needs ${item.quantity} IMEI / serial number(s), got ${wanted.length}`), { status: 400 });
+          throw httpError(`"${product.name}" needs ${item.quantity} IMEI / serial number(s), got ${wanted.length}`, 400);
         }
         for (const s of wanted) {
-          if (seenSerials.has(s)) throw Object.assign(new Error(`IMEI / serial ${s} appears twice on this bill`), { status: 400 });
+          if (seenSerials.has(s)) throw httpError(`IMEI / serial ${s} appears twice on this bill`, 400);
           seenSerials.add(s);
         }
         const units = await tx.serialUnit.findMany({ where: { serial: { in: wanted } }, include: { invoiceItem: { select: { invoice: { select: { invoiceNumber: true } } } } } });
@@ -251,9 +252,9 @@ async function performCheckoutOnce(body, ctx = {}) {
           const u = existing.get(s);
           if (!u) continue;
           if (u.status === 'SOLD') {
-            throw Object.assign(new Error(`IMEI / serial ${s} was already sold${u.invoiceItem ? ` on ${u.invoiceItem.invoice.invoiceNumber}` : ''} — return it first`), { status: 409 });
+            throw httpError(`IMEI / serial ${s} was already sold${u.invoiceItem ? ` on ${u.invoiceItem.invoice.invoiceNumber}` : ''} — return it first`, 409);
           }
-          if (u.productId !== product.id) throw Object.assign(new Error(`IMEI / serial ${s} belongs to a different product`), { status: 409 });
+          if (u.productId !== product.id) throw httpError(`IMEI / serial ${s} belongs to a different product`, 409);
         }
         serialPlan.push({ lineIndex: i, serials: wanted, existing });
       }
@@ -303,7 +304,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       // "spending" more of it than the purchase is worth.
       let creditApplied = 0;
       if (body.creditApplied > 0) {
-        if (!customer) throw Object.assign(new Error('A customer is required to use store credit'), { status: 400 });
+        if (!customer) throw httpError('A customer is required to use store credit', 400);
         creditApplied = round2(Math.min(body.creditApplied, customer.creditBalance, Math.max(0, saleTotal - returnValue)));
       }
 
@@ -316,7 +317,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       if (grossRefund > 0) {
         refundMode = body.refundMode;
         if (refundMode === 'CREDIT' && !customer) {
-          throw Object.assign(new Error('A customer is required to keep a refund as store credit'), { status: 400 });
+          throw httpError('A customer is required to keep a refund as store credit', 400);
         }
       }
 
@@ -325,7 +326,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       let duePaidIntent = 0;
       if (body.duePaid > 0) {
         if (!customer) {
-          throw Object.assign(new Error('A customer (with phone number) is required to clear a previous due'), { status: 400 });
+          throw httpError('A customer (with phone number) is required to clear a previous due', 400);
         }
         duePaidIntent = round2(Math.min(body.duePaid, customer.totalDue));
       }
@@ -340,7 +341,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       // so a due-clear requested on a pure-return bill (nothing to "tender")
       // silently never applied — the balance just sat there unchanged.
       if (verifiedTerminal && verifiedTerminal.amount + 0.005 < payable) {
-        throw Object.assign(new Error(`Card payment (${verifiedTerminal.amount}) is less than the bill (${payable})`), { status: 402 });
+        throw httpError(`Card payment (${verifiedTerminal.amount}) is less than the bill (${payable})`, 402);
       }
       const paymentMethod = verifiedTerminal ? 'CARD' : body.paymentMethod;
       const tenderedCash = paymentMethod === 'CASH' ? body.amountPaid : payable + duePaidIntent;
@@ -352,7 +353,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       let fxFields = {};
       if (body.payCurrency && body.payCurrency !== settings.currencyCode) {
         const rate = parseRates(settings)[body.payCurrency];
-        if (!rate) throw Object.assign(new Error(`No exchange rate set for ${body.payCurrency}`), { status: 400 });
+        if (!rate) throw httpError(`No exchange rate set for ${body.payCurrency}`, 400);
         fxFields = { payCurrency: body.payCurrency, payRate: rate, payAmount: round2(amountPaid / rate) };
       }
       const afterGoods = round2(Math.max(0, pool - amountPaid));

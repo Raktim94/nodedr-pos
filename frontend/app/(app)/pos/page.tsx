@@ -31,6 +31,7 @@ import { TerminalCharge } from "@/components/pos/TerminalCharge";
 import { ShareActions } from "@/components/pos/ShareActions";
 import { paymentMethodKey } from "@/lib/enumLabels";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 const FRACTIONAL_UNITS = ["KGS", "GMS", "LTR", "MLT", "MTR", "CMS", "SQM", "CBM"];
 const isFractional = (p: Product) => !p.trackSerial && !!p.unit && FRACTIONAL_UNITS.includes(p.unit.toUpperCase());
@@ -79,11 +80,7 @@ export default function PosPage() {
   // hit the API on every keystroke; setState lives in the timeout callback (not
   // the effect body) to satisfy the React Compiler lint rules.
   const [manualQuery, setManualQuery] = useState("");
-  const [committedQuery, setCommittedQuery] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setCommittedQuery(manualQuery.trim()), 200);
-    return () => clearTimeout(t);
-  }, [manualQuery]);
+  const committedQuery = useDebouncedValue(manualQuery.trim(), 200);
   const { data: manualResults } = useProducts(committedQuery);
 
   const sym = currencySymbolOf(shop);
@@ -502,7 +499,7 @@ export default function PosPage() {
                 </button>
               )}
             </div>
-            {committedQuery && (
+            {manualQuery.trim() && committedQuery && (
               <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-surface shadow-lg">
                 {!manualResults ? (
                   <p className="px-3 py-2.5 text-sm text-foreground/50">{t("pos.searching")}</p>
@@ -519,7 +516,6 @@ export default function PosPage() {
                         onClick={() => {
                           addToCart(p);
                           setManualQuery("");
-                          setCommittedQuery("");
                         }}
                         className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
                       >

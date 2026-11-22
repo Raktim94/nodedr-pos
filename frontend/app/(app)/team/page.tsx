@@ -11,14 +11,9 @@ import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useCreateUser, useMe, useUpdateUser, useUsers } from "@/hooks/useAuth";
 import { useTranslation } from "@/components/I18nProvider";
 import { describeApiError } from "@/lib/api";
-import { roleKey } from "@/lib/enumLabels";
+import { roleLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 import type { AuthUser, Permission, Role } from "@/lib/types";
-
-const roleLabel = (t: (key: TranslationKey) => string, role: string) => {
-  const key = roleKey(role);
-  return key ? t(key) : role;
-};
 
 const PERMS: { key: Permission; label: TranslationKey; hint: TranslationKey | "" }[] = [
   { key: "discount", label: "team.perm.discount", hint: "team.perm.discountHint" },

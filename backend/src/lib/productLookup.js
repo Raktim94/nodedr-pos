@@ -6,6 +6,7 @@
 // there is no CORS/CSP exposure and the shop's staff never talk to a third
 // party directly. Results are only ever *suggestions*: nothing is written to
 // the catalog until a user reviews and saves them in the product form.
+const { httpError } = require('./http');
 const SOURCES = [
   { id: 'food', label: 'Open Food Facts', host: 'world.openfoodfacts.org' },
   { id: 'beauty', label: 'Open Beauty Facts', host: 'world.openbeautyfacts.org' },
@@ -111,8 +112,8 @@ async function queryOne(source, q, mode, fetchImpl) {
  */
 async function lookupProducts(rawQuery, { fetchImpl = fetch } = {}) {
   const q = String(rawQuery || '').trim();
-  if (q.length < 2) throw Object.assign(new Error('Type at least 2 characters to search'), { status: 400 });
-  if (q.length > 100) throw Object.assign(new Error('Search text is too long'), { status: 400 });
+  if (q.length < 2) throw httpError('Type at least 2 characters to search', 400);
+  if (q.length > 100) throw httpError('Search text is too long', 400);
 
   const mode = detectMode(q);
   const key = `${mode}:${q.toLowerCase()}`;

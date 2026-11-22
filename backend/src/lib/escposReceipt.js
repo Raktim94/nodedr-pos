@@ -19,6 +19,7 @@
 
 const { escposQr } = require('./verifactu/qr');
 
+const { formatMoney } = require('./format');
 const ESC = 0x1b;
 const GS = 0x1d;
 
@@ -113,7 +114,7 @@ function buildReceiptEscPos({ shop, invoice, width = 42 }) {
   // printer's default codepage can't render those reliably, but a 3-letter
   // code always prints cleanly and stays unambiguous.
   const sym = shop.currencySymbol && ASCII_ONLY.test(shop.currencySymbol) ? shop.currencySymbol : shop.currencyCode || '';
-  const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
+  const money = (n) => formatMoney(sym, n);
   const date = new Date(invoice.createdAt || Date.now());
 
   // Each entry is `{ text, bold }` rather than a plain string so the shop

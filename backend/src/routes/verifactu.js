@@ -3,6 +3,7 @@ const multer = require('multer');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const vf = require('../lib/verifactu/service');
 
+const { httpError } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
@@ -24,7 +25,7 @@ router.post(
   '/certificate',
   upload.single('file'),
   handle((req) => {
-    if (!req.file) throw Object.assign(new Error('Choose the .p12 or .pfx certificate file.'), { status: 400 });
+    if (!req.file) throw httpError('Choose the .p12 or .pfx certificate file.', 400);
     return vf.uploadCertificate(req.file.buffer, String(req.body?.password || ''));
   })
 );

@@ -15,17 +15,12 @@ import { isFranchisor } from "@/lib/perm";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
-import { transferStatusKey } from "@/lib/enumLabels";
+import { transferStatusLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 
 interface Overview { branches: { id: number; code: string; name: string; lastSyncAt: string | null; today: { revenue: number; bills: number }; week: { revenue: number; cost: number; bills: number } }[]; totals: { todayRevenue: number; weekRevenue: number }; trend: { day: string; revenue: number }[] }
 interface InvRow { barcode: string; name: string; category: string | null; branches: Record<number, number> }
 interface Transfer { id: number; fromBranchId: number; toBranchId: number; status: string; createdAt: string; items: { barcode: string; name: string; quantity: number }[] }
-
-const transferLabel = (t: (key: TranslationKey) => string, status: string) => {
-  const key = transferStatusKey(status);
-  return key ? t(key) : status.toLowerCase();
-};
 
 // Hub view: consolidated sales, stock across branches, and stock transfers.
 // Franchisor accounts see this read-only (buttons are hidden, the server
@@ -110,7 +105,7 @@ export default function BranchesPage() {
           {transfers.map((tr) => (
             <li key={tr.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
               <span>#{tr.id} · {branchName(tr.fromBranchId)} → {branchName(tr.toBranchId)} · {tr.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</span>
-              <span className="flex items-center gap-2"><Badge tone={tr.status === "RECEIVED" ? "good" : tr.status === "SHIPPED" ? "brand" : "neutral"}>{transferLabel(t, tr.status)}</Badge>
+              <span className="flex items-center gap-2"><Badge tone={tr.status === "RECEIVED" ? "good" : tr.status === "SHIPPED" ? "brand" : "neutral"}>{transferStatusLabel(t, tr.status)}</Badge>
                 {!readOnly && tr.status === "PENDING" && <Button variant="ghost" onClick={() => api.post(`/hub/transfers/${tr.id}/cancel`).then(() => qc.invalidateQueries({ queryKey: ["hub"] }))}>{t("branches.cancel")}</Button>}</span>
             </li>
           ))}

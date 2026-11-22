@@ -10,6 +10,7 @@ const { dayKey } = require('../lib/reports');
 const sync = require('../lib/sync');
 
 const { getSettings } = require('../lib/settings');
+const { httpError } = require('../lib/http');
 // ---- public ingest endpoint (branches push here) ----
 const ingest = express.Router();
 ingest.use(rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false }));
@@ -118,8 +119,8 @@ views.post('/transfers', ...adminOnly, async (req, res) => {
   const have = new Map(stock.map((s) => [s.barcode, s]));
   const items = p.data.items.map((i) => {
     const s = have.get(i.barcode);
-    if (!s) throw Object.assign(new Error(`${from.name} has no product ${i.barcode}`), { status: 404 });
-    if (s.stock < i.quantity) throw Object.assign(new Error(`${from.name} has only ${s.stock} of "${s.name}"`), { status: 409 });
+    if (!s) throw httpError(`${from.name} has no product ${i.barcode}`, 404);
+    if (s.stock < i.quantity) throw httpError(`${from.name} has only ${s.stock} of "${s.name}"`, 409);
     return { barcode: i.barcode, name: s.name, quantity: i.quantity };
   });
   const t = await prisma.transfer.create({ data: { fromBranchId: from.id, toBranchId: to.id, note: p.data.note || null, items: { create: items } }, include: { items: true } });

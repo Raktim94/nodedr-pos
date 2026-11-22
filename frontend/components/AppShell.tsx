@@ -42,16 +42,10 @@ import { useUpdateStatus } from "@/hooks/useUpdate";
 import { can, isAdmin, isFranchisor } from "@/lib/perm";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { useTranslation } from "@/components/I18nProvider";
-import { roleKey } from "@/lib/enumLabels";
+import { roleLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 import type { Permission } from "@/lib/types";
 import { currencySymbolOf } from "@/lib/format";
-
-const roleLabel = (t: (key: TranslationKey) => string, role: string | undefined) => {
-  if (!role) return "";
-  const key = roleKey(role);
-  return key ? t(key) : role;
-};
 
 type NavItem = { href: string; labelKey: TranslationKey; shortKey?: TranslationKey; icon: typeof LayoutDashboard; adminOnly?: boolean; perm?: Permission; hubOnly?: boolean; staffOnly?: boolean; primary?: boolean; serialOnly?: boolean };
 
@@ -282,7 +276,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="glass-panel absolute right-0 top-11 z-10 w-48 overflow-hidden rounded-xl bg-surface-elevated shadow-2xl">
                   <div className="border-b border-border-subtle px-3.5 py-3">
                     <p className="truncate text-sm font-medium text-foreground">{me?.name}</p>
-                    <p className="text-xs capitalize text-foreground-muted">{roleLabel(t, me?.role)}</p>
+                    <p className="text-xs capitalize text-foreground-muted">{roleLabel(t, me?.role ?? "")}</p>
                   </div>
                   {isAdmin(me) && (
                     <Link

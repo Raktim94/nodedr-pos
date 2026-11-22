@@ -5,6 +5,7 @@ const prisma = require('./prisma');
 const { round2 } = require('./pricing');
 
 const { getSettings } = require('./settings');
+const { httpError } = require('./http');
 const dayKey = (d) => {
   const x = new Date(d);
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
@@ -21,8 +22,8 @@ function parseRange(from, to, defaultDays = 30) {
     start = new Date(end);
     start.setDate(start.getDate() - defaultDays);
   }
-  if (!(start < end)) throw Object.assign(new Error('"from" must be before "to"'), { status: 400 });
-  if ((end - start) / 86400000 > 800) throw Object.assign(new Error('Range too large (max ~2 years)'), { status: 400 });
+  if (!(start < end)) throw httpError('"from" must be before "to"', 400);
+  if ((end - start) / 86400000 > 800) throw httpError('Range too large (max ~2 years)', 400);
   return { start, end };
 }
 
@@ -155,7 +156,7 @@ const csvCell = (v) => {
 const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 
 async function gstr1(month) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month || '')) throw Object.assign(new Error('month must be YYYY-MM'), { status: 400 });
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month || '')) throw httpError('month must be YYYY-MM', 400);
   const [y, m] = month.split('-').map(Number);
   const start = new Date(y, m - 1, 1);
   const end = new Date(y, m, 1);
@@ -233,7 +234,7 @@ function gstr1Csv(report, section) {
     docs: [['Nature of Document', 'Sr. No. From', 'Sr. No. To', 'Total Number', 'Cancelled'], ['Invoices for outward supply', report.docs.from || '', report.docs.to || '', report.docs.total, report.docs.cancelled]],
     cdn: [['Date', 'Original invoice', 'GSTIN', 'Credit note value'], ...report.creditNotes.map((r) => [r.date, r.originalInvoice, r.gstin || '', r.value])],
   };
-  if (!sections[section]) throw Object.assign(new Error('section must be b2b, b2cs, hsn, docs or cdn'), { status: 400 });
+  if (!sections[section]) throw httpError('section must be b2b, b2cs, hsn, docs or cdn', 400);
   return toCsv(sections[section]);
 }
 

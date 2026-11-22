@@ -102,10 +102,10 @@ function normalizeDiscount(data) {
     return data;
   }
   if (data.discountType === 'percent' && data.discountValue > 100) {
-    throw Object.assign(new Error('Percent discount cannot exceed 100'), { status: 400 });
+    throw httpError('Percent discount cannot exceed 100', 400);
   }
   if (data.discountType === 'amount' && data.sellingPrice != null && data.discountValue > data.sellingPrice) {
-    throw Object.assign(new Error('Flat discount cannot exceed the selling price'), { status: 400 });
+    throw httpError('Flat discount cannot exceed the selling price', 400);
   }
   return data;
 }
@@ -143,6 +143,7 @@ router.get('/low-stock', async (req, res) => {
 // `inCatalog` marks barcodes this shop already stocks.
 const lookupLimiter = require('express-rate-limit')({ windowMs: 60_000, limit: 30, standardHeaders: true, legacyHeaders: false });
 const { getSettings } = require('../lib/settings');
+const { httpError } = require('../lib/http');
 router.get('/lookup', requirePerm('inventory'), lookupLimiter, async (req, res) => {
   try {
     const out = await lookupProducts(req.query.q);

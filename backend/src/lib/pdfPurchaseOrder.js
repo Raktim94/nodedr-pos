@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 
+const { formatMoney } = require('./format');
 const GREEN = '#0d3b28';
 
 function buildPurchaseOrderPdf({ shop, order }) {
@@ -12,7 +13,7 @@ function buildPurchaseOrderPdf({ shop, order }) {
     const L = 40;
     const W = doc.page.width - 80;
     const sym = shop.currencySymbol || 'Rs.';
-    const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
+    const money = (n) => formatMoney(sym, n);
 
     doc.font('Helvetica-Bold').fontSize(18).fillColor(GREEN).text(shop.shopName, L, 40);
     doc.font('Helvetica').fontSize(9).fillColor('#66746b').text([shop.address1, shop.city, shop.state].filter(Boolean).join(', '));

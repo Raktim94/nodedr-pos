@@ -9,16 +9,10 @@ import { api, ApiError, describeApiError } from "@/lib/api";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
-import { warrantyEventKey } from "@/lib/enumLabels";
-import type { TranslationKey } from "@/lib/i18n";
+import { warrantyEventLabel } from "@/lib/enumLabels";
 import type { WarrantyResult } from "@/lib/types";
 
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—");
-const historyLabel = (t: (key: TranslationKey) => string, type: string) => {
-  const key = warrantyEventKey(type);
-  return key ? t(key) : type.charAt(0) + type.slice(1).toLowerCase();
-};
-
 // Scan (or type) an IMEI / serial number: who bought it, when, and whether it
 // is still under warranty. A scanner keystroke run works anywhere on the page.
 export default function WarrantyPage() {
@@ -90,7 +84,7 @@ export default function WarrantyPage() {
             <h2 className="mb-3 text-sm font-semibold">{t("warranty.history")}</h2>
             <ol className="space-y-2 border-l border-border pl-4">
               {w.history.map((h, i) => (
-                <li key={i} className="text-sm"><span className="font-medium">{historyLabel(t, h.type)}</span> <span className="text-foreground-muted">· {fmt(h.at)}{h.note ? ` · ${h.note}` : ""}</span></li>
+                <li key={i} className="text-sm"><span className="font-medium">{warrantyEventLabel(t, h.type)}</span> <span className="text-foreground-muted">· {fmt(h.at)}{h.note ? ` · ${h.note}` : ""}</span></li>
               ))}
             </ol>
           </section>

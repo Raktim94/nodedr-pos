@@ -4,6 +4,7 @@ const { checkoutSchema, performCheckout } = require('./checkout');
 const { receiptUrl } = require('./publicLink');
 const { qtySchema } = require('./qty');
 
+const { httpError } = require('./http');
 const billSchema = z.object({
   // Your own order id. Required: it makes the call idempotent — sending the
   // same externalRef twice returns the first bill instead of billing again.
@@ -77,7 +78,7 @@ async function createExternalBill(input, apiKey, baseUrl) {
   const byBarcode = new Map(products.map((p) => [p.barcode, p]));
   const items = b.items.map((i) => {
     const p = (i.sku && bySku.get(i.sku)) || (i.barcode && byBarcode.get(i.barcode));
-    if (!p) throw Object.assign(new Error(`No product found for ${i.sku || i.barcode}`), { status: 404 });
+    if (!p) throw httpError(`No product found for ${i.sku || i.barcode}`, 404);
     return { productId: p.id, quantity: i.quantity, serials: i.serials };
   });
 

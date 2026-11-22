@@ -5,15 +5,9 @@ import type { TooltipContentProps } from "recharts";
 import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { Card } from "@/components/ui/Card";
 import { useTranslation } from "@/components/I18nProvider";
-import { paymentMethodKey } from "@/lib/enumLabels";
+import { paymentMethodLabel } from "@/lib/enumLabels";
 import { useSalesAnalytics } from "@/hooks/useInvoices";
 import { formatMoney } from "@/lib/format";
-import type { TranslationKey } from "@/lib/i18n";
-
-const methodLabel = (t: (key: TranslationKey) => string, method: string) => {
-  const key = paymentMethodKey(method);
-  return key ? t(key) : method;
-};
 
 const PAYMENT_COLORS: Record<string, string> = {
   CASH: "var(--color-warning)",
@@ -133,7 +127,7 @@ export function SalesCharts({ sym }: { sym: string }) {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value, name) => [money(Number(value)), methodLabel(t, String(name))]}
+                    formatter={(value, name) => [money(Number(value)), paymentMethodLabel(t, String(name))]}
                     contentStyle={{
                       background: "var(--color-surface-elevated)",
                       border: "1px solid var(--color-border-subtle)",
@@ -158,7 +152,7 @@ export function SalesCharts({ sym }: { sym: string }) {
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ background: PAYMENT_COLORS[m.method] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length] }}
                     />
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">{methodLabel(t, m.method)}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">{paymentMethodLabel(t, m.method)}</span>
                     <span className="shrink-0 text-foreground-muted">{m.count}×</span>
                     <span className="w-11 shrink-0 text-right text-foreground-muted">{pct.toFixed(0)}%</span>
                     <span className="w-20 shrink-0 text-right font-medium text-foreground">{money(m.revenue)}</span>

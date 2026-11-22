@@ -16,6 +16,7 @@ import { useTranslation } from "@/components/I18nProvider";
 import { useProducts } from "@/hooks/useProducts";
 import { effectivePrice } from "@/lib/quote";
 import { formatMoney } from "@/lib/format";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 const SHORTCUTS = [
   { href: "/dashboard", labelKey: "globalSearch.navDashboard", icon: LayoutDashboard },
@@ -35,12 +36,7 @@ export function GlobalSearch({ onClose, sym }: { onClose: () => void; sym: strin
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
-  const [committed, setCommitted] = useState("");
-
-  useEffect(() => {
-    const t = setTimeout(() => setCommitted(query.trim()), 200);
-    return () => clearTimeout(t);
-  }, [query]);
+  const committed = useDebouncedValue(query.trim(), 200);
 
   const { data: results } = useProducts(committed);
 

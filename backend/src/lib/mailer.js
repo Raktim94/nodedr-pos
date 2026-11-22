@@ -3,6 +3,7 @@ const prisma = require('./prisma');
 const { decryptJson } = require('./secretBox');
 
 const { getSettings } = require('./settings');
+const { httpError } = require('./http');
 // Builds a transport from the encrypted SMTP settings. Returns null when
 // e-mail isn't configured — callers treat that as "feature off", not an error.
 async function getTransport() {
@@ -24,7 +25,7 @@ async function getTransport() {
 
 async function sendMail({ to, subject, html, text }) {
   const t = await getTransport();
-  if (!t) throw Object.assign(new Error('E-mail (SMTP) is not configured'), { status: 409 });
+  if (!t) throw httpError('E-mail (SMTP) is not configured', 409);
   await t.transport.sendMail({ from: t.from, to, subject, html, text });
 }
 

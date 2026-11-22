@@ -207,8 +207,6 @@ test('certificate: wrong password refused, secrets never returned, XML exports e
   const xml = (await admin.get('/api/verifactu/export.xml')).data.toString();
   const count = (await records()).length;
   assert.equal((xml.match(/<sfLR:RegistroFactura>/g) || []).length, count);
-  // lets a developer feed the output to AEAT's XSD (see docs/verifactu.md)
-  if (process.env.VERIFACTU_XML_OUT) require('node:fs').writeFileSync(process.env.VERIFACTU_XML_OUT, xml);
   assert.match(xml, /<sf:NombreRazon>Bar &amp; Grill SL<\/sf:NombreRazon><sf:NIF>B12345678<\/sf:NIF>/);
 });
 

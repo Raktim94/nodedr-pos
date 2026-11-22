@@ -9,6 +9,7 @@ const { qtySchema } = require('../lib/qty');
 const verifactu = require('../lib/verifactu/service');
 
 const { getSettings } = require('../lib/settings');
+const { httpError } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth, requirePerm('returns'));
 
@@ -46,14 +47,14 @@ router.post('/', requirePasswordConfirm, async (req, res) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findUnique({ where: { id: body.invoiceId }, include: { items: true } });
-      if (!invoice) throw Object.assign(new Error('Invoice not found'), { status: 404 });
+      if (!invoice) throw httpError('Invoice not found', 404);
 
       const itemMap = new Map(invoice.items.map((it) => [it.id, it]));
       const returnLines = [];
       for (const line of body.items) {
         const invoiceItem = itemMap.get(line.invoiceItemId);
         if (!invoiceItem || invoiceItem.invoiceId !== invoice.id) {
-          throw Object.assign(new Error('Invoice item not found on this invoice'), { status: 404 });
+          throw httpError('Invoice item not found on this invoice', 404);
         }
         const alreadyReturned = await tx.returnItem.aggregate({
           where: { invoiceItemId: invoiceItem.id },
@@ -77,7 +78,7 @@ router.post('/', requirePasswordConfirm, async (req, res) => {
           const sers = new Set((line.serials || []).map(normalizeSerial));
           units = soldUnits.filter((u) => sers.has(u.serial));
           if (sers.size !== line.quantity || units.length !== sers.size) {
-            throw Object.assign(new Error(`Returning "${invoiceItem.name}": enter the ${line.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
+            throw httpError(`Returning "${invoiceItem.name}": enter the ${line.quantity} IMEI / serial number(s) being returned (from this bill)`, 400);
           }
         }
         returnLines.push({ invoiceItem, quantity: line.quantity, refundAmount, units });
@@ -87,7 +88,7 @@ router.post('/', requirePasswordConfirm, async (req, res) => {
 
       if (body.refundMethod === 'DUE_ADJUST') {
         if (!invoice.customerId) {
-          throw Object.assign(new Error('This invoice has no customer to adjust a due for'), { status: 400 });
+          throw httpError('This invoice has no customer to adjust a due for', 400);
         }
       }
 

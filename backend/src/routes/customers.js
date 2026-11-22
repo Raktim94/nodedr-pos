@@ -5,7 +5,7 @@ const { requireAuth, requirePerm } = require('../middleware/auth');
 const { makePortalToken } = require('../lib/publicLink');
 const { round2 } = require('../lib/pricing');
 
-const { publicBaseUrl } = require('../lib/http');
+const { publicBaseUrl, httpError } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth);
 
@@ -136,10 +136,10 @@ router.post('/:id/settle-due', requirePerm('customers'), async (req, res) => {
   try {
     const customer = await prisma.$transaction(async (tx) => {
       const existing = await tx.customer.findUnique({ where: { id } });
-      if (!existing) throw Object.assign(new Error('Customer not found'), { status: 404 });
+      if (!existing) throw httpError('Customer not found', 404);
 
       const amount = Math.min(parsed.data.amount, existing.totalDue);
-      if (amount <= 0) throw Object.assign(new Error('This customer has no outstanding due'), { status: 400 });
+      if (amount <= 0) throw httpError('This customer has no outstanding due', 400);
 
       await tx.customerDuePayment.create({
         data: { customerId: id, amount, note: parsed.data.note || null },

@@ -14,8 +14,7 @@ import { useToast } from "@/components/Toast";
 import { Select } from "@/components/ui/Select";
 import { useProducts } from "@/hooks/useProducts";
 import { useTranslation } from "@/components/I18nProvider";
-import { purchaseOrderStatusKey } from "@/lib/enumLabels";
-import type { TranslationKey } from "@/lib/i18n";
+import { purchaseOrderStatusLabel } from "@/lib/enumLabels";
 import type { Supplier } from "@/lib/types";
 
 interface ReorderGroup { supplierId: number | null; supplierName: string; items: { productId: number; name: string; stock: number; reorderPoint: number; unit: string | null; unitCost: number; suggestedQty: number }[] }
@@ -23,11 +22,6 @@ interface PO { id: number; number: string; status: "DRAFT" | "SENT" | "RECEIVED"
 interface PODetail extends PO { items: { id: number; productId: number; name: string; quantity: number; unitCost: number; receivedQty: number }[] }
 
 const tone = { DRAFT: "neutral", SENT: "brand", RECEIVED: "good", CANCELLED: "bad" } as const;
-
-const statusLabel = (t: (key: TranslationKey) => string, status: string) => {
-  const key = purchaseOrderStatusKey(status);
-  return key ? t(key) : status.toLowerCase();
-};
 
 export default function PurchasingPage() {
   const { data: shop } = useShopSettings();
@@ -93,7 +87,7 @@ export default function PurchasingPage() {
                 <tr key={o.id}>
                   <td className="p-3 font-medium">{o.number}<div className="text-xs font-normal text-foreground-muted">{new Date(o.createdAt).toLocaleDateString()} · {t("purchasing.itemsCount", { count: o._count.items })}</div></td>
                   <td className="p-3">{o.supplier.name}</td>
-                  <td className="p-3"><Badge tone={tone[o.status]}>{statusLabel(t, o.status)}</Badge></td>
+                  <td className="p-3"><Badge tone={tone[o.status]}>{purchaseOrderStatusLabel(t, o.status)}</Badge></td>
                   <td className="tabular p-3 text-right">{formatMoney(o.totalCost, sym)}</td>
                   <td className="p-3"><div className="flex justify-end gap-1.5">
                     <a href={`/api/purchasing/orders/${o.id}/pdf`} download><Button variant="ghost" aria-label={t("purchasing.downloadPdf", { number: o.number })}><FileDown className="h-4 w-4" aria-hidden="true" /></Button></a>

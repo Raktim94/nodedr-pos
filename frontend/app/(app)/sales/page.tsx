@@ -12,16 +12,10 @@ import { useShopSettings } from "@/hooks/useShopSettings";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
-import { paymentMethodKey } from "@/lib/enumLabels";
-import type { TranslationKey } from "@/lib/i18n";
+import { paymentMethodLabel } from "@/lib/enumLabels";
 import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import type { RefundMethod } from "@/lib/types";
-
-const methodLabel = (t: (key: TranslationKey) => string, method: string) => {
-  const key = paymentMethodKey(method);
-  return key ? t(key) : method;
-};
 
 export default function SalesPage() {
   const [search, setSearch] = useState("");
@@ -77,7 +71,7 @@ export default function SalesPage() {
                     <td className="py-2.5 pr-4 font-medium text-brand">{inv.invoiceNumber}</td>
                     <td className="py-2.5 pr-4 text-foreground/70">{new Date(inv.createdAt).toLocaleString()}</td>
                     <td className="py-2.5 pr-4 text-foreground/70">{inv.customerName}</td>
-                    <td className="py-2.5 pr-4 text-foreground/70">{methodLabel(t, inv.paymentMethod)}</td>
+                    <td className="py-2.5 pr-4 text-foreground/70">{paymentMethodLabel(t, inv.paymentMethod)}</td>
                     <td className="py-2.5 text-right font-medium text-foreground">{formatMoney(inv.totalAmount, sym)}</td>
                   </tr>
                 ))}
@@ -212,7 +206,7 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
                 <span>{t("sales.total")}</span>
                 <span>{money(invoice.totalAmount)}</span>
               </div>
-              <Line label={t("sales.paid", { method: methodLabel(t, invoice.paymentMethod) })} value={money(invoice.amountPaid)} />
+              <Line label={t("sales.paid", { method: paymentMethodLabel(t, invoice.paymentMethod) })} value={money(invoice.amountPaid)} />
               {invoice.changeDue > 0 && <Line label={t("sales.change")} value={money(invoice.changeDue)} />}
               {invoice.pointsEarned > 0 && <Line label={t("sales.pointsEarned")} value={`${invoice.pointsEarned}`} />}
             </div>
@@ -298,7 +292,7 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
                     <div key={r.id} className="flex items-center justify-between text-xs text-foreground/60">
                       <span>
                         {new Date(r.createdAt).toLocaleDateString()} · {t("sales.itemsSuffix", { count: r.items.reduce((s, i) => s + i.quantity, 0) })} ·{" "}
-                        {methodLabel(t, r.refundMethod)}
+                        {paymentMethodLabel(t, r.refundMethod)}
                       </span>
                       <span>{money(r.totalRefund)}</span>
                     </div>
