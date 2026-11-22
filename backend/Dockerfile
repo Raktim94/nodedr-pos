@@ -9,14 +9,14 @@
 # (verified in a scratch node:24-alpine container). None of this is needed
 # in the runtime stage — see the small libudev/libstdc++ runtime deps there
 # instead of this whole toolchain.
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 RUN apk add --no-cache openssl python3 make g++ linux-headers eudev-dev libusb-dev pkgconfig
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # --- builder stage: generate Prisma client ---
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 RUN apk add --no-cache openssl
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
@@ -26,7 +26,7 @@ COPY src ./src
 RUN npx prisma generate
 
 # --- runtime stage: slim image ---
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 # eudev-libs (libudev.so, used by `usb`'s libusb backend for device
 # enumeration) and libstdc++ (the addon is a C++ build) are the only
 # runtime-side additions for direct-USB printing — confirmed by copying a
