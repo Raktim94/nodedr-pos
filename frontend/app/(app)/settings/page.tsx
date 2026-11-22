@@ -29,6 +29,7 @@ import { FeaturesTab } from "./FeaturesTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { UpdatesTab } from "./UpdatesTab";
 import { VerifactuTab } from "./VerifactuTab";
+import { verifactuAvailable } from "@/lib/region";
 
 const TABS = [
   "Company",
@@ -113,7 +114,7 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-semibold text-foreground">{t("settings.title")}</h1>
 
       <div className="flex flex-wrap gap-1 border-b border-border">
-        {TABS.filter((tabId) => tabId !== "VERI*FACTU" || settings.currencyCode === "EUR").map((tabId) => (
+        {TABS.filter((tabId) => tabId !== "VERI*FACTU" || verifactuAvailable(settings)).map((tabId) => (
           <button
             key={tabId}
             onClick={() => setTab(tabId)}
@@ -139,7 +140,7 @@ export default function SettingsPage() {
       {tab === "Branches" && <SyncTab />}
       {tab === "Reference Data" && <ReferenceDataTab />}
       {tab === "Integrations" && <IntegrationsTab />}
-      {tab === "VERI*FACTU" && (settings.currencyCode === "EUR" ? <VerifactuTab /> : <p className="max-w-2xl text-sm text-foreground-muted">VERI*FACTU applies only to shops in Spain, which invoice in euros. Set the shop currency to EUR under Company to use it.</p>)}
+      {tab === "VERI*FACTU" && (verifactuAvailable(settings) ? <VerifactuTab /> : <p className="max-w-2xl text-sm text-foreground-muted">VERI*FACTU applies only to shops in Spain, which invoice in euros. Set the shop currency to EUR under Company to use it.</p>)}
       {tab === "Password" && <PasswordTab />}
       {tab === "Staff" && <UsersPanel />}
       {tab === "Updates" && <UpdatesTab />}

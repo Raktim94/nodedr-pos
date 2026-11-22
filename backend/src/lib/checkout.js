@@ -271,6 +271,83 @@ function assertDiscountAllowed(user, computed) {
   }
 }
 
+// The units sold on this bill become SOLD (with their warranty clock) and the
+// units returned on it become RETURNED, each with an audit event.
+async function recordSerialMovements(tx, { serialPlan, returnSerials, lines, created, invoiceNumber }) {
+  const soldAt = new Date();
+  for (const plan of serialPlan) {
+    const invItem = created.items[plan.lineIndex];
+    const months = lines[plan.lineIndex].product.warrantyMonths || 0;
+    const warrantyEndsAt = months > 0 ? addMonths(soldAt, months) : null;
+    for (const serial of plan.serials) {
+      const prev = plan.existing.get(serial);
+      const unit = prev
+        ? await tx.serialUnit.update({ where: { id: prev.id }, data: { status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } })
+        : await tx.serialUnit.create({ data: { productId: lines[plan.lineIndex].product.id, serial, status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } });
+      await tx.serialEvent.create({ data: { serialId: unit.id, type: 'SOLD', invoiceId: created.id, note: invoiceNumber } });
+    }
+  }
+  for (const rs of returnSerials) {
+    await tx.serialUnit.update({ where: { id: rs.id }, data: { status: 'RETURNED' } });
+    await tx.serialEvent.create({ data: { serialId: rs.id, type: 'RETURNED', invoiceId: rs.invoiceId, note: invoiceNumber } });
+  }
+}
+
+// Persists the returns taken on this bill (audit trail + fiscal record).
+async function persistReturns(tx, { returnRecords, refundValue, refundMode, invoiceNumber, settings }) {
+  for (const rr of returnRecords) {
+    const createdReturn = await tx.return.create({
+      data: {
+        invoiceId: rr.invoiceId,
+        customerId: rr.customerId,
+        totalRefund: rr.groupRefund,
+        refundMethod: refundValue > 0 ? refundMode : 'BILL_OFFSET',
+        note: `Bill ${invoiceNumber}`,
+        items: { create: rr.lines },
+      },
+      include: { items: true },
+    });
+    await verifactu.recordReturn(tx, settings, createdReturn, rr.originalItems);
+  }
+}
+
+// Returned units go back on the shelf; sold units come off it.
+async function moveStock(tx, { sold, restock }) {
+  for (const [productId, qty] of restock) {
+    await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
+  }
+  for (const item of sold) {
+    await tx.product.update({ where: { id: item.productId }, data: { stock: { decrement: item.quantity } } });
+  }
+}
+
+// Running balances the POS reads back on the customer's next visit.
+async function updateCustomerBalances(tx, { customer, computed, dueAmount, previousDuePaid, refundMode, refundValue, creditApplied }) {
+  // totalDue ("udhaar") and creditBalance are the running balances the
+  // POS reads back on the customer's next visit. They used to be kept
+  // with Prisma `increment`, which performs the addition inside SQLite's
+  // REAL (float) column — so tiny binary rounding residue accumulated
+  // across many bills and a fully-paid customer could keep showing e.g.
+  // Rs. 0.00…03 still owing that never cleared, and reappeared on the
+  // next bill. Compute the new balances in JS and round to paise so the
+  // stored value is always clean (round2 collapses sub-paise noise to
+  // exactly 0). Safe read-modify-write: we're inside the checkout
+  // $transaction and already hold this customer row.
+  const newTotalDue = round2(customer.totalDue + dueAmount - previousDuePaid);
+  const creditDelta = (refundMode === 'CREDIT' ? refundValue : 0) - creditApplied;
+  const newCredit = round2(customer.creditBalance + creditDelta);
+  await tx.customer.update({
+    where: { id: customer.id },
+    data: {
+      loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
+      totalSpent: round2(customer.totalSpent + computed.totalAmount),
+      totalDue: newTotalDue,
+      creditBalance: newCredit,
+      visits: { increment: 1 },
+    },
+  });
+}
+
 async function performCheckoutOnce(body, ctx = {}) {
   // Idempotent API bills: a retry with the same (apiKey, externalRef)
   // returns the invoice already created instead of billing twice.
@@ -416,23 +493,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       // without it (and a failure to produce it rolls the whole bill back).
       await verifactu.recordSale(tx, settings, created);
 
-      const soldAt = new Date();
-      for (const plan of serialPlan) {
-        const invItem = created.items[plan.lineIndex];
-        const months = lines[plan.lineIndex].product.warrantyMonths || 0;
-        const warrantyEndsAt = months > 0 ? addMonths(soldAt, months) : null;
-        for (const serial of plan.serials) {
-          const prev = plan.existing.get(serial);
-          const unit = prev
-            ? await tx.serialUnit.update({ where: { id: prev.id }, data: { status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } })
-            : await tx.serialUnit.create({ data: { productId: lines[plan.lineIndex].product.id, serial, status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } });
-          await tx.serialEvent.create({ data: { serialId: unit.id, type: 'SOLD', invoiceId: created.id, note: invoiceNumber } });
-        }
-      }
-      for (const rs of returnSerials) {
-        await tx.serialUnit.update({ where: { id: rs.id }, data: { status: 'RETURNED' } });
-        await tx.serialEvent.create({ data: { serialId: rs.id, type: 'RETURNED', invoiceId: rs.invoiceId, note: invoiceNumber } });
-      }
+      await recordSerialMovements(tx, { serialPlan, returnSerials, lines, created, invoiceNumber });
 
       if (previousDuePaid > 0) {
         await tx.customerDuePayment.create({
@@ -440,56 +501,11 @@ async function performCheckoutOnce(body, ctx = {}) {
         });
       }
 
-      // Persist the returns (audit trail) and restock the returned units.
-      for (const rr of returnRecords) {
-        const createdReturn = await tx.return.create({
-          data: {
-            invoiceId: rr.invoiceId,
-            customerId: rr.customerId,
-            totalRefund: rr.groupRefund,
-            refundMethod: refundValue > 0 ? refundMode : 'BILL_OFFSET',
-            note: `Bill ${invoiceNumber}`,
-            items: { create: rr.lines },
-          },
-          include: { items: true },
-        });
-        await verifactu.recordReturn(tx, settings, createdReturn, rr.originalItems);
-      }
-      for (const [productId, qty] of restock) {
-        await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
-      }
-
-      for (const item of body.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { decrement: item.quantity } },
-        });
-      }
+      await persistReturns(tx, { returnRecords, refundValue, refundMode, invoiceNumber, settings });
+      await moveStock(tx, { sold: body.items, restock });
 
       if (customer) {
-        // totalDue ("udhaar") and creditBalance are the running balances the
-        // POS reads back on the customer's next visit. They used to be kept
-        // with Prisma `increment`, which performs the addition inside SQLite's
-        // REAL (float) column — so tiny binary rounding residue accumulated
-        // across many bills and a fully-paid customer could keep showing e.g.
-        // Rs. 0.00…03 still owing that never cleared, and reappeared on the
-        // next bill. Compute the new balances in JS and round to paise so the
-        // stored value is always clean (round2 collapses sub-paise noise to
-        // exactly 0). Safe read-modify-write: we're inside the checkout
-        // $transaction and already hold this customer row.
-        const newTotalDue = round2(customer.totalDue + dueAmount - previousDuePaid);
-        const creditDelta = (refundMode === 'CREDIT' ? refundValue : 0) - creditApplied;
-        const newCredit = round2(customer.creditBalance + creditDelta);
-        await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
-            totalSpent: round2(customer.totalSpent + computed.totalAmount),
-            totalDue: newTotalDue,
-            creditBalance: newCredit,
-            visits: { increment: 1 },
-          },
-        });
+        await updateCustomerBalances(tx, { customer, computed, dueAmount, previousDuePaid, refundMode, refundValue, creditApplied });
       }
 
       return { created, restockProductIds: [...restock.keys()] };

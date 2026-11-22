@@ -16,10 +16,10 @@ function freePort() {
   });
 }
 
-async function startServer(_portHint) {
+async function startServer(_portHint, extraEnv = {}) {
   const port = await freePort();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nodedr-test-'));
-  const env = { ...process.env, DATABASE_URL: `file:${path.join(dir, 't.db')}`, PORT: String(port), JWT_SECRET: 'test-secret-test-secret-test-secret', NODE_ENV: 'test' };
+  const env = { ...process.env, DATABASE_URL: `file:${path.join(dir, 't.db')}`, PORT: String(port), JWT_SECRET: 'test-secret-test-secret-test-secret', NODE_ENV: 'test', ...extraEnv };
   execFileSync(process.execPath, ['node_modules/.bin/prisma', 'migrate', 'deploy'], { env, cwd: path.join(__dirname, '..'), stdio: 'pipe' });
   const child = spawn(process.execPath, ['src/server.js'], { env, cwd: path.join(__dirname, '..'), stdio: 'pipe' });
   let log = '';
