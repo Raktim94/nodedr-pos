@@ -10,6 +10,7 @@ const terminal = require('./terminal');
 const verifactu = require('./verifactu/service');
 
 const { getSettings } = require('./settings');
+const { lacksStock } = require('./stock');
 const checkoutSchema = z
   .object({
     customerName: z.string().trim().max(200).optional().or(z.literal('')),
@@ -116,6 +117,61 @@ async function performCheckout(body, ctx = {}) {
   }
 }
 
+// Validates every line returned on this bill against its ORIGINAL invoice:
+// the item must belong to that invoice and the quantity can't exceed what's
+// still returnable (sold minus already returned). The refund defaults to what
+// was originally charged for that quantity and can only be lowered, never
+// raised above it — you can't refund more than the customer paid.
+async function collectReturns(tx, returns) {
+  let returnValue = 0;
+  const restock = new Map();
+  const returnRecords = [];
+  const returnSerials = [];
+  for (const grp of returns) {
+    const original = await tx.invoice.findUnique({ where: { id: grp.invoiceId }, include: { items: true } });
+    if (!original) throw Object.assign(new Error(`Invoice ${grp.invoiceId} not found for return`), { status: 404 });
+    const itemMap = new Map(original.items.map((it) => [it.id, it]));
+    const lines = [];
+    let groupRefund = 0;
+    for (const rl of grp.items) {
+      const invItem = itemMap.get(rl.invoiceItemId);
+      if (!invItem) throw Object.assign(new Error('Return item not found on that invoice'), { status: 404 });
+      const already = await tx.returnItem.aggregate({
+        where: { invoiceItemId: invItem.id },
+        _sum: { quantity: true },
+      });
+      const returnable = invItem.quantity - (already._sum.quantity || 0);
+      if (rl.quantity > returnable + 1e-9) {
+        throw Object.assign(new Error(`Only ${returnable} of "${invItem.name}" can still be returned`), { status: 409 });
+      }
+      const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
+      const refund = rl.refundAmount != null ? round2(Math.min(Math.max(0, rl.refundAmount), maxRefund)) : maxRefund;
+      groupRefund = round2(groupRefund + refund);
+      returnValue = round2(returnValue + refund);
+      restock.set(invItem.productId, (restock.get(invItem.productId) || 0) + rl.quantity);
+      // If IMEIs were recorded on this line, the return must say which ones come back.
+      const soldUnits = await tx.serialUnit.findMany({ where: { invoiceItemId: invItem.id, status: 'SOLD' } });
+      if (soldUnits.length > 0) {
+        const sers = new Set((rl.serials || []).map(normalizeSerial));
+        const back = soldUnits.filter((u) => sers.has(u.serial));
+        if (sers.size !== rl.quantity || back.length !== sers.size) {
+          throw Object.assign(new Error(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
+        }
+        returnSerials.push(...back.map((u) => ({ id: u.id, invoiceId: original.id })));
+      }
+      lines.push({
+        invoiceItemId: invItem.id,
+        productId: invItem.productId,
+        name: invItem.name,
+        quantity: rl.quantity,
+        refundAmount: refund,
+      });
+    }
+    returnRecords.push({ invoiceId: original.id, customerId: original.customerId, groupRefund, lines, originalItems: original.items });
+  }
+  return { returnValue, restock, returnRecords, returnSerials };
+}
+
 async function performCheckoutOnce(body, ctx = {}) {
   // Idempotent API bills: a retry with the same (apiKey, externalRef)
   // returns the invoice already created instead of billing twice.
@@ -153,7 +209,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       for (const item of body.items) {
         const product = productMap.get(item.productId);
         if (!product) throw Object.assign(new Error(`Product ${item.productId} not found`), { status: 404 });
-        if (!settings.allowNegativeStock && product.stock + 1e-9 < item.quantity) {
+        if (lacksStock(settings, product.stock, item.quantity)) {
           throw Object.assign(
             new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${item.quantity})`),
             { status: 409 }
@@ -239,58 +295,7 @@ async function performCheckoutOnce(body, ctx = {}) {
         }
       }
 
-      // --- Returns processed as part of this bill --------------------------
-      // Each returned line is validated against its ORIGINAL invoice: the item
-      // must belong to that invoice and the quantity can't exceed what's still
-      // returnable (sold minus already returned). The refund defaults to what
-      // was originally charged for that quantity and can only be lowered, never
-      // raised above it — you can't refund more than the customer paid.
-      let returnValue = 0;
-      const restock = new Map();
-      const returnRecords = [];
-      const returnSerials = [];
-      for (const grp of body.returns) {
-        const original = await tx.invoice.findUnique({ where: { id: grp.invoiceId }, include: { items: true } });
-        if (!original) throw Object.assign(new Error(`Invoice ${grp.invoiceId} not found for return`), { status: 404 });
-        const itemMap = new Map(original.items.map((it) => [it.id, it]));
-        const lines = [];
-        let groupRefund = 0;
-        for (const rl of grp.items) {
-          const invItem = itemMap.get(rl.invoiceItemId);
-          if (!invItem) throw Object.assign(new Error('Return item not found on that invoice'), { status: 404 });
-          const already = await tx.returnItem.aggregate({
-            where: { invoiceItemId: invItem.id },
-            _sum: { quantity: true },
-          });
-          const returnable = invItem.quantity - (already._sum.quantity || 0);
-          if (rl.quantity > returnable + 1e-9) {
-            throw Object.assign(new Error(`Only ${returnable} of "${invItem.name}" can still be returned`), { status: 409 });
-          }
-          const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
-          const refund = rl.refundAmount != null ? round2(Math.min(Math.max(0, rl.refundAmount), maxRefund)) : maxRefund;
-          groupRefund = round2(groupRefund + refund);
-          returnValue = round2(returnValue + refund);
-          restock.set(invItem.productId, (restock.get(invItem.productId) || 0) + rl.quantity);
-          // If IMEIs were recorded on this line, the return must say which ones come back.
-          const soldUnits = await tx.serialUnit.findMany({ where: { invoiceItemId: invItem.id, status: 'SOLD' } });
-          if (soldUnits.length > 0) {
-            const sers = new Set((rl.serials || []).map(normalizeSerial));
-            const back = soldUnits.filter((u) => sers.has(u.serial));
-            if (sers.size !== rl.quantity || back.length !== sers.size) {
-              throw Object.assign(new Error(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
-            }
-            returnSerials.push(...back.map((u) => ({ id: u.id, invoiceId: original.id })));
-          }
-          lines.push({
-            invoiceItemId: invItem.id,
-            productId: invItem.productId,
-            name: invItem.name,
-            quantity: rl.quantity,
-            refundAmount: refund,
-          });
-        }
-        returnRecords.push({ invoiceId: original.id, customerId: original.customerId, groupRefund, lines, originalItems: original.items });
-      }
+      const { returnValue, restock, returnRecords, returnSerials } = await collectReturns(tx, body.returns);
 
       // --- Store credit the customer spends on this bill -------------------
       // Capped at the balance AND at what's still owed after returns, so

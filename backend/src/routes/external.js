@@ -15,6 +15,7 @@ const { lookupWarranty } = require('../lib/warranty');
 
 const { getSettings } = require('../lib/settings');
 const { publicBaseUrl } = require('../lib/http');
+const { writeStockLevel } = require('../lib/stock');
 const router = express.Router();
 
 // This is the one surface in the app meant to be reachable from the public
@@ -140,17 +141,12 @@ router.patch('/products/:sku/stock', requireApiKey({ scope: 'stock:write' }), as
       if (!product) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
 
       const nextStock = set !== undefined ? set : product.stock + delta;
-      if (nextStock < 0) {
-        const settings = await getSettings(tx);
-        if (!settings?.allowNegativeStock) {
-          throw Object.assign(
-            new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, requested change ${delta ?? `set ${set}`})`),
-            { status: 409 }
-          );
-        }
-      }
-
-      return tx.product.update({ where: { id: product.id }, data: { stock: Math.max(0, nextStock) } });
+      return writeStockLevel(
+        tx,
+        product,
+        nextStock,
+        `Insufficient stock for "${product.name}" (have ${product.stock}, requested change ${delta ?? `set ${set}`})`
+      );
     });
 
     const body = publicProduct(updated);

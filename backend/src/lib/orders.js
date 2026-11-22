@@ -19,6 +19,7 @@ const { performCheckout, checkoutSchema } = require('./checkout');
 const { notifyEvent, notifyStockChange } = require('./webhooks');
 
 const { getSettings } = require('./settings');
+const { lacksStock } = require('./stock');
 const OPEN = ['NEW', 'PACKING', 'READY'];
 const NEXT = { NEW: ['PACKING', 'READY', 'CANCELLED'], PACKING: ['READY', 'CANCELLED'], READY: ['CANCELLED'] };
 
@@ -62,7 +63,7 @@ async function createOrder(input) {
       const p = map.get(it.productId);
       if (!p) throw err(`Product ${it.productId} not found`, 404);
       const available = r3(p.stock - (reserved.get(p.id) || 0));
-      if (!settings?.allowNegativeStock && available + 1e-9 < it.quantity) {
+      if (lacksStock(settings, available, it.quantity)) {
         throw err(`Not enough stock for "${p.name}" (available ${available})`, 409);
       }
       lines.push({ productId: p.id, name: p.name, quantity: it.quantity, price: effectivePrice(p) });
@@ -172,7 +173,7 @@ async function handOverWithoutBill(o) {
     for (const it of o.items) {
       const p = await tx.product.findUnique({ where: { id: it.productId } });
       if (!p) continue; // product deleted since the order — nothing to take out
-      if (!settings?.allowNegativeStock && p.stock + 1e-9 < it.quantity) {
+      if (lacksStock(settings, p.stock, it.quantity)) {
         throw err(`Not enough stock for "${p.name}" to hand over (have ${p.stock})`, 409);
       }
       const after = await tx.product.update({ where: { id: p.id }, data: { stock: { decrement: it.quantity } } });
