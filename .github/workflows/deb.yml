@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build and publish, for example 1.6.2. Leave empty to build and test only."
+        description: "Version to build and publish, for example 1.7.0. Leave empty to build and test only."
         required: false
         default: ""
 
@@ -36,7 +36,7 @@ jobs:
         run: |
           VERSION="${INPUT_VERSION#v}"
           [ -z "$VERSION" ] || [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must look like 1.2.3"; exit 1; }
-          [ -n "$VERSION" ] || VERSION="1.6.2"
+          [ -n "$VERSION" ] || VERSION="1.7.0"
           packaging/deb/build.sh "$VERSION"
           for f in dist/*.deb; do dpkg-deb -I "$f" | head -12; done
       - name: Scripts parse
