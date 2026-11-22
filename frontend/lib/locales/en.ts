@@ -180,6 +180,7 @@ export const en = {
   "sales.pastReturns": "Past returns",
   "sales.returned": "Returned {count} item(s) — {amount} refunded",
   "sales.returnFailed": "Return failed",
+  "sales.confirmReturn": "process this return",
   "sales.dueAdjusted": "due adjusted",
   "sales.itemsSuffix": "{count} item(s)",
 

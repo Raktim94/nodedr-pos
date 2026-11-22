@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth, requirePerm } = require('../middleware/auth');
+const { requireAuth, requirePerm, hasPerm } = require('../middleware/auth');
 const { notifyStockChange } = require('../lib/webhooks');
 const { saveProductImage, fetchRemoteProductImage, readProductImage, NAME_RE: IMAGE_NAME_RE } = require('../lib/productImages');
 const { lookupProducts } = require('../lib/productLookup');
@@ -121,7 +121,9 @@ router.get('/', async (req, res) => {
     take: Math.min(Number(req.query.limit) || 2000, 5000),
     skip: Math.max(Number(req.query.offset) || 0, 0),
   });
-  res.json(products);
+  // What stock cost the shop is margin data: only staff who manage stock or read reports see it.
+  const seesCost = hasPerm(req.user, 'reports') || hasPerm(req.user, 'inventory');
+  res.json(seesCost ? products : products.map(({ purchasePrice, ...rest }) => rest));
 });
 
 // GET /api/products/low-stock — dashboard widget

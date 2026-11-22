@@ -190,6 +190,7 @@ router.get('/:id', async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });
   const invoice = await prisma.invoice.findUnique({ where: { id }, include: { items: true } });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+  if (!hasPerm(req.user, 'reports')) invoice.items = invoice.items.map(({ costPrice, ...rest }) => rest);
   res.json(invoice);
 });
 

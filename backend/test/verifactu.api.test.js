@@ -110,7 +110,7 @@ test('a return is a corrective R5 pointing at the original; a return of an older
   const orig = recs[0];
   const full = (await admin.get(`/api/invoices/${orig.invoiceId}`)).data;
   const line = full.items.find((i) => i.taxRate === 10);
-  const ret = await admin.post('/api/returns', { invoiceId: orig.invoiceId, items: [{ invoiceItemId: line.id, quantity: 1 }] });
+  const ret = await admin.post('/api/returns', { invoiceId: orig.invoiceId, items: [{ invoiceItemId: line.id, quantity: 1 }], confirmPassword: PW });
   assert.equal(ret.status, 201, JSON.stringify(ret.data));
   const after = await records();
   const r5 = after[after.length - 1];
@@ -124,7 +124,7 @@ test('a return is a corrective R5 pointing at the original; a return of an older
   const old = list.find((i) => !after.some((r) => r.invoiceId === i.id));
   const oldFull = (await admin.get(`/api/invoices/${old.id}`)).data;
   const n = after.length;
-  assert.equal((await admin.post('/api/returns', { invoiceId: old.id, items: [{ invoiceItemId: oldFull.items[0].id, quantity: 1 }] })).status, 201);
+  assert.equal((await admin.post('/api/returns', { invoiceId: old.id, items: [{ invoiceItemId: oldFull.items[0].id, quantity: 1 }], confirmPassword: PW })).status, 201);
   assert.equal((await records()).length, n);
 });
 

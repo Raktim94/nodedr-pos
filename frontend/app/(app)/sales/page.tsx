@@ -9,6 +9,7 @@ import { ShareActions } from "@/components/pos/ShareActions";
 import { useInvoices, useInvoice } from "@/hooks/useInvoices";
 import { useCreateReturn, useReturnsForInvoice } from "@/hooks/useReturns";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
 import { paymentMethodKey } from "@/lib/enumLabels";
@@ -95,6 +96,7 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
   const { data: invoice, isLoading } = useInvoice(id);
   const { data: returns } = useReturnsForInvoice(id);
   const createReturn = useCreateReturn();
+  const { withPasswordConfirm } = usePasswordConfirm();
   const { show } = useToast();
   const { t } = useTranslation();
   const money = (n: number) => formatMoney(n, sym);
@@ -134,7 +136,10 @@ function InvoiceDrawer({ id, sym, onClose }: { id: number; sym: string; onClose:
       .filter((it) => (returnQty[it.id] || 0) > 0)
       .map((it) => ({ invoiceItemId: it.id, quantity: returnQty[it.id] }));
     try {
-      await createReturn.mutateAsync({ invoiceId: invoice.id, items, refundMethod });
+      const done = await withPasswordConfirm(t("sales.confirmReturn"), (confirmPassword) =>
+        createReturn.mutateAsync({ invoiceId: invoice.id, items, refundMethod, confirmPassword })
+      );
+      if (!done) return;
       setReturnQty({});
       show(t("sales.returned", { count: returnPreview.count, amount: money(returnPreview.amount) }), "success");
     } catch (err) {

@@ -60,8 +60,8 @@ test('IMEI / serial: off by default, captured only at sale, one sale per unit, r
   assert.match(dup.data.error, /already sold/);
   // ...a return must name the IMEI...
   const lineId = (await admin.get(`/api/invoices/${sale.data.id}`)).data.items[0].id;
-  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }] })).status, 400);
-  const ret = await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1, serials: ['490154203237518'] }] });
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }], confirmPassword: PW })).status, 400);
+  const ret = await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1, serials: ['490154203237518'] }], confirmPassword: PW });
   assert.equal(ret.status, 201, JSON.stringify(ret.data));
   assert.equal((await admin.get('/api/warranty/490154203237518')).data.warranty, 'RETURNED');
   assert.equal((await admin.get('/api/products')).data.find((x) => x.id === phone.id).stock, 5);
@@ -245,6 +245,11 @@ test('permissions: cashier without returns/discount is blocked; discount cap enf
   assert.equal(over.data.code, 'DISCOUNT_LIMIT');
   assert.equal((await c.post('/api/returns', { invoiceId: 1, items: [{ invoiceItemId: 1, quantity: 1 }] })).status, 403);
   assert.equal((await c.get('/api/reports/overview')).status, 403);
+  // Cost and margin data stays with staff who manage stock or read reports.
+  assert.ok(!('purchasePrice' in (await c.get('/api/products')).data[0]));
+  assert.ok('purchasePrice' in (await admin.get('/api/products')).data[0]);
+  const billed = (await c.get(`/api/invoices/${ok.data.id}`)).data;
+  assert.ok(billed.items.every((i) => !('costPrice' in i)));
   assert.equal((await c.post('/api/products', { barcode: 'x', name: 'x', purchasePrice: 1, sellingPrice: 2, taxRate: 0 })).status, 403);
   // 'customers' is enforced server-side, not just hidden in the UI
   assert.equal((await c.post('/api/customers', { name: 'Nope', phone: '9000000001' })).status, 403);
@@ -586,7 +591,9 @@ test('audit fixes: repeated lines are rejected, webhook limiter is per integrati
   const stockBefore = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
   // The same line twice would pass the per-line cap twice: refuse it, change nothing.
   const dup = [{ invoiceItemId: lineId, quantity: 2 }, { invoiceItemId: lineId, quantity: 2 }];
-  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: dup })).status, 400);
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: dup, confirmPassword: PW })).status, 400);
+  // Refunds need the password re-entered, like the checkout refund path.
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }] })).status, 401);
   const viaCheckout = await admin.post('/api/invoices', { items: [], returns: [{ invoiceId: sale.data.id, items: dup }], paymentMethod: 'UPI' });
   assert.equal(viaCheckout.status, 400);
   assert.equal((await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock, stockBefore);

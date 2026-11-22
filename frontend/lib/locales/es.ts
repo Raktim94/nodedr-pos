@@ -182,6 +182,7 @@ export const es: Record<TranslationKey, string> = {
   "sales.pastReturns": "Devoluciones anteriores",
   "sales.returned": "Se devolvieron {count} artículo(s) — {amount} reembolsados",
   "sales.returnFailed": "Falló la devolución",
+  "sales.confirmReturn": "procesar esta devolución",
   "sales.dueAdjusted": "deuda ajustada",
   "sales.itemsSuffix": "{count} artículo(s)",
 

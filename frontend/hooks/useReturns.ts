@@ -17,6 +17,7 @@ export interface CreateReturnInput {
   items: { invoiceItemId: number; quantity: number }[];
   refundMethod: RefundMethod;
   note?: string;
+  confirmPassword: string;
 }
 
 export function useCreateReturn() {
