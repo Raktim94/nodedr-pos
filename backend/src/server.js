@@ -43,7 +43,11 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:1994';
 
 // Behind the Next.js proxy we see its address; trust one hop so rate-limit
 // and IP logging use the real client where a forwarded header is present.
-app.set('trust proxy', 1);
+// Put Caddy or a Cloudflare Tunnel in front of Next.js and the real client is
+// one hop further out: set TRUST_PROXY_HOPS=2 there, or every visitor shares
+// the proxy's address and one login limiter.
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 1);
+app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 ? proxyHops : 1);
 
 app.use(helmet({ contentSecurityPolicy: false })); // CSP is served by the Next.js frontend
 app.use(compression()); // JSON/CSV shrink ~80%; PDFs are already compressed and skipped by the filter

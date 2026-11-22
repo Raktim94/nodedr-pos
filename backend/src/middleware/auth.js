@@ -15,7 +15,7 @@ const TOKEN_TTL = '30d';
 const TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function issueToken(user) {
-  return jwt.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, {
+  return jwt.sign({ sub: user.id, email: user.email, role: user.role, tv: user.tokenVersion ?? 0 }, JWT_SECRET, {
     algorithm: 'HS256',
     expiresIn: TOKEN_TTL,
   });
@@ -53,6 +53,10 @@ async function requireAuth(req, res, next) {
   if (!user || !user.active) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'Account not found or disabled' });
+  }
+  if ((payload.tv ?? 0) !== user.tokenVersion) {
+    clearSessionCookie(res);
+    return res.status(401).json({ error: 'Session ended — sign in again' });
   }
 
   // A franchisor is a read-only hub viewer: only the consolidated hub views

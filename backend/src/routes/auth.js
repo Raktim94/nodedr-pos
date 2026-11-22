@@ -119,7 +119,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
 
   const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
-  await prisma.user.update({ where: { id: req.user.id }, data: { password: passwordHash } });
+  // Every other session for this account ends; this one continues on a fresh token.
+  const user = await prisma.user.update({ where: { id: req.user.id }, data: { password: passwordHash, tokenVersion: { increment: 1 } } });
+  setSessionCookie(res, issueToken(user));
   res.status(204).end();
 });
 
@@ -182,7 +184,10 @@ router.put('/users/:id', requireAuth, requireAdmin, requirePasswordConfirm, asyn
   }
 
   const data = { ...parsed.data };
-  if (data.password) data.password = await bcrypt.hash(data.password, 12);
+  if (data.password) {
+    data.password = await bcrypt.hash(data.password, 12);
+    data.tokenVersion = { increment: 1 };
+  }
   if (data.permissions) data.permissions = data.permissions.join(',');
 
   const updated = await prisma.user.update({ where: { id }, data });
