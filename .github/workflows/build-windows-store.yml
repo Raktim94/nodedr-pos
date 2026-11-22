@@ -1,0 +1,163 @@
+name: Windows Store package (MSIX)
+
+# Builds the Microsoft Store edition of NodeDR POS (Electron shell + bundled
+# Node + backend + Next.js, no Docker) and tests the INSTALLED package on a
+# clean Windows runner. Independent of the Docker / CasaOS workflows.
+# See packaging/windows-store/README.md.
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packaging/windows-store/**"
+      - ".github/workflows/build-windows-store.yml"
+  push:
+    branches: [master, "feat/store-desktop-msix"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packaging/windows-store/**"
+      - ".github/workflows/build-windows-store.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version x.y.z (blank = backend/package.json). Must be higher than the version live in Partner Center."
+        required: false
+        default: ""
+
+concurrency:
+  group: windows-store-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests (database safety, gateway, supervisor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Backend (Store-edition database + process tests)
+        working-directory: backend
+        run: |
+          npm ci --no-audit --no-fund
+          npx prisma generate
+          node --test --test-concurrency=1 test/desktop.datastore.test.js test/desktop.process.test.js
+      - name: Desktop shell libraries
+        working-directory: packaging/windows-store/shell
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm test
+
+  msix:
+    name: Build, install and test the package on Windows
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Resolve version and identity
+        id: meta
+        shell: pwsh
+        env:
+          REAL_NAME: ${{ secrets.NODEDR_MSIX_IDENTITY_NAME }}
+          REAL_PUBLISHER: ${{ secrets.NODEDR_MSIX_PUBLISHER_CN }}
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($v)) { $v = (Get-Content backend/package.json -Raw | ConvertFrom-Json).version }
+          $p = $v.Split(".")
+          $up = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          $real = -not [string]::IsNullOrEmpty($env:REAL_NAME) -and -not [string]::IsNullOrEmpty($env:REAL_PUBLISHER)
+          if ($real) { $name = $env:REAL_NAME; $pub = $env:REAL_PUBLISHER } else { $name = "NodedrPOSCITestOnly"; $pub = "CN=NodeDR-POS-CI-Test-Only"; Write-Host "::warning::Partner Center identity secrets are not available (fork/PR): building under a throwaway test identity. Do NOT upload this package." }
+          "version=$v" | Out-File $env:GITHUB_OUTPUT -Append
+          "upgrade=$up" | Out-File $env:GITHUB_OUTPUT -Append
+          "real=$($real.ToString().ToLower())" | Out-File $env:GITHUB_OUTPUT -Append
+          # The identity values are not secret once they are inside a signed package, but keep them out of the logs anyway.
+          Write-Host "::add-mask::$name"
+          "name=$name" | Out-File $env:GITHUB_OUTPUT -Append
+          "publisher=$pub" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Build the package
+        shell: pwsh
+        run: |
+          pwsh -File packaging/windows-store/build-msix.ps1 -Version "${{ steps.meta.outputs.version }}" `
+            -PackageIdentityName "${{ steps.meta.outputs.name }}" -PublisherCn "${{ steps.meta.outputs.publisher }}" -SelfSignForTesting
+
+      - name: Enable sideloading and trust the test certificate (CI only; Store installs need neither)
+        shell: pwsh
+        run: |
+          $key = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          New-Item -Path $key -Force | Out-Null
+          Set-ItemProperty -Path $key -Name AllowAllTrustedApps -Value 1 -Type DWord
+          Import-Certificate -FilePath dist\nodedr-pos-test.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          Import-Certificate -FilePath dist\nodedr-pos-test.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+
+      - name: Install the package (no prerequisites, no command-line setup)
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem dist\Nodedr-POS-${{ steps.meta.outputs.version }}.0-x64.msix | Select-Object -First 1
+          Add-AppxPackage -Path $msix.FullName
+          Get-AppxPackage -Name "${{ steps.meta.outputs.name }}" | Format-List Name, Version, PackageFamilyName, InstallLocation
+
+      - name: End-to-end tests on the installed package
+        shell: pwsh
+        run: |
+          pwsh -File packaging/windows-store/ci/e2e.ps1 -PackageName "${{ steps.meta.outputs.name }}" -Dist dist `
+            -UpgradeVersion "${{ steps.meta.outputs.upgrade }}" -IdentityName "${{ steps.meta.outputs.name }}" -PublisherCn "${{ steps.meta.outputs.publisher }}"
+
+      - name: Dump logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:LOCALAPPDATA\Packages" -Directory | Where-Object { $_.Name -like "*Nodedr*" -or $_.Name -like "*NodeDR*" } | ForEach-Object {
+            Get-ChildItem "$($_.FullName)\LocalState\NodeDRPOS\logs" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "--- $($_.Name) ---"; Get-Content $_.FullName -Tail 80 }
+          }
+          Get-WinEvent -LogName Application -MaxEvents 60 -ErrorAction SilentlyContinue | Where-Object { $_.LevelDisplayName -eq "Error" } | Format-Table -AutoSize | Out-String | Write-Host
+
+      - name: Windows App Certification Kit
+        id: wack
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $appcert = "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe"
+          if (-not (Test-Path $appcert)) { Write-Host "::warning::appcert.exe not on this runner; run WACK on a clean VM before submitting."; exit 0 }
+          $msix = (Get-ChildItem dist\Nodedr-POS-${{ steps.meta.outputs.version }}.0-x64.msix).FullName
+          # The e2e run removed the package; reinstall it so WACK has something to inspect.
+          Add-AppxPackage -Path $msix
+          & $appcert reset
+          & $appcert test -appxpackagepath $msix -reportoutputpath "$PWD\dist\wack-report.xml"
+          Write-Host "appcert exit code: $LASTEXITCODE"
+          if (Test-Path dist\wack-report.xml) {
+            [xml]$r = Get-Content dist\wack-report.xml
+            Write-Host "WACK overall result: $($r.REPORT.OVERALL_RESULT)"
+            $r.REPORT.REQUIREMENTS.REQUIREMENT | Where-Object { $_.TEST.RESULT -contains "FAIL" -or $_.TEST.RESULT -eq "FAIL" } | ForEach-Object { Write-Host "::warning::WACK failed: $($_.TITLE)" }
+            "result=$($r.REPORT.OVERALL_RESULT)" | Out-File $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist\Nodedr-POS-*.msix, dist\Nodedr-POS-*.msixupload | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Tee-Object dist\SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nodedr-pos-windows-store
+          path: |
+            dist/Nodedr-POS-*.msix
+            dist/Nodedr-POS-*.msixupload
+            dist/nodedr-pos-test.cer
+            dist/wack-report.xml
+            dist/uninstall-observation.txt
+            dist/SHA256SUMS.txt
+          retention-days: 30
+          if-no-files-found: warn

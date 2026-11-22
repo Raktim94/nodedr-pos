@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NodeDR POS (Microsoft Store edition) — package manifest TEMPLATE.
+  build-msix.ps1 substitutes the @TOKENS@. Identity Name and Publisher come from
+  Partner Center (Product management > App identity) and are NEVER invented here;
+  they are supplied by the NODEDR_MSIX_IDENTITY_NAME / NODEDR_MSIX_PUBLISHER_CN
+  repository secrets so every update targets the existing Store listing.
+
+  Capabilities (each one explained in packaging/windows-store/README.md):
+    runFullTrust  restricted. Required by every packaged desktop (Win32/Electron)
+                  app: the app starts its own local node.exe processes.
+    webcam        camera barcode scanning (Scan with camera). Not restricted.
+  Deliberately NOT declared: internetClient (not needed by full-trust apps),
+  packagedServices / localSystemServices (no Windows service is installed),
+  unvirtualizedResources, allowElevation, broadFileSystemAccess, any
+  firewall/loopback exemption.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity Name="@PACKAGE_IDENTITY_NAME@" Publisher="@PARTNER_CENTER_PUBLISHER_CN@" Version="@VERSION@" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Nodedr POS</DisplayName>
+    <PublisherDisplayName>NODEDR INFOTECH LIMITED</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Offline-first point of sale for retail shops: billing, inventory, barcode scanning, GST-inclusive pricing and receipt printing, all on your own PC.</Description>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22631.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="webcam" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="NodeDRPOS" Executable="NodeDRPOS.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Nodedr POS"
+        Description="Offline-first point of sale"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        BackgroundColor="#1f6b43">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#1f6b43" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+</Package>

@@ -11,7 +11,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { httpError } = require('./http');
-const DIR = path.join(__dirname, '..', '..', 'data', 'product-images');
+const DIR = path.join(require('./dataDir').DATA_DIR, 'product-images');
 const MAX_BYTES = 800 * 1024;
 const NAME_RE = /^[a-f0-9]{32}\.(png|jpg|webp)$/;
 const REMOTE_HOST_RE = /^(images|static)\.openfoodfacts\.org$|^(images|static)\.openbeautyfacts\.org$|^(images|static)\.openproductsfacts\.org$/;

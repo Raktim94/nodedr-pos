@@ -87,7 +87,12 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', version: require('../package.json').version }));
+// `instance` echoes a per-launch nonce (Windows Store edition) so the desktop
+// shell can prove the process answering on a port is the one it started, not
+// an unrelated service that happened to hold the port.
+app.get('/api/health', (req, res) =>
+  res.json({ status: 'ok', version: require('../package.json').version, ...(process.env.NODEDR_INSTANCE_NONCE ? { instance: process.env.NODEDR_INSTANCE_NONCE } : {}) })
+);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -169,8 +174,12 @@ function ensureFirewallRules() {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`nodedr-pos backend listening on port ${PORT}`);
+// HOST pins the listener to one interface. Unset (Docker, CasaOS, dev) keeps
+// the historical all-interfaces behaviour; the Windows Store edition sets
+// 127.0.0.1 so the API is never reachable from the network.
+const listenArgs = process.env.HOST ? [PORT, process.env.HOST] : [PORT];
+app.listen(...listenArgs, () => {
+  console.log(`nodedr-pos backend listening on ${process.env.HOST || '0.0.0.0'}:${PORT}`);
   startScheduler();
   startSubmitter();
   startSync();

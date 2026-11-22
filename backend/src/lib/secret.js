@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const SECRET_PATH = path.join(__dirname, '..', '..', 'data', '.jwt-secret');
+const { DATA_DIR } = require('./dataDir');
+
+const SECRET_PATH = path.join(DATA_DIR, '.jwt-secret');
 
 function getJwtSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;

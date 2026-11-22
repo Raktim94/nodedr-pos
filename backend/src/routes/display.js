@@ -14,7 +14,7 @@ const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
-const KEY_FILE = path.join(__dirname, '..', '..', 'data', 'display-key');
+const KEY_FILE = path.join(require('../lib/dataDir').DATA_DIR, 'display-key');
 const MAX_STATE_BYTES = 64 * 1024;
 
 let cachedKey = null;

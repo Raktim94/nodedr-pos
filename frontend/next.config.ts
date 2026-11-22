@@ -12,8 +12,14 @@ import type { NextConfig } from "next";
 // localhost:4000.
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
 
+// The Windows Store build runs from a read-only install folder, where Next's
+// image optimizer cannot create its on-disk cache (.next/cache). Serve the few
+// local images as-is there. Docker/CasaOS/dev builds keep optimisation.
+const STORE_BUILD = process.env.NODEDR_STORE_BUILD === "1";
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  ...(STORE_BUILD ? { images: { unoptimized: true } } : {}),
   async rewrites() {
     return [
       {

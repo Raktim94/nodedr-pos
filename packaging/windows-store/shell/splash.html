@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'unsafe-inline'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NodeDR POS</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f4f8f5; --fg:#14281d; --muted:#5c7266; --brand:#1f6b43; --card:#ffffff; --line:#d6e3da; --err:#a12a2a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1a14; --fg:#e6f0e9; --muted:#9bb3a4; --brand:#4fb883; --card:#16241c; --line:#27392f; --err:#ff8f8f; } }
+  * { box-sizing: border-box; }
+  html,body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--fg); font:15px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; display:grid; place-items:center; }
+  main { width:min(560px, 92vw); text-align:center; }
+  .logo { width:72px; height:72px; margin:0 auto 18px; }
+  h1 { font-size:22px; font-weight:600; margin:0 0 6px; letter-spacing:-0.01em; }
+  p { margin:0; color:var(--muted); }
+  .bar { height:4px; margin:26px auto 14px; width:220px; background:var(--line); border-radius:4px; overflow:hidden; }
+  .bar i { display:block; height:100%; width:40%; background:var(--brand); border-radius:4px; animation:slide 1.3s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .bar i { animation:none; width:100%; opacity:.5; } }
+  @keyframes slide { 0% { margin-left:-40%; } 100% { margin-left:100%; } }
+  .card { text-align:left; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-top:22px; }
+  .card h2 { margin:0 0 6px; font-size:17px; color:var(--err); }
+  .card p { color:var(--fg); }
+  .hint { color:var(--muted); font-size:13px; margin-top:10px; word-break:break-all; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  button { font:inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--brand); border-color:var(--brand); color:#fff; }
+  button:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><rect width="72" height="72" rx="16" fill="#1f6b43"/><path d="M20 24h32M20 36h32M20 48h20" stroke="#fff" stroke-width="5" stroke-linecap="round"/></svg>
+  <h1>NodeDR POS</h1>
+  <div id="loading" role="status" aria-live="polite">
+    <div class="bar" aria-hidden="true"><i></i></div>
+    <p id="msg">Starting…</p>
+  </div>
+  <section id="error" class="card" role="alert" hidden>
+    <h2 id="etitle">NodeDR POS could not start</h2>
+    <p id="emsg"></p>
+    <p class="hint" id="epath"></p>
+    <div class="row" id="eactions"></div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const labels = {
+    retry: 'Try again', report: 'Copy support report', logs: 'Open logs folder', data: 'Open data folder',
+    restore: 'Restore from a backup…', exit: 'Exit'
+  };
+  function render(s) {
+    if (s.kind === 'progress') {
+      $('error').hidden = true; $('loading').hidden = false;
+      $('msg').textContent = s.message || 'Starting…';
+      return;
+    }
+    if (s.kind === 'error') {
+      $('loading').hidden = true; $('error').hidden = false;
+      $('etitle').textContent = s.title || 'NodeDR POS could not start';
+      $('emsg').textContent = s.message || '';
+      $('epath').textContent = s.detail || '';
+      const box = $('eactions'); box.textContent = '';
+      (s.actions || ['retry', 'report', 'logs', 'exit']).forEach((a, i) => {
+        const b = document.createElement('button');
+        b.textContent = labels[a] || a;
+        if (i === 0) b.className = 'primary';
+        b.onclick = async () => {
+          const r = await window.nodedrShell.action(a);
+          if (a === 'report' && r && r.copied) b.textContent = 'Copied ✓';
+        };
+        box.appendChild(b);
+      });
+      const first = box.querySelector('button'); if (first) first.focus();
+    }
+  }
+  window.nodedrShell.onState(render);
+  window.nodedrShell.ready();
+</script>
+</body>
+</html>

@@ -11,7 +11,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { httpError } = require('./http');
-const DIR = path.join(__dirname, '..', '..', 'data', 'signatures');
+const DIR = path.join(require('./dataDir').DATA_DIR, 'signatures');
 const MAX_BYTES = 300 * 1024;
 
 function sniff(buf) {

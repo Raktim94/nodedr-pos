@@ -1,6 +1,5 @@
 # Native packaging
 
-The standalone macOS desktop package has been retired. The tray helper in
-`tray/` remains available to supported desktop environments. Install NodeDR
-POS from the Microsoft Store on Windows, or use Docker Compose or the CasaOS
-app on Windows, macOS, Linux, NAS, or a VPS.
+- **Windows (Microsoft Store edition):** a self-contained desktop app, no Docker. Source, build and release steps: [`windows-store/README.md`](windows-store/README.md). User guide: [`docs/WINDOWS-STORE.md`](../docs/WINDOWS-STORE.md).
+- **Docker Compose / CasaOS:** the documented self-hosted installs for Windows, macOS, Linux, NAS and VPS. Unchanged.
+- The tray helper in `tray/` remains available to supported desktop environments.
