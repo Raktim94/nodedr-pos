@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUpCircle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -10,6 +10,8 @@ import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useTranslation } from "@/components/I18nProvider";
 import { useUpdateStatus } from "@/hooks/useUpdate";
 import { api, ApiError } from "@/lib/api";
+import { usePoller } from "@/hooks/usePoller";
+import { queryKeys } from "@/lib/queryKeys";
 
 type Phase = "idle" | "updating" | "unchanged" | "failed";
 
@@ -23,10 +25,8 @@ export function UpdatesTab() {
   const { t } = useTranslation();
   const { withPasswordConfirm } = usePasswordConfirm();
   const [phase, setPhase] = useState<Phase>("idle");
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const poller = usePoller();
   const [failure, setFailure] = useState<string | null>(null);
-
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   async function checkNow() {
     // ?refresh=1 skips the backend's 10-minute cache.
@@ -44,7 +44,7 @@ export function UpdatesTab() {
   function waitForRestart(startVersion: string) {
     const started = Date.now();
     let sawDown = false;
-    timer.current = setInterval(async () => {
+    poller.start(async () => {
       let version: string | null = null;
       try {
         const h = await api.get<{ status: string; version?: string }>("/health");
@@ -58,19 +58,19 @@ export function UpdatesTab() {
       try {
         const p = await api.get<{ state: string; error?: string | null }>("/update/progress");
         if (p.state === "error") {
-          if (timer.current) clearInterval(timer.current);
+          poller.stop();
           setFailure(p.error || null);
           setPhase("failed");
           return;
         }
       } catch {}
       if ((version && version !== startVersion) || sawDown) {
-        if (timer.current) clearInterval(timer.current);
+        poller.stop();
         window.location.reload();
       } else if (Date.now() - started > GIVE_UP_MS) {
-        if (timer.current) clearInterval(timer.current);
+        poller.stop();
         setPhase("unchanged");
-        qc.invalidateQueries({ queryKey: ["update-status"] });
+        qc.invalidateQueries({ queryKey: queryKeys.updateStatus });
       }
     }, POLL_MS);
   }

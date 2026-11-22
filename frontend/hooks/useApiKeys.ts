@@ -3,10 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ApiKey, ApiKeyWithSecrets } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useApiKeys() {
   return useQuery({
-    queryKey: ["api-keys"],
+    queryKey: queryKeys.apiKeys,
     queryFn: () => api.get<ApiKey[]>("/api-keys"),
   });
 }
@@ -16,7 +17,7 @@ export function useCreateApiKey() {
   return useMutation({
     mutationFn: (data: { name: string; canWrite?: boolean; scopes?: string[]; webhookUrl?: string; confirmPassword: string }) =>
       api.post<ApiKeyWithSecrets>("/api-keys", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys }),
   });
 }
 
@@ -36,7 +37,7 @@ export function useUpdateApiKey() {
       webhookUrl?: string;
       revoked?: boolean;
     }) => api.put<ApiKeyWithSecrets>(`/api-keys/${id}`, { ...patch, confirmPassword }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys }),
   });
 }
 
@@ -45,6 +46,6 @@ export function useDeleteApiKey() {
   return useMutation({
     mutationFn: ({ id, confirmPassword }: { id: number; confirmPassword: string }) =>
       api.delete<void>(`/api-keys/${id}`, { confirmPassword }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-keys"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys }),
   });
 }

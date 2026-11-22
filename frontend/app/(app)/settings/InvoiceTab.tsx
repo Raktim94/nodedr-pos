@@ -14,6 +14,7 @@ import { useTranslation } from "@/components/I18nProvider";
 import { api, describeApiError } from "@/lib/api";
 import type { ShopSettings } from "@/lib/types";
 import { useSaver } from "./useSaver";
+import { queryKeys } from "@/lib/queryKeys";
 
 // Invoice style, terms and the authorised-signatory signature printed on
 // A4 invoices and receipts.
@@ -30,12 +31,12 @@ export function InvoiceTab({ settings }: { settings: ShopSettings }) {
 
   const upload = useMutation({
     mutationFn: (image: string) => withPasswordConfirm(t("settings.invoice.confirmSaveSignature"), (confirmPassword) => api.put("/settings/signature", { image, confirmPassword })),
-    onSuccess: (r) => { if (r) { qc.invalidateQueries({ queryKey: ["shop-settings"] }); show(t("settings.invoice.signatureSaved"), "success"); } setPad(false); },
+    onSuccess: (r) => { if (r) { qc.invalidateQueries({ queryKey: queryKeys.shopSettings }); show(t("settings.invoice.signatureSaved"), "success"); } setPad(false); },
     onError: (e) => show(describeApiError(e, t("settings.invoice.signatureSaveFailed")), "error"),
   });
   const remove = useMutation({
     mutationFn: () => withPasswordConfirm(t("settings.invoice.confirmRemoveSignature"), (confirmPassword) => api.delete("/settings/signature", { confirmPassword })),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["shop-settings"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.shopSettings }),
   });
 
   return (

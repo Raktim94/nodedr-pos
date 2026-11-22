@@ -11,6 +11,7 @@ import { useToast } from "@/components/Toast";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useTranslation } from "@/components/I18nProvider";
 import { api, describeApiError } from "@/lib/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface Cfg { reportEmail: string; reportFrequency: "off" | "daily" | "weekly"; smtp: { configured: boolean; host: string; port: number; secure: boolean; user: string; from: string } }
 
@@ -19,14 +20,14 @@ export function EmailTab() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { withPasswordConfirm } = usePasswordConfirm();
-  const { data } = useQuery({ queryKey: ["email-reports"], queryFn: () => api.get<Cfg>("/email-reports") });
+  const { data } = useQuery({ queryKey: queryKeys.emailReports, queryFn: () => api.get<Cfg>("/email-reports") });
   const [f, setF] = useState<{ email: string; freq: string; host: string; port: string; secure: boolean; user: string; pass: string; from: string } | null>(null);
   const cur = f ?? (data && { email: data.reportEmail, freq: data.reportFrequency, host: data.smtp.host, port: String(data.smtp.port), secure: data.smtp.secure, user: data.smtp.user, pass: "", from: data.smtp.from });
 
   const save = useMutation({
     mutationFn: () => withPasswordConfirm(t("settings.email.confirmSave"), (confirmPassword) =>
       api.put("/email-reports", { reportEmail: cur!.email, reportFrequency: cur!.freq, ...(cur!.host ? { smtp: { host: cur!.host, port: Number(cur!.port) || 587, secure: cur!.secure, user: cur!.user || undefined, from: cur!.from || undefined, ...(cur!.pass ? { pass: cur!.pass } : {}) } } : {}), confirmPassword })),
-    onSuccess: (r) => { if (r) { show(t("settings.email.saved"), "success"); setF(null); qc.invalidateQueries({ queryKey: ["email-reports"] }); } },
+    onSuccess: (r) => { if (r) { show(t("settings.email.saved"), "success"); setF(null); qc.invalidateQueries({ queryKey: queryKeys.emailReports }); } },
     onError: (e) => show(describeApiError(e, t("settings.email.saveFailed")), "error"),
   });
   const test = useMutation({

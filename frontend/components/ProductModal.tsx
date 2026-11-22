@@ -26,6 +26,7 @@ import { formatMoney, currencySymbolOf } from "@/lib/format";
 import { GENERIC_PRODUCT_CATEGORIES, GST_RATES, UQC_UNITS } from "@/lib/masters";
 import { productCategoryKey, unitNameKey } from "@/lib/enumLabels";
 import type { Product } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 type TranslateFn = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
@@ -156,7 +157,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
   const discountValue = useWatch({ control, name: "discountValue" });
   const sym = currencySymbolOf(shop);
   const trackSerial = useWatch({ control, name: "trackSerial" });
-  const { data: suppliers } = useQuery({ queryKey: ["suppliers"], queryFn: () => api.get<{ id: number; name: string }[]>("/purchasing/suppliers").catch(() => []) });
+  const { data: suppliers } = useQuery({ queryKey: queryKeys.suppliers, queryFn: () => api.get<{ id: number; name: string }[]>("/purchasing/suppliers").catch(() => []) });
   const discountedPrice = (() => {
     if (!discountType || !discountValue) return sellingPrice;
     if (discountType === "percent") {

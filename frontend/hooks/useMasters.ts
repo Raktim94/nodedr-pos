@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 export interface MastersSummary {
   hsn: number;
@@ -12,7 +13,7 @@ export interface MastersSummary {
 
 export function useMastersSummary() {
   return useQuery({
-    queryKey: ["masters", "summary"],
+    queryKey: queryKeys.mastersSummary,
     queryFn: () => api.get<MastersSummary>("/masters/summary"),
   });
 }
@@ -25,7 +26,7 @@ export function useImportTaxCodes() {
       form.append("file", file);
       return api.upload<{ imported: number }>(`/masters/tax-codes/import?type=${type}`, form);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["masters", "summary"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.mastersSummary }),
   });
 }
 
@@ -37,7 +38,7 @@ export function useImportPincodes() {
       form.append("file", file);
       return api.upload<{ imported: number }>("/masters/pincodes/import", form);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["masters", "summary"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.mastersSummary }),
   });
 }
 
@@ -49,7 +50,7 @@ export function useImportIfsc() {
       form.append("file", file);
       return api.upload<{ imported: number }>("/masters/ifsc/import", form);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["masters", "summary"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.mastersSummary }),
   });
 }
 

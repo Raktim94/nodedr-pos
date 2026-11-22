@@ -32,6 +32,8 @@ import { ShareActions } from "@/components/pos/ShareActions";
 import { paymentMethodKey } from "@/lib/enumLabels";
 import type { CartItem, Customer, Invoice, PaymentMethod, Product } from "@/lib/types";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { settleBill } from "@/lib/settle";
+import { queryKeys } from "@/lib/queryKeys";
 
 const FRACTIONAL_UNITS = ["KGS", "GMS", "LTR", "MLT", "MTR", "CMS", "SQM", "CBM"];
 const isFractional = (p: Product) => !p.trackSerial && !!p.unit && FRACTIONAL_UNITS.includes(p.unit.toUpperCase());
@@ -71,7 +73,7 @@ export default function PosPage() {
   const [payCurrency, setPayCurrency] = useState("");
   const [terminalPaymentId, setTerminalPaymentId] = useState<string | null>(null);
   const [scaleBusy, setScaleBusy] = useState<number | null>(null);
-  const { data: fx } = useQuery({ queryKey: ["fx"], queryFn: () => api.get<{ base: string; rates: Record<string, number> }>("/payments/fx"), staleTime: 60_000 });
+  const { data: fx } = useQuery({ queryKey: queryKeys.fx, queryFn: () => api.get<{ base: string; rates: Record<string, number> }>("/payments/fx"), staleTime: 60_000 });
   const fxCodes = Object.keys(fx?.rates ?? {});
   const fxRate = payCurrency && fx?.rates[payCurrency] ? fx.rates[payCurrency] : 0;
 
@@ -97,39 +99,15 @@ export default function PosPage() {
   // Returns queued on this bill and their refund value.
   const returnTotal = round2(returnLines.reduce((s, l) => s + l.refundAmount, 0));
   const creditAvail = customer?.creditBalance ?? 0;
-  // Store credit only ever reduces what's payable — never enough to create a
-  // refund on its own — so cap it at the sale-minus-returns amount.
-  const creditUse = useCredit ? round2(Math.min(creditAvail, Math.max(0, quote.total - returnTotal))) : 0;
-
-  // Net the returns and credit against the sale. Positive → the customer pays;
-  // negative → the shop owes them (refund).
-  const netBill = round2(quote.total - returnTotal - creditUse);
-  const payable = Math.max(0, netBill);
-  const grossRefund = Math.max(0, round2(-netBill));
-
-  // Mirrors backend/src/routes/invoices.js exactly: every source of money on
-  // this bill (tendered cash, and any gross refund from returns/credit) goes
-  // into one pool, allocated goods first, then the old due, then whatever's
-  // left is change/refund. Without pooling the refund in here too, this
-  // preview showed the FULL return value as "refund" even when some of it
-  // was about to go straight to clearing the customer's due — a cashier
-  // reading that number had no way to tell the due-clear had actually worked.
-  const tenderedCash = paymentMethod === "CASH" ? Number(amountPaid) || 0 : payable + dueToClear;
-  const pool = round2(tenderedCash + grossRefund);
-  const amountAppliedToGoods = round2(Math.min(pool, payable));
-  const afterGoods = round2(Math.max(0, pool - amountAppliedToGoods));
-  const duePaidFinal = round2(Math.min(dueToClear, afterGoods));
-  const leftover = round2(Math.max(0, afterGoods - duePaidFinal));
-  const changeDue = grossRefund > 0 ? 0 : leftover;
-  const refundValue = grossRefund > 0 ? leftover : 0;
-
-  // "Paid in full" convenience total: goods + due, assuming the cashier
-  // brings fresh cash rather than drawing the due-clear out of a refund.
-  const collectTotal = round2(payable + dueToClear);
-  const shortNow =
-    paymentMethod === "CASH" && Number(amountPaid) > 0 && grossRefund === 0
-      ? Math.max(0, round2(collectTotal - (Number(amountPaid) || 0)))
-      : 0;
+  const { creditUse, duePaidFinal, changeDue, refundValue, collectTotal, shortNow } = settleBill({
+    saleTotal: quote.total,
+    returnTotal,
+    creditAvail,
+    useCredit,
+    dueToClear,
+    paymentMethod,
+    amountPaid,
+  });
 
   const addToCart = useCallback(
     (product: Product, serial?: string) => {
@@ -287,9 +265,9 @@ export default function PosPage() {
       if (invoice.refundValue > 0)
         parts.push(t("pos.refundedPart", { amount: money(invoice.refundValue), mode: invoice.refundMode === "CREDIT" ? t("pos.storeCredit") : t("pos.cash") }));
       show(`${t("pos.done")} — ${parts.join(" · ")}`, "success");
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers });
       setCompletedSale({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, totalAmount: invoice.totalAmount });
       const paidCash = invoice.paymentMethod === "CASH";
       // Soundbox-style confirmation: chime for every sale, spoken for UPI/card.

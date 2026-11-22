@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Bits";
 import { useTranslation } from "@/components/I18nProvider";
 import { api, ApiError } from "@/lib/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 // Bulk product import (CSV / Excel). Same flow as Rechvix's importer:
 //   pick a file → Preview (dry run, writes nothing, every row's outcome is
@@ -34,7 +35,7 @@ export function BulkImportPanel({ onClose }: { onClose: () => void }) {
     try {
       const r = await api.uploadRaw<Report>(`/products/import?format=${ext}${dryRun ? "&dry_run=1" : ""}`, file);
       setReport(r);
-      if (!dryRun) qc.invalidateQueries({ queryKey: ["products"] });
+      if (!dryRun) qc.invalidateQueries({ queryKey: queryKeys.products });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t("bulkImport.errProcess"));
     } finally {

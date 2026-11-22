@@ -13,6 +13,7 @@ import { useToast } from "@/components/Toast";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useTranslation } from "@/components/I18nProvider";
 import { api, describeApiError } from "@/lib/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function OnlineTab() {
   return (
@@ -58,7 +59,7 @@ function StoresCard() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { withPasswordConfirm } = usePasswordConfirm();
-  const { data: stores = [] } = useQuery({ queryKey: ["stores"], queryFn: () => api.get<Store[]>("/integrations") });
+  const { data: stores = [] } = useQuery({ queryKey: queryKeys.stores, queryFn: () => api.get<Store[]>("/integrations") });
   const [adding, setAdding] = useState(false);
   const [secret, setSecret] = useState<{ url: string; secret: string } | null>(null);
   const [cfg, setCfg] = useState<Store | null>(null);
@@ -67,12 +68,12 @@ function StoresCard() {
 
   const create = useMutation({
     mutationFn: () => withPasswordConfirm(t("settings.online.confirmConnect"), (confirmPassword) => api.post<Store & { webhookSecret: string }>("/integrations", { platform, name, confirmPassword })),
-    onSuccess: (r) => { if (r) { setAdding(false); setName(""); setSecret({ url: r.webhookUrl, secret: r.webhookSecret }); qc.invalidateQueries({ queryKey: ["stores"] }); } },
+    onSuccess: (r) => { if (r) { setAdding(false); setName(""); setSecret({ url: r.webhookUrl, secret: r.webhookSecret }); qc.invalidateQueries({ queryKey: queryKeys.stores }); } },
     onError: (e) => show(describeApiError(e, t("settings.online.connectFailed")), "error"),
   });
   const remove = useMutation({
     mutationFn: (id: number) => withPasswordConfirm(t("settings.online.confirmDisconnect"), (confirmPassword) => api.delete(`/integrations/${id}`, { confirmPassword })),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["stores"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.stores }),
   });
 
   return (
@@ -134,7 +135,7 @@ function OutboundDialog({ store, onClose }: { store: Store; onClose: () => void 
       const body = store.platform === "woocommerce" ? { baseUrl: f.baseUrl, ...(f.consumerKey ? { consumerKey: f.consumerKey } : {}), ...(f.consumerSecret ? { consumerSecret: f.consumerSecret } : {}) } : { shopDomain: f.shopDomain, locationId: f.locationId, ...(f.accessToken ? { accessToken: f.accessToken } : {}) };
       return withPasswordConfirm(t("settings.online.confirmSaveStock"), (confirmPassword) => api.put(`/integrations/${store.id}`, { ...body, confirmPassword }));
     },
-    onSuccess: (r) => { if (r) { show(t("settings.online.stockSaved"), "success"); qc.invalidateQueries({ queryKey: ["stores"] }); onClose(); } },
+    onSuccess: (r) => { if (r) { show(t("settings.online.stockSaved"), "success"); qc.invalidateQueries({ queryKey: queryKeys.stores }); onClose(); } },
     onError: (e) => show(describeApiError(e, t("settings.online.saveFailed")), "error"),
   });
   return (
@@ -165,16 +166,16 @@ function AnnouncementsCard() {
   const qc = useQueryClient();
   const { show } = useToast();
   const { t } = useTranslation();
-  const { data = [] } = useQuery({ queryKey: ["announcements"], queryFn: () => api.get<Ann[]>("/announcements") });
+  const { data = [] } = useQuery({ queryKey: queryKeys.announcements, queryFn: () => api.get<Ann[]>("/announcements") });
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const add = useMutation({
     mutationFn: () => api.post("/announcements", { title, body }),
-    onSuccess: () => { setTitle(""); setBody(""); qc.invalidateQueries({ queryKey: ["announcements"] }); },
+    onSuccess: () => { setTitle(""); setBody(""); qc.invalidateQueries({ queryKey: queryKeys.announcements }); },
     onError: (e) => show(describeApiError(e, t("settings.online.postFailed")), "error"),
   });
-  const toggle = useMutation({ mutationFn: (a: Ann) => api.put(`/announcements/${a.id}`, { active: !a.active }), onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }) });
-  const del = useMutation({ mutationFn: (id: number) => api.delete(`/announcements/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }) });
+  const toggle = useMutation({ mutationFn: (a: Ann) => api.put(`/announcements/${a.id}`, { active: !a.active }), onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.announcements }) });
+  const del = useMutation({ mutationFn: (id: number) => api.delete(`/announcements/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.announcements }) });
   return (
     <Card className="flex flex-col gap-4 p-6">
       <h2 className="text-base font-semibold">{t("settings.online.announcementsTitle")}</h2>

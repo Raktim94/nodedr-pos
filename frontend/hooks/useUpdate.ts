@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 export interface UpdateStatus {
   current: string;
@@ -19,7 +20,7 @@ export interface UpdateStatus {
 // shop with no internet just gets `checkError` back rather than a failure.
 export function useUpdateStatus(enabled: boolean) {
   return useQuery({
-    queryKey: ["update-status"],
+    queryKey: queryKeys.updateStatus,
     queryFn: () => api.get<UpdateStatus>("/update/status"),
     enabled,
     retry: false,

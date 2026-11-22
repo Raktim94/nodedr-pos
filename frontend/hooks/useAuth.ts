@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { AuthUser, Permission, Role } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useMe() {
   return useQuery({
@@ -14,7 +15,7 @@ export function useMe() {
 
 export function useUsers() {
   return useQuery({
-    queryKey: ["users"],
+    queryKey: queryKeys.users,
     queryFn: () => api.get<AuthUser[]>("/auth/users"),
   });
 }
@@ -35,7 +36,7 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateUserInput) => api.post<AuthUser>("/auth/users", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.users }),
   });
 }
 
@@ -44,6 +45,6 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<CreateUserInput> & { active?: boolean; permissions?: Permission[]; maxDiscountPercent?: number | null } }) =>
       api.put<AuthUser>(`/auth/users/${id}`, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.users }),
   });
 }

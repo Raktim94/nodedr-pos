@@ -10,6 +10,7 @@ import { useToast } from "@/components/Toast";
 import { usePasswordConfirm } from "@/components/PasswordConfirm";
 import { useTranslation } from "@/components/I18nProvider";
 import { api, describeApiError } from "@/lib/api";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface Cfg { role: "none" | "branch" | "hub"; hubUrl: string; branchCode: string; secretSet: boolean; lastSyncAt: string | null }
 
@@ -21,19 +22,19 @@ export function SyncTab() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { withPasswordConfirm } = usePasswordConfirm();
-  const { data } = useQuery({ queryKey: ["sync-config"], queryFn: () => api.get<Cfg>("/sync") });
+  const { data } = useQuery({ queryKey: queryKeys.syncConfig, queryFn: () => api.get<Cfg>("/sync") });
   const [f, setF] = useState<{ role: string; hubUrl: string; code: string; secret: string } | null>(null);
   const cur = f ?? (data && { role: data.role, hubUrl: data.hubUrl, code: data.branchCode, secret: "" });
 
   const save = useMutation({
     mutationFn: () => withPasswordConfirm(t("settings.sync.confirmSave"), (confirmPassword) =>
       api.put("/sync", { role: cur!.role, hubUrl: cur!.hubUrl, branchCode: cur!.code, ...(cur!.secret ? { secret: cur!.secret } : {}), confirmPassword })),
-    onSuccess: (r) => { if (r) { show(t("settings.sync.saved"), "success"); setF(null); qc.invalidateQueries({ queryKey: ["sync-config"] }); qc.invalidateQueries({ queryKey: ["shop-settings"] }); } },
+    onSuccess: (r) => { if (r) { show(t("settings.sync.saved"), "success"); setF(null); qc.invalidateQueries({ queryKey: queryKeys.syncConfig }); qc.invalidateQueries({ queryKey: queryKeys.shopSettings }); } },
     onError: (e) => show(describeApiError(e, t("settings.sync.saveFailed")), "error"),
   });
   const now = useMutation({
     mutationFn: () => api.post<{ pushed?: number; skipped?: boolean }>("/sync/now"),
-    onSuccess: (r) => { show(r.skipped ? t("settings.sync.nothingToSync") : t("settings.sync.syncedProducts", { count: String(r.pushed) }), "success"); qc.invalidateQueries({ queryKey: ["sync-config"] }); },
+    onSuccess: (r) => { show(r.skipped ? t("settings.sync.nothingToSync") : t("settings.sync.syncedProducts", { count: String(r.pushed) }), "success"); qc.invalidateQueries({ queryKey: queryKeys.syncConfig }); },
     onError: (e) => show(describeApiError(e, t("settings.sync.syncFailed")), "error"),
   });
   if (!cur) return <p className="text-sm text-foreground-muted">{t("settings.sync.loading")}</p>;

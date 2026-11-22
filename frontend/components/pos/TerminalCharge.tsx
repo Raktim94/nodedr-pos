@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useTranslation } from "@/components/I18nProvider";
 import { api, ApiError } from "@/lib/api";
+import { usePoller } from "@/hooks/usePoller";
 
 // Pushes the exact amount to the shop's card reader (Stripe Terminal or
 // Square) and polls until the customer has tapped/inserted. The resulting
@@ -24,10 +25,8 @@ export function TerminalCharge({
   const { t } = useTranslation();
   const [state, setState] = useState<"idle" | "waiting" | "failed">("idle");
   const [error, setError] = useState("");
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const poller = usePoller();
   const current = useRef<string | null>(null);
-
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   async function start() {
     setError("");
@@ -35,20 +34,16 @@ export function TerminalCharge({
     try {
       const { id } = await api.post<{ id: string }>("/payments/terminal/charge", { amount, reference });
       current.current = id;
-      timer.current = setInterval(async () => {
-        try {
-          const s = await api.get<{ status: string }>(`/payments/terminal/status/${encodeURIComponent(id)}`);
-          if (s.status === "PAID") {
-            if (timer.current) clearInterval(timer.current);
-            setState("idle");
-            onPaid(id);
-          } else if (s.status === "FAILED" || s.status === "CANCELED") {
-            if (timer.current) clearInterval(timer.current);
-            setState("failed");
-            setError(s.status === "CANCELED" ? t("terminal.cancelled") : t("terminal.declined"));
-          }
-        } catch {
-          /* transient — keep polling */
+      poller.start(async () => {
+        const s = await api.get<{ status: string }>(`/payments/terminal/status/${encodeURIComponent(id)}`);
+        if (s.status === "PAID") {
+          poller.stop();
+          setState("idle");
+          onPaid(id);
+        } else if (s.status === "FAILED" || s.status === "CANCELED") {
+          poller.stop();
+          setState("failed");
+          setError(s.status === "CANCELED" ? t("terminal.cancelled") : t("terminal.declined"));
         }
       }, 2000);
     } catch (e) {
@@ -58,7 +53,7 @@ export function TerminalCharge({
   }
 
   async function cancel() {
-    if (timer.current) clearInterval(timer.current);
+    poller.stop();
     if (current.current) await api.post(`/payments/terminal/cancel/${encodeURIComponent(current.current)}`).catch(() => {});
     setState("idle");
   }

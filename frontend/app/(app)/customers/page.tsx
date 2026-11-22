@@ -21,6 +21,7 @@ import { can } from "@/lib/perm";
 import { useMe } from "@/hooks/useAuth";
 import { useTranslation } from "@/components/I18nProvider";
 import type { Customer } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 type Form = { name: string; phone: string; email?: string; gstin?: string };
 
@@ -64,7 +65,7 @@ export default function CustomersPage() {
     try {
       await api.put(`/customers/${cardTarget.id}/card`, { cardUid: uid || null });
       show(uid ? t("customers.cardLinked") : t("customers.cardUnlinked"), "success");
-      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: queryKeys.customers });
       setCardTarget(null);
     } catch (err) {
       show(describeApiError(err, t("customers.cardLinkFailed")), "error");

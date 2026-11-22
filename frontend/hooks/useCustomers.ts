@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Customer } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useCustomers(search = "") {
   return useQuery({
@@ -40,7 +41,7 @@ export function useCreateCustomer() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CustomerInput) => api.post<Customer>("/customers", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.customers }),
   });
 }
 
@@ -49,6 +50,6 @@ export function useSettleDue() {
   return useMutation({
     mutationFn: ({ id, amount, note }: { id: number; amount: number; note?: string }) =>
       api.post<Customer>(`/customers/${id}/settle-due`, { amount, note }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.customers }),
   });
 }

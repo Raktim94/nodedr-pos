@@ -17,6 +17,7 @@ import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/components/I18nProvider";
 import { transferStatusLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface Overview { branches: { id: number; code: string; name: string; lastSyncAt: string | null; today: { revenue: number; bills: number }; week: { revenue: number; cost: number; bills: number } }[]; totals: { todayRevenue: number; weekRevenue: number }; trend: { day: string; revenue: number }[] }
 interface InvRow { barcode: string; name: string; category: string | null; branches: Record<number, number> }
@@ -106,14 +107,14 @@ export default function BranchesPage() {
             <li key={tr.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
               <span>#{tr.id} · {branchName(tr.fromBranchId)} → {branchName(tr.toBranchId)} · {tr.items.map((i) => `${i.quantity}× ${i.name}`).join(", ")}</span>
               <span className="flex items-center gap-2"><Badge tone={tr.status === "RECEIVED" ? "good" : tr.status === "SHIPPED" ? "brand" : "neutral"}>{transferStatusLabel(t, tr.status)}</Badge>
-                {!readOnly && tr.status === "PENDING" && <Button variant="ghost" onClick={() => api.post(`/hub/transfers/${tr.id}/cancel`).then(() => qc.invalidateQueries({ queryKey: ["hub"] }))}>{t("branches.cancel")}</Button>}</span>
+                {!readOnly && tr.status === "PENDING" && <Button variant="ghost" onClick={() => api.post(`/hub/transfers/${tr.id}/cancel`).then(() => qc.invalidateQueries({ queryKey: queryKeys.hub }))}>{t("branches.cancel")}</Button>}</span>
             </li>
           ))}
           {transfers.length === 0 && <li className="py-4 text-foreground-muted">{t("branches.noTransfers")}</li>}
         </ul>
       </section>
 
-      {addOpen && <AddBranch onClose={() => setAddOpen(false)} onCreated={(code, s) => { setAddOpen(false); setSecret({ code, secret: s }); qc.invalidateQueries({ queryKey: ["hub"] }); }} withConfirm={withPasswordConfirm} />}
+      {addOpen && <AddBranch onClose={() => setAddOpen(false)} onCreated={(code, s) => { setAddOpen(false); setSecret({ code, secret: s }); qc.invalidateQueries({ queryKey: queryKeys.hub }); }} withConfirm={withPasswordConfirm} />}
       {secret && (
         <Modal title={t("branches.createdTitle", { code: secret.code })} onClose={() => setSecret(null)} size="sm" closeOnBackdrop={false}>
           <p className="mb-2 text-sm">{t("branches.secretHint1")}<b>{t("branches.secretSettings")}</b>{t("branches.secretHint2")}<b>{t("branches.secretOnce")}</b>.</p>
@@ -121,7 +122,7 @@ export default function BranchesPage() {
           <Button className="mt-3 w-full" variant="secondary" onClick={() => { navigator.clipboard?.writeText(secret.secret); show(t("branches.copied"), "success"); }}><Copy className="h-4 w-4" aria-hidden="true" /> {t("branches.copy")}</Button>
         </Modal>
       )}
-      {xfer && ov && <TransferDialog row={xfer} branches={ov.branches} onClose={() => setXfer(null)} onDone={() => { setXfer(null); qc.invalidateQueries({ queryKey: ["hub"] }); }} />}
+      {xfer && ov && <TransferDialog row={xfer} branches={ov.branches} onClose={() => setXfer(null)} onDone={() => { setXfer(null); qc.invalidateQueries({ queryKey: queryKeys.hub }); }} />}
     </div>
   );
 }

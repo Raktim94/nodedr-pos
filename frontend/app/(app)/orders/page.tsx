@@ -14,6 +14,7 @@ import { useTranslation } from "@/components/I18nProvider";
 import { orderStatusLabel, paymentMethodLabel } from "@/lib/enumLabels";
 import type { TranslationKey } from "@/lib/i18n";
 import type { Order } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 type Col = "NEW" | "PACKING" | "READY" | "COLLECTED";
 const COLUMNS: { key: Col; title: TranslationKey; hint: TranslationKey }[] = [
@@ -42,7 +43,7 @@ export default function OrdersPage() {
   const [announce, setAnnounce] = useState("");
 
   const { data: orders = [], isLoading } = useQuery({
-    queryKey: ["orders"],
+    queryKey: queryKeys.orders,
     queryFn: () => api.get<Order[]>("/orders?status=NEW,PACKING,READY,COLLECTED&limit=200"),
     refetchInterval: 15_000,
   });
@@ -50,7 +51,7 @@ export default function OrdersPage() {
   const move = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) => api.patch<Order>(`/orders/${id}/status`, { status }),
     onSuccess: (o) => {
-      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.orders });
       setAnnounce(t("orders.moved", { code: o.pickupCode, status: orderStatusLabel(t, o.status) }));
     },
     onError: (e) => show(describeApiError(e, t("orders.moveFailed")), "error"),
@@ -175,7 +176,7 @@ export default function OrdersPage() {
       )}
       {!isLoading && orders.length === 0 && <EmptyState icon={<ClipboardList className="h-8 w-8" />} title={t("orders.emptyTitle")} hint={t("orders.emptyHint")} />}
 
-      {collecting && <CollectDialog order={collecting} sym={sym} onClose={() => setCollecting(null)} onDone={() => { setCollecting(null); qc.invalidateQueries({ queryKey: ["orders"] }); qc.invalidateQueries({ queryKey: ["products"] }); }} />}
+      {collecting && <CollectDialog order={collecting} sym={sym} onClose={() => setCollecting(null)} onDone={() => { setCollecting(null); qc.invalidateQueries({ queryKey: queryKeys.orders }); qc.invalidateQueries({ queryKey: queryKeys.products }); }} />}
     </div>
   );
 }

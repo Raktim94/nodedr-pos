@@ -16,6 +16,7 @@ import { useProducts } from "@/hooks/useProducts";
 import { useTranslation } from "@/components/I18nProvider";
 import { purchaseOrderStatusLabel } from "@/lib/enumLabels";
 import type { Supplier } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 interface ReorderGroup { supplierId: number | null; supplierName: string; items: { productId: number; name: string; stock: number; reorderPoint: number; unit: string | null; unitCost: number; suggestedQty: number }[] }
 interface PO { id: number; number: string; status: "DRAFT" | "SENT" | "RECEIVED" | "CANCELLED"; totalCost: number; createdAt: string; supplier: { name: string }; _count: { items: number } }
@@ -34,18 +35,18 @@ export default function PurchasingPage() {
   const [supplierDialog, setSupplierDialog] = useState<Supplier | "new" | null>(null);
   const [poDialog, setPoDialog] = useState(false);
 
-  const { data: reorder = [] } = useQuery({ queryKey: ["reorder"], queryFn: () => api.get<ReorderGroup[]>("/purchasing/reorder") });
-  const { data: orders = [] } = useQuery({ queryKey: ["pos"], queryFn: () => api.get<PO[]>("/purchasing/orders") });
-  const { data: suppliers = [] } = useQuery({ queryKey: ["suppliers"], queryFn: () => api.get<Supplier[]>("/purchasing/suppliers") });
+  const { data: reorder = [] } = useQuery({ queryKey: queryKeys.reorder, queryFn: () => api.get<ReorderGroup[]>("/purchasing/reorder") });
+  const { data: orders = [] } = useQuery({ queryKey: queryKeys.pos, queryFn: () => api.get<PO[]>("/purchasing/orders") });
+  const { data: suppliers = [] } = useQuery({ queryKey: queryKeys.suppliers, queryFn: () => api.get<Supplier[]>("/purchasing/suppliers") });
 
   const createPo = useMutation({
     mutationFn: (g: ReorderGroup) => api.post<PO>("/purchasing/orders", { supplierId: g.supplierId, items: g.items.map((i) => ({ productId: i.productId, quantity: i.suggestedQty, unitCost: i.unitCost })) }),
-    onSuccess: (po) => { show(t("purchasing.poCreated", { number: po.number }), "success"); qc.invalidateQueries({ queryKey: ["pos"] }); setTab("orders"); },
+    onSuccess: (po) => { show(t("purchasing.poCreated", { number: po.number }), "success"); qc.invalidateQueries({ queryKey: queryKeys.pos }); setTab("orders"); },
     onError: (e) => show(describeApiError(e, t("purchasing.createFailed")), "error"),
   });
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) => api.patch(`/purchasing/orders/${id}/status`, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["pos"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.pos }),
     onError: (e) => show(describeApiError(e, t("purchasing.failed")), "error"),
   });
 
@@ -131,7 +132,7 @@ function SupplierDialog({ supplier, onClose }: { supplier?: Supplier; onClose: (
   const { show } = useToast();
   const { t } = useTranslation();
   const [f, setF] = useState({ name: supplier?.name ?? "", phone: supplier?.phone ?? "", email: supplier?.email ?? "", address: supplier?.address ?? "", gstin: supplier?.gstin ?? "", notes: supplier?.notes ?? "" });
-  const done = () => { qc.invalidateQueries({ queryKey: ["suppliers"] }); qc.invalidateQueries({ queryKey: ["reorder"] }); qc.invalidateQueries({ queryKey: ["products"] }); onClose(); };
+  const done = () => { qc.invalidateQueries({ queryKey: queryKeys.suppliers }); qc.invalidateQueries({ queryKey: queryKeys.reorder }); qc.invalidateQueries({ queryKey: queryKeys.products }); onClose(); };
   const save = useMutation({
     mutationFn: () => (supplier ? api.put(`/purchasing/suppliers/${supplier.id}`, f) : api.post("/purchasing/suppliers", f)),
     onSuccess: () => { show(supplier ? t("purchasing.supplierUpdated") : t("purchasing.supplierAdded"), "success"); done(); },
@@ -183,7 +184,7 @@ function NewPoDialog({ suppliers, onCreated, onClose }: { suppliers: Supplier[];
 
   const create = useMutation({
     mutationFn: () => api.post<PO>("/purchasing/orders", { supplierId: Number(supplierId), notes: notes.trim() || undefined, items: lines.map((l) => ({ productId: l.productId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) })) }),
-    onSuccess: (po) => { show(t("purchasing.poCreated", { number: po.number }), "success"); qc.invalidateQueries({ queryKey: ["pos"] }); onCreated(); onClose(); },
+    onSuccess: (po) => { show(t("purchasing.poCreated", { number: po.number }), "success"); qc.invalidateQueries({ queryKey: queryKeys.pos }); onCreated(); onClose(); },
     onError: (e) => show(describeApiError(e, t("purchasing.createFailed")), "error"),
   });
 
@@ -240,7 +241,7 @@ function ReceiveDialog({ id, onClose }: { id: number; onClose: () => void }) {
           .map((i) => ({ itemId: i.id, quantity: Number(qty[i.id] ?? i.quantity - i.receivedQty) }))
           .filter((i) => i.quantity > 0),
       }),
-    onSuccess: () => { show(t("purchasing.stockReceived"), "success"); qc.invalidateQueries({ queryKey: ["pos"] }); qc.invalidateQueries({ queryKey: ["products"] }); qc.invalidateQueries({ queryKey: ["reorder"] }); onClose(); },
+    onSuccess: () => { show(t("purchasing.stockReceived"), "success"); qc.invalidateQueries({ queryKey: queryKeys.pos }); qc.invalidateQueries({ queryKey: queryKeys.products }); qc.invalidateQueries({ queryKey: queryKeys.reorder }); onClose(); },
     onError: (e) => show(describeApiError(e, t("purchasing.receiveFailed")), "error"),
   });
 

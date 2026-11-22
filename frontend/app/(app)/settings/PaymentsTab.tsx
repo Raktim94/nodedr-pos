@@ -15,6 +15,7 @@ import { api, describeApiError } from "@/lib/api";
 import { useCurrencies } from "@/hooks/useShopSettings";
 import type { ShopSettings } from "@/lib/types";
 import { useSaver } from "./useSaver";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function PaymentsTab({ settings }: { settings: ShopSettings }) {
   return (
@@ -58,7 +59,7 @@ function TerminalCard() {
   const saveCfg = useMutation({
     mutationFn: () => withPasswordConfirm(t("settings.payments.confirmSaveTerminal"), (confirmPassword) =>
       api.put("/payments/terminal-config", { provider: p, ...(secret ? { secret } : {}), ...(p === "stripe" ? { readerId: rid } : {}), ...(p === "square" ? { deviceId: rid, sandbox: sandbox ?? data?.sandbox ?? false } : {}), confirmPassword })),
-    onSuccess: (r) => { if (r) { show(t("settings.payments.saved"), "success"); setSecret(""); qc.invalidateQueries({ queryKey: ["terminal-config"] }); qc.invalidateQueries({ queryKey: ["shop-settings"] }); } },
+    onSuccess: (r) => { if (r) { show(t("settings.payments.saved"), "success"); setSecret(""); qc.invalidateQueries({ queryKey: ["terminal-config"] }); qc.invalidateQueries({ queryKey: queryKeys.shopSettings }); } },
     onError: (e) => show(describeApiError(e, t("settings.payments.saveFailed")), "error"),
   });
 
@@ -84,19 +85,19 @@ function FxCard({ base }: { base: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: currencies } = useCurrencies();
-  const { data: fx } = useQuery({ queryKey: ["fx"], queryFn: () => api.get<{ base: string; rates: Record<string, number>; updatedAt: string | null }>("/payments/fx") });
+  const { data: fx } = useQuery({ queryKey: queryKeys.fx, queryFn: () => api.get<{ base: string; rates: Record<string, number>; updatedAt: string | null }>("/payments/fx") });
   const [rates, setRates] = useState<Record<string, string> | null>(null);
   const [add, setAdd] = useState("USD");
   const cur = rates ?? Object.fromEntries(Object.entries(fx?.rates ?? {}).map(([k, v]) => [k, String(v)]));
 
   const saveRates = useMutation({
     mutationFn: () => api.put("/payments/fx", { rates: Object.fromEntries(Object.entries(cur).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])) }),
-    onSuccess: () => { show(t("settings.payments.ratesSaved"), "success"); setRates(null); qc.invalidateQueries({ queryKey: ["fx"] }); },
+    onSuccess: () => { show(t("settings.payments.ratesSaved"), "success"); setRates(null); qc.invalidateQueries({ queryKey: queryKeys.fx }); },
     onError: (e) => show(describeApiError(e, t("settings.payments.saveFailed")), "error"),
   });
   const refresh = useMutation({
     mutationFn: () => api.post("/payments/fx/refresh"),
-    onSuccess: () => { show(t("settings.payments.ratesFetched"), "success"); setRates(null); qc.invalidateQueries({ queryKey: ["fx"] }); },
+    onSuccess: () => { show(t("settings.payments.ratesFetched"), "success"); setRates(null); qc.invalidateQueries({ queryKey: queryKeys.fx }); },
     onError: (e) => show(describeApiError(e, t("settings.payments.ratesFetchFailed")), "error"),
   });
 
