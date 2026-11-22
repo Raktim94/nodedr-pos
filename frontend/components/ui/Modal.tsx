@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { clsx } from "clsx";
+import { useTranslation } from "@/components/I18nProvider";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),textarea,input:not([disabled]),select,[tabindex]:not([tabindex="-1"])';
 
@@ -24,6 +25,7 @@ export function Modal({
   size?: "sm" | "md" | "lg";
   closeOnBackdrop?: boolean;
 }) {
+  const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,7 +82,7 @@ export function Modal({
       >
         <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-5 py-4">
           <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-          <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground-muted hover:bg-surface-muted hover:text-foreground">
+          <button type="button" aria-label={t("common.close")} onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground-muted hover:bg-surface-muted hover:text-foreground">
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>

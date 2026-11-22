@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { useSettleDue } from "@/hooks/useCustomers";
+import { useTranslation } from "@/components/I18nProvider";
 import { useToast } from "@/components/Toast";
 import { ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
@@ -14,20 +15,21 @@ export function SettleDueModal({ customer, sym, onClose }: { customer: Customer;
   const [amount, setAmount] = useState(String(customer.totalDue));
   const settleDue = useSettleDue();
   const { show } = useToast();
+  const { t } = useTranslation();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const n = Number(amount);
     if (!Number.isFinite(n) || n <= 0) {
-      show("Enter an amount greater than 0", "error");
+      show(t("settleDue.errAmount"), "error");
       return;
     }
     try {
       await settleDue.mutateAsync({ id: customer.id, amount: n });
-      show(`Payment recorded for ${customer.name}`, "success");
+      show(t("settleDue.recorded", { name: customer.name }), "success");
       onClose();
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not record payment", "error");
+      show(err instanceof ApiError ? err.message : t("settleDue.failed"), "error");
     }
   }
 
@@ -46,18 +48,18 @@ export function SettleDueModal({ customer, sym, onClose }: { customer: Customer;
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 id="settle-due-title" className="text-lg font-semibold text-foreground">
-            Record a due payment
+            {t("settleDue.title")}
           </h2>
-          <button type="button" aria-label="Close dialog" onClick={onClose} className="text-foreground/40 hover:text-foreground">
+          <button type="button" aria-label={t("common.closeDialog")} onClick={onClose} className="text-foreground/40 hover:text-foreground">
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
         <p className="mb-4 text-sm text-foreground/70">
-          {customer.name} currently owes <span className="font-semibold text-foreground">{formatMoney(customer.totalDue, sym)}</span>
+          {t("settleDue.owesPre", { name: customer.name })}<span className="font-semibold text-foreground">{formatMoney(customer.totalDue, sym)}</span>
         </p>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <Field
-            label="Amount received"
+            label={t("settleDue.amountReceived")}
             type="number"
             min={0}
             max={customer.totalDue}
@@ -68,10 +70,10 @@ export function SettleDueModal({ customer, sym, onClose }: { customer: Customer;
           />
           <div className="flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
+              {t("settleDue.cancel")}
             </Button>
             <Button type="submit" disabled={settleDue.isPending}>
-              Record payment
+              {t("settleDue.recordPayment")}
             </Button>
           </div>
         </form>

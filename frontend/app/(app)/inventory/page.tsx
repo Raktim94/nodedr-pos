@@ -17,6 +17,7 @@ import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { useDeleteProduct, useProducts } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
 import { useToast } from "@/components/Toast";
+import { useTranslation } from "@/components/I18nProvider";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { effectivePrice } from "@/lib/quote";
@@ -37,6 +38,7 @@ export default function InventoryPage() {
   const { data: products, isLoading } = useProducts(search);
   const deleteProduct = useDeleteProduct();
   const { show } = useToast();
+  const { t } = useTranslation();
 
   const sym = shop?.currencySymbol || "Rs.";
   const money = (n: number) => formatMoney(n, sym);
@@ -55,7 +57,7 @@ export default function InventoryPage() {
           try {
             const found = await lookupBarcode(code);
             if (found) {
-              show(`Details filled from ${found.source} — review before saving`, "success");
+              show(t("inventory.detailsFilled", { source: found.source }), "success");
               setModal({ mode: "add", initialBarcode: code, prefill: found });
               return;
             }
@@ -63,21 +65,21 @@ export default function InventoryPage() {
             // offline / database down — manual entry below
           }
           setModal({ mode: "add", initialBarcode: code });
-        } else show("Barcode lookup failed", "error");
+        } else show(t("inventory.barcodeFailed"), "error");
       }
     },
-    [show]
+    [show, t]
   );
 
   useBarcodeScanner({ onScan: handleScan, enabled: modal === null && stockTarget === null && !importOpen && !lookupOpen });
 
   async function handleDelete(product: Product) {
-    if (!window.confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
+    if (!window.confirm(t("inventory.confirmDelete", { name: product.name }))) return;
     try {
       await deleteProduct.mutateAsync(product.id);
-      show("Product deleted", "success");
+      show(t("inventory.deleted"), "success");
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not delete product", "error");
+      show(err instanceof ApiError ? err.message : t("inventory.deleteFailed"), "error");
     }
   }
 
@@ -85,25 +87,25 @@ export default function InventoryPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Inventory</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{t("inventory.title")}</h1>
           <p className="flex items-center gap-1.5 text-sm text-foreground/60">
             <ScanBarcode className="h-4 w-4 shrink-0" aria-hidden="true" />
-            Scan a barcode to jump to a product, or use the edit and stock icons on each row.
+            {t("inventory.subtitle")}
           </p>
         </div>
         {canEdit && (
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => setImportOpen((v) => !v)} aria-expanded={importOpen}>
               <FileUp className="h-4 w-4" aria-hidden="true" />
-              Bulk import
+              {t("inventory.bulkImport")}
             </Button>
             <Button variant="secondary" onClick={() => setLookupOpen(true)}>
               <Globe className="h-4 w-4" aria-hidden="true" />
-              Find online
+              {t("inventory.findOnline")}
             </Button>
             <Button onClick={() => setModal({ mode: "add" })}>
               <Plus className="h-4 w-4" aria-hidden="true" />
-              Add product
+              {t("inventory.addProduct")}
             </Button>
           </div>
         )}
@@ -117,30 +119,28 @@ export default function InventoryPage() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, barcode or category…"
-            aria-label="Search products"
+            placeholder={t("inventory.searchPlaceholder")}
+            aria-label={t("inventory.searchAria")}
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/40"
           />
         </div>
 
         {isLoading ? (
-          <p className="py-10 text-center text-sm text-foreground/50">Loading products…</p>
+          <p className="py-10 text-center text-sm text-foreground/50">{t("inventory.loading")}</p>
         ) : !products || products.length === 0 ? (
-          <p className="py-10 text-center text-sm text-foreground/50">
-            No products yet. Scan a barcode or click &quot;Add product&quot; to start.
-          </p>
+          <p className="py-10 text-center text-sm text-foreground/50">{t("inventory.empty")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-max text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase text-foreground/50">
-                  <th className="py-2 pr-4">Product</th>
-                  <th className="py-2 pr-4">Barcode</th>
-                  <th className="py-2 pr-4">Category</th>
-                  {shop?.gstEnabled && <th className="py-2 pr-4 text-right">GST</th>}
-                  <th className="py-2 pr-4 text-right">Cost</th>
-                  <th className="py-2 pr-4 text-right">Price</th>
-                  <th className="py-2 pr-4 text-right">Stock</th>
+                  <th className="py-2 pr-4">{t("inventory.colProduct")}</th>
+                  <th className="py-2 pr-4">{t("inventory.colBarcode")}</th>
+                  <th className="py-2 pr-4">{t("inventory.colCategory")}</th>
+                  {shop?.gstEnabled && <th className="py-2 pr-4 text-right">{t("inventory.colGst")}</th>}
+                  <th className="py-2 pr-4 text-right">{t("inventory.colCost")}</th>
+                  <th className="py-2 pr-4 text-right">{t("inventory.colPrice")}</th>
+                  <th className="py-2 pr-4 text-right">{t("inventory.colStock")}</th>
                   <th className="py-2" />
                 </tr>
               </thead>
@@ -167,14 +167,14 @@ export default function InventoryPage() {
                         </button>
                         {product.unit && <span className="ml-1.5 text-xs text-foreground/40">({product.unit})</span>}
                         {shop?.serialTracking && product.trackSerial && (
-                          <span className="ml-1.5 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand" title={`IMEI asked at sale · ${product.warrantyMonths} mo warranty`}>
+                          <span className="ml-1.5 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand" title={t("inventory.imeiTitle", { months: product.warrantyMonths })}>
                             IMEI{product.warrantyMonths ? ` · ${product.warrantyMonths}m` : ""}
                           </span>
                         )}
                         {product.sku && (
                           <span
                             className="ml-1.5 rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium text-brand"
-                            title="Linked to an external system by this SKU"
+                            title={t("inventory.skuLinked")}
                           >
                             SKU {product.sku}
                           </span>
@@ -200,7 +200,7 @@ export default function InventoryPage() {
                         <button
                           type="button"
                           onClick={() => setStockTarget(product)}
-                          title="Adjust stock"
+                          title={t("inventory.adjustStock")}
                           className={
                             low
                               ? "rounded-full bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning hover:bg-warning/20"
@@ -212,13 +212,13 @@ export default function InventoryPage() {
                       </td>
                       <td className="py-2.5 text-right">
                         <div className="flex items-center justify-end gap-3">
-                          <a href={`/api/print/label/${product.id}?language=zpl&copies=1`} download aria-label={`ZPL label for ${product.name}`} title="Zebra / ZPL label file" className="text-foreground/40 hover:text-brand">
+                          <a href={`/api/print/label/${product.id}?language=zpl&copies=1`} download aria-label={`${t("inventory.zplLabel")} — ${product.name}`} title={t("inventory.zplLabel")} className="text-foreground/40 hover:text-brand">
                             <Tag className="h-4 w-4" aria-hidden="true" />
                           </a>
                           <button
                             type="button"
-                            aria-label={`Barcode label for ${product.name}`}
-                            title="Barcode / QR label"
+                            aria-label={`${t("inventory.barcodeLabel")} — ${product.name}`}
+                            title={t("inventory.barcodeLabel")}
                             onClick={() => setLabelTarget(product)}
                             className="text-foreground/40 hover:text-brand"
                           >
@@ -226,8 +226,8 @@ export default function InventoryPage() {
                           </button>
                           <button
                             type="button"
-                            aria-label={`Adjust stock for ${product.name}`}
-                            title="Adjust stock"
+                            aria-label={`${t("inventory.adjustStock")} — ${product.name}`}
+                            title={t("inventory.adjustStock")}
                             onClick={() => setStockTarget(product)}
                             className="text-foreground/40 hover:text-brand"
                           >
@@ -235,8 +235,8 @@ export default function InventoryPage() {
                           </button>
                           <button
                             type="button"
-                            aria-label={`Edit ${product.name}`}
-                            title="Edit product"
+                            aria-label={`${t("inventory.editProduct")} — ${product.name}`}
+                            title={t("inventory.editProduct")}
                             onClick={() => setModal({ mode: "edit", product })}
                             className="text-foreground/40 hover:text-brand"
                           >
@@ -244,8 +244,8 @@ export default function InventoryPage() {
                           </button>
                           <button
                             type="button"
-                            aria-label={`Delete ${product.name}`}
-                            title="Delete product"
+                            aria-label={`${t("inventory.deleteProduct")} — ${product.name}`}
+                            title={t("inventory.deleteProduct")}
                             onClick={() => handleDelete(product)}
                             className="text-foreground/40 hover:text-danger"
                           >

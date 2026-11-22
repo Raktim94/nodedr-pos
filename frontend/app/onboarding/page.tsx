@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -13,39 +13,61 @@ import { Toggle } from "@/components/ui/Toggle";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { BrandFooter } from "@/components/BrandFooter";
+import { LanguageToggle } from "@/components/LanguageToggle";
+import { useTranslation } from "@/components/I18nProvider";
 import { useCurrencies } from "@/hooks/useShopSettings";
 import { api, ApiError } from "@/lib/api";
 
-const accountSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  email: z.string().trim().toLowerCase().email("Enter a valid email"),
-  password: z.string().min(8, "Use at least 8 characters"),
-});
-type AccountForm = z.infer<typeof accountSchema>;
+type AccountForm = { name: string; email: string; password: string };
+type ShopForm = {
+  shopName: string;
+  address1: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  phone?: string;
+  currencyCode: string;
+  lowStockAlert: number;
+  gstNumber?: string;
+  defaultTaxRate: number;
+};
 
-const shopSchema = z.object({
-  shopName: z.string().trim().min(1, "Shop name is required"),
-  address1: z.string().trim().min(1, "Address is required"),
-  address2: z.string().trim().optional(),
-  city: z.string().trim().optional(),
-  state: z.string().trim().optional(),
-  phone: z.string().trim().optional(),
-  currencyCode: z.string().min(1, "Choose a currency"),
-  lowStockAlert: z.number().int().min(0),
-  gstNumber: z.string().trim().optional(),
-  defaultTaxRate: z.number().min(0).max(100),
-});
-type ShopForm = z.infer<typeof shopSchema>;
-
-const STEPS = ["Account", "Company", "Done"] as const;
+const STEPS = ["onboarding.step.account", "onboarding.step.company", "onboarding.step.done"] as const;
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { data: currencies } = useCurrencies();
   const [step, setStep] = useState(0);
   const [serverError, setServerError] = useState<string | null>(null);
   const [gstEnabled, setGstEnabled] = useState(false);
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
+
+  const accountSchema = useMemo(
+    () =>
+      z.object({
+        name: z.string().trim().min(1, t("onboarding.errNameRequired")),
+        email: z.string().trim().toLowerCase().email(t("onboarding.errEmailInvalid")),
+        password: z.string().min(8, t("onboarding.errPasswordLength")),
+      }),
+    [t]
+  );
+  const shopSchema = useMemo(
+    () =>
+      z.object({
+        shopName: z.string().trim().min(1, t("onboarding.errShopNameRequired")),
+        address1: z.string().trim().min(1, t("onboarding.errAddressRequired")),
+        address2: z.string().trim().optional(),
+        city: z.string().trim().optional(),
+        state: z.string().trim().optional(),
+        phone: z.string().trim().optional(),
+        currencyCode: z.string().min(1, t("onboarding.errCurrencyRequired")),
+        lowStockAlert: z.number().int().min(0),
+        gstNumber: z.string().trim().optional(),
+        defaultTaxRate: z.number().min(0).max(100),
+      }),
+    [t]
+  );
 
   const currencyOptions = Object.entries(currencies ?? {}).map(([value, c]) => ({
     value,
@@ -64,7 +86,7 @@ export default function OnboardingPage() {
       await api.post("/auth/register", values);
       setStep(1);
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : "Could not create the admin account");
+      setServerError(err instanceof ApiError ? err.message : t("onboarding.errAccount"));
     }
   }
 
@@ -81,20 +103,23 @@ export default function OnboardingPage() {
       });
       setStep(2);
     } catch (err) {
-      setServerError(err instanceof ApiError ? err.message : "Could not save company settings");
+      setServerError(err instanceof ApiError ? err.message : t("onboarding.errSettings"));
     }
   }
 
   return (
-    <main className="flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-background px-4 py-10">
+    <main className="relative flex min-h-screen flex-1 flex-col items-center justify-center gap-6 bg-background px-4 py-10">
+      <div className="absolute right-4 top-4">
+        <LanguageToggle />
+      </div>
       <Card className="w-full max-w-lg p-8">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <Image src="/logo.png" alt="nodedr-pos" width={64} height={64} className="h-16 w-16 rounded-full" priority />
-          <h1 className="text-xl font-semibold text-foreground">Welcome to nodedr-pos</h1>
-          <p className="text-sm text-foreground/60">Let&apos;s set up your shop.</p>
+          <h1 className="text-xl font-semibold text-foreground">{t("onboarding.welcome")}</h1>
+          <p className="text-sm text-foreground/60">{t("onboarding.subtitle")}</p>
         </div>
 
-        <ol className="mb-8 flex items-center justify-center gap-2" aria-label="Onboarding progress">
+        <ol className="mb-8 flex items-center justify-center gap-2" aria-label={t("onboarding.progress")}>
           {STEPS.map((label, i) => (
             <li key={label} className="flex items-center gap-2">
               <span
@@ -116,49 +141,46 @@ export default function OnboardingPage() {
 
         {step === 0 && (
           <form onSubmit={accountForm.handleSubmit(onAccountSubmit)} noValidate className="flex flex-col gap-4">
-            <h2 className="text-sm font-semibold text-foreground/70">Step 1 — Admin account</h2>
-            <Field label="Your name" error={accountForm.formState.errors.name?.message} {...accountForm.register("name")} />
+            <h2 className="text-sm font-semibold text-foreground/70">{t("onboarding.step1")}</h2>
+            <Field label={t("onboarding.yourName")} error={accountForm.formState.errors.name?.message} {...accountForm.register("name")} />
             <Field
-              label="Email"
+              label={t("onboarding.email")}
               type="email"
               autoComplete="email"
               error={accountForm.formState.errors.email?.message}
               {...accountForm.register("email")}
             />
             <Field
-              label="Password"
+              label={t("onboarding.password")}
               type="password"
               autoComplete="new-password"
               error={accountForm.formState.errors.password?.message}
               {...accountForm.register("password")}
             />
-            <p className="-mt-2 text-xs text-foreground/50">
-              There&apos;s no &quot;forgot password&quot; for this account — it lives only on this
-              machine. Write it down or save it in a password manager.
-            </p>
+            <p className="-mt-2 text-xs text-foreground/50">{t("onboarding.noForgot")}</p>
             {serverError && <p role="alert" className="text-sm text-danger">{serverError}</p>}
             <Button type="submit" disabled={accountForm.formState.isSubmitting} className="mt-2 w-full">
-              Continue
+              {t("onboarding.continue")}
             </Button>
           </form>
         )}
 
         {step === 1 && (
           <form onSubmit={shopForm.handleSubmit(onShopSubmit)} noValidate className="flex flex-col gap-4">
-            <h2 className="text-sm font-semibold text-foreground/70">Step 2 — Company details</h2>
-            <Field label="Shop name" error={shopForm.formState.errors.shopName?.message} {...shopForm.register("shopName")} />
-            <Field label="Address line 1" error={shopForm.formState.errors.address1?.message} {...shopForm.register("address1")} />
-            <Field label="Address line 2" {...shopForm.register("address2")} />
+            <h2 className="text-sm font-semibold text-foreground/70">{t("onboarding.step2")}</h2>
+            <Field label={t("onboarding.shopName")} error={shopForm.formState.errors.shopName?.message} {...shopForm.register("shopName")} />
+            <Field label={t("onboarding.address1")} error={shopForm.formState.errors.address1?.message} {...shopForm.register("address1")} />
+            <Field label={t("onboarding.address2")} {...shopForm.register("address2")} />
             <div className="grid grid-cols-2 gap-4">
-              <Field label="City" {...shopForm.register("city")} />
-              <Field label="State" {...shopForm.register("state")} />
+              <Field label={t("onboarding.city")} {...shopForm.register("city")} />
+              <Field label={t("onboarding.state")} {...shopForm.register("state")} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Phone" {...shopForm.register("phone")} />
-              <Select label="Currency" options={currencyOptions} {...shopForm.register("currencyCode")} />
+              <Field label={t("onboarding.phone")} {...shopForm.register("phone")} />
+              <Select label={t("onboarding.currency")} options={currencyOptions} {...shopForm.register("currencyCode")} />
             </div>
             <Field
-              label="Low stock alert threshold"
+              label={t("onboarding.lowStockThreshold")}
               type="number"
               min={0}
               error={shopForm.formState.errors.lowStockAlert?.message}
@@ -167,16 +189,16 @@ export default function OnboardingPage() {
 
             <div className="rounded-lg border border-border p-4">
               <Toggle
-                label="Enable GST / tax"
-                description="Charge per-product GST and show a tax breakdown on bills"
+                label={t("onboarding.enableGst")}
+                description={t("onboarding.enableGstDesc")}
                 checked={gstEnabled}
                 onChange={setGstEnabled}
               />
               {gstEnabled && (
                 <div className="mt-4 grid grid-cols-2 gap-4">
-                  <Field label="GSTIN (optional)" {...shopForm.register("gstNumber")} />
+                  <Field label={t("onboarding.gstin")} {...shopForm.register("gstNumber")} />
                   <Field
-                    label="Default GST rate %"
+                    label={t("onboarding.defaultGstRate")}
                     type="number"
                     min={0}
                     step="0.01"
@@ -188,25 +210,23 @@ export default function OnboardingPage() {
 
             <div className="rounded-lg border border-border p-4">
               <Toggle
-                label="Enable loyalty program"
-                description="Customers earn points on purchases, redeemable as discounts"
+                label={t("onboarding.enableLoyalty")}
+                description={t("onboarding.enableLoyaltyDesc")}
                 checked={loyaltyEnabled}
                 onChange={setLoyaltyEnabled}
               />
               {loyaltyEnabled && (
-                <p className="mt-3 text-xs text-foreground/50">
-                  Starts at 1 point per unit spent, 1 point = 0.1 in currency. You can fine-tune this later in Settings.
-                </p>
+                <p className="mt-3 text-xs text-foreground/50">{t("onboarding.loyaltyHint")}</p>
               )}
             </div>
 
             {serverError && <p role="alert" className="text-sm text-danger">{serverError}</p>}
             <div className="flex gap-3">
               <Button type="button" variant="secondary" onClick={() => setStep(0)} className="flex-1">
-                Back
+                {t("onboarding.back")}
               </Button>
               <Button type="submit" disabled={shopForm.formState.isSubmitting} className="flex-1">
-                Continue
+                {t("onboarding.continue")}
               </Button>
             </div>
           </form>
@@ -217,10 +237,10 @@ export default function OnboardingPage() {
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-success/10">
               <Check className="h-7 w-7 text-success" aria-hidden="true" />
             </span>
-            <h2 className="text-lg font-semibold text-foreground">You&apos;re all set!</h2>
-            <p className="text-sm text-foreground/60">Your shop is configured and ready to start selling.</p>
+            <h2 className="text-lg font-semibold text-foreground">{t("onboarding.allSet")}</h2>
+            <p className="text-sm text-foreground/60">{t("onboarding.readyDesc")}</p>
             <Button className="mt-2 w-full" onClick={() => router.replace("/dashboard")}>
-              Go to Dashboard
+              {t("onboarding.goDashboard")}
             </Button>
           </div>
         )}

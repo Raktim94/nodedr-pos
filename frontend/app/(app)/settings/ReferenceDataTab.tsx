@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/Toast";
+import { useTranslation } from "@/components/I18nProvider";
 import { ApiError, api } from "@/lib/api";
 import {
   useImportIfsc,
@@ -45,6 +46,7 @@ function ImportRow({
   isPending: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
       <p className="text-sm font-medium text-foreground">{label}</p>
@@ -63,7 +65,7 @@ function ImportRow({
           onClick={() => file && onImport(file)}
         >
           <Upload className="h-4 w-4" aria-hidden="true" />
-          Import
+          {t("settings.reference.import")}
         </Button>
       </div>
     </div>
@@ -72,34 +74,34 @@ function ImportRow({
 
 function TaxCodeImportCard({ count }: { count?: { hsn: number; sac: number } }) {
   const { show } = useToast();
+  const { t } = useTranslation();
   const importTaxCodes = useImportTaxCodes();
 
   async function handle(type: "HSN" | "SAC", file: File) {
     try {
       const res = await importTaxCodes.mutateAsync({ type, file });
-      show(`Imported ${res.imported} ${type} codes`, "success");
+      show(t("settings.reference.importedCodes", { count: res.imported, type }), "success");
     } catch (err) {
-      show(err instanceof ApiError ? err.message : `Could not import ${type} codes`, "error");
+      show(err instanceof ApiError ? err.message : t("settings.reference.importCodesFailed", { type }), "error");
     }
   }
 
   return (
     <Card className="p-6">
-      <h2 className="mb-1 text-base font-semibold text-foreground">HSN / SAC codes</h2>
+      <h2 className="mb-1 text-base font-semibold text-foreground">{t("settings.reference.hsnTitle")}</h2>
       <p className="mb-4 text-sm text-foreground/60">
-        {count ? `${count.hsn} HSN + ${count.sac} SAC codes loaded` : "None loaded yet"} — powers autocomplete on the
-        product HSN/SAC field.
+        {count ? t("settings.reference.hsnLoaded", { hsn: count.hsn, sac: count.sac }) : t("settings.reference.noneLoaded")} {t("settings.reference.hsnHint")}
       </p>
       <div className="flex flex-col gap-3">
         <ImportRow
-          label="HSN codes"
-          hint='CSV columns: code, description, gstRate (optional). Source: the CBIC HSN directory.'
+          label={t("settings.reference.hsnLabel")}
+          hint={t("settings.reference.hsnCsv")}
           onImport={(f) => handle("HSN", f)}
           isPending={importTaxCodes.isPending}
         />
         <ImportRow
-          label="SAC codes"
-          hint='CSV columns: code, description, gstRate (optional). Source: the CBIC SAC directory.'
+          label={t("settings.reference.sacLabel")}
+          hint={t("settings.reference.sacCsv")}
           onImport={(f) => handle("SAC", f)}
           isPending={importTaxCodes.isPending}
         />
@@ -110,27 +112,27 @@ function TaxCodeImportCard({ count }: { count?: { hsn: number; sac: number } }) 
 
 function PinCodeImportCard({ count }: { count?: number }) {
   const { show } = useToast();
+  const { t } = useTranslation();
   const importPincodes = useImportPincodes();
 
   async function handle(file: File) {
     try {
       const res = await importPincodes.mutateAsync(file);
-      show(`Imported ${res.imported} PIN codes`, "success");
+      show(t("settings.reference.importedPins", { count: res.imported }), "success");
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not import PIN codes", "error");
+      show(err instanceof ApiError ? err.message : t("settings.reference.importPinsFailed"), "error");
     }
   }
 
   return (
     <Card className="p-6">
-      <h2 className="mb-1 text-base font-semibold text-foreground">PIN codes</h2>
+      <h2 className="mb-1 text-base font-semibold text-foreground">{t("settings.reference.pinTitle")}</h2>
       <p className="mb-4 text-sm text-foreground/60">
-        {count ? `${count} PIN codes loaded` : "None loaded yet"} — enables city/state autofill from a PIN code in
-        Company settings.
+        {count ? t("settings.reference.pinLoaded", { count }) : t("settings.reference.noneLoaded")} {t("settings.reference.pinHint")}
       </p>
       <ImportRow
-        label="PIN code directory"
-        hint="CSV columns: pincode, area, district, state. Source: the India Post / data.gov.in PIN code directory."
+        label={t("settings.reference.pinLabel")}
+        hint={t("settings.reference.pinCsv")}
         onImport={handle}
         isPending={importPincodes.isPending}
       />
@@ -140,6 +142,7 @@ function PinCodeImportCard({ count }: { count?: number }) {
 
 function IfscCard({ count }: { count?: number }) {
   const { show } = useToast();
+  const { t } = useTranslation();
   const importIfsc = useImportIfsc();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<IfscRecord | null>(null);
@@ -148,9 +151,9 @@ function IfscCard({ count }: { count?: number }) {
   async function handleImport(file: File) {
     try {
       const res = await importIfsc.mutateAsync(file);
-      show(`Imported ${res.imported} IFSC codes`, "success");
+      show(t("settings.reference.importedIfsc", { count: res.imported }), "success");
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not import IFSC codes", "error");
+      show(err instanceof ApiError ? err.message : t("settings.reference.importIfscFailed"), "error");
     }
   }
 
@@ -162,7 +165,7 @@ function IfscCard({ count }: { count?: number }) {
       const record = await api.get<IfscRecord>(`/masters/ifsc/${encodeURIComponent(query.trim().toUpperCase())}`);
       setResult(record);
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "IFSC code not found", "info");
+      show(err instanceof ApiError ? err.message : t("settings.reference.ifscNotFound"), "info");
     } finally {
       setSearching(false);
     }
@@ -170,26 +173,26 @@ function IfscCard({ count }: { count?: number }) {
 
   return (
     <Card className="p-6">
-      <h2 className="mb-1 text-base font-semibold text-foreground">IFSC codes</h2>
+      <h2 className="mb-1 text-base font-semibold text-foreground">{t("settings.reference.ifscTitle")}</h2>
       <p className="mb-4 text-sm text-foreground/60">
-        {count ? `${count} IFSC codes loaded` : "None loaded yet"} — a standalone bank/branch lookup tool.
+        {count ? t("settings.reference.ifscLoaded", { count }) : t("settings.reference.noneLoaded")} {t("settings.reference.ifscHint")}
       </p>
       <ImportRow
-        label="IFSC directory"
-        hint="CSV columns: ifsc, bank, branch, address, district, state. Source: the RBI IFSC directory."
+        label={t("settings.reference.ifscLabel")}
+        hint={t("settings.reference.ifscCsv")}
         onImport={handleImport}
         isPending={importIfsc.isPending}
       />
       <div className="mt-4 flex items-end gap-2">
         <div className="flex-1">
           <Field
-            label="Look up an IFSC code"
+            label={t("settings.reference.lookupLabel")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. SBIN0001234"
           />
         </div>
-        <Button type="button" variant="secondary" onClick={lookup} disabled={searching} aria-label="Search IFSC">
+        <Button type="button" variant="secondary" onClick={lookup} disabled={searching} aria-label={t("settings.reference.searchIfsc")}>
           <Search className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>

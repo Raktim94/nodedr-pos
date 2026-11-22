@@ -4,8 +4,16 @@ import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContaine
 import type { TooltipContentProps } from "recharts";
 import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { Card } from "@/components/ui/Card";
+import { useTranslation } from "@/components/I18nProvider";
+import { paymentMethodKey } from "@/lib/enumLabels";
 import { useSalesAnalytics } from "@/hooks/useInvoices";
 import { formatMoney } from "@/lib/format";
+import type { TranslationKey } from "@/lib/i18n";
+
+const methodLabel = (t: (key: TranslationKey) => string, method: string) => {
+  const key = paymentMethodKey(method);
+  return key ? t(key) : method;
+};
 
 const PAYMENT_COLORS: Record<string, string> = {
   CASH: "var(--color-warning)",
@@ -20,6 +28,7 @@ function RevenueTooltip({
   label,
   money,
 }: TooltipContentProps<ValueType, NameType> & { money: (n: number) => string }) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   const point = payload[0].payload as { date: string; revenue: number; count: number };
   return (
@@ -28,11 +37,11 @@ function RevenueTooltip({
         {new Date(String(label)).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
       </p>
       <div className="flex items-center justify-between gap-6">
-        <span className="text-foreground-muted">Total sales</span>
+        <span className="text-foreground-muted">{t("salesCharts.totalSales")}</span>
         <span className="font-medium text-foreground">{point.count}</span>
       </div>
       <div className="flex items-center justify-between gap-6">
-        <span className="text-foreground-muted">Total revenue</span>
+        <span className="text-foreground-muted">{t("salesCharts.totalRevenue")}</span>
         <span className="font-medium text-foreground">{money(point.revenue)}</span>
       </div>
     </div>
@@ -40,6 +49,7 @@ function RevenueTooltip({
 }
 
 export function SalesCharts({ sym }: { sym: string }) {
+  const { t } = useTranslation();
   const { data, isLoading } = useSalesAnalytics();
   const money = (n: number) => formatMoney(n, sym);
 
@@ -52,11 +62,11 @@ export function SalesCharts({ sym }: { sym: string }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Card className="p-5 lg:col-span-2">
-        <h2 className="mb-4 text-base font-semibold text-foreground">Revenue — last 14 days</h2>
+        <h2 className="mb-4 text-base font-semibold text-foreground">{t("salesCharts.revenueLast14")}</h2>
         {isLoading ? (
-          <p className="py-16 text-center text-sm text-foreground-muted">Loading…</p>
+          <p className="py-16 text-center text-sm text-foreground-muted">{t("salesCharts.loading")}</p>
         ) : !hasTrend ? (
-          <p className="py-16 text-center text-sm text-foreground-muted">Not enough sales yet to chart a trend.</p>
+          <p className="py-16 text-center text-sm text-foreground-muted">{t("salesCharts.notEnough")}</p>
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={data!.trend} margin={{ left: -12, right: 8, top: 8 }}>
@@ -99,11 +109,11 @@ export function SalesCharts({ sym }: { sym: string }) {
       </Card>
 
       <Card className="p-5">
-        <h2 className="mb-4 text-base font-semibold text-foreground">Payment methods</h2>
+        <h2 className="mb-4 text-base font-semibold text-foreground">{t("salesCharts.paymentMethods")}</h2>
         {isLoading ? (
-          <p className="py-16 text-center text-sm text-foreground-muted">Loading…</p>
+          <p className="py-16 text-center text-sm text-foreground-muted">{t("salesCharts.loading")}</p>
         ) : !hasPayments ? (
-          <p className="py-16 text-center text-sm text-foreground-muted">No sales recorded yet.</p>
+          <p className="py-16 text-center text-sm text-foreground-muted">{t("salesCharts.noSales")}</p>
         ) : (
           <div>
             <div className="relative mx-auto h-[180px] w-[180px]">
@@ -123,7 +133,7 @@ export function SalesCharts({ sym }: { sym: string }) {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value) => money(Number(value))}
+                    formatter={(value, name) => [money(Number(value)), methodLabel(t, String(name))]}
                     contentStyle={{
                       background: "var(--color-surface-elevated)",
                       border: "1px solid var(--color-border-subtle)",
@@ -134,7 +144,7 @@ export function SalesCharts({ sym }: { sym: string }) {
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <p className="text-[11px] text-foreground-muted">Total</p>
+                <p className="text-[11px] text-foreground-muted">{t("salesCharts.total")}</p>
                 <p className="text-base font-bold text-foreground">{money(paymentTotal)}</p>
               </div>
             </div>
@@ -148,7 +158,7 @@ export function SalesCharts({ sym }: { sym: string }) {
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ background: PAYMENT_COLORS[m.method] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length] }}
                     />
-                    <span className="min-w-0 flex-1 truncate font-medium capitalize text-foreground">{m.method.toLowerCase()}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">{methodLabel(t, m.method)}</span>
                     <span className="shrink-0 text-foreground-muted">{m.count}×</span>
                     <span className="w-11 shrink-0 text-right text-foreground-muted">{pct.toFixed(0)}%</span>
                     <span className="w-20 shrink-0 text-right font-medium text-foreground">{money(m.revenue)}</span>
@@ -161,11 +171,11 @@ export function SalesCharts({ sym }: { sym: string }) {
       </Card>
 
       <Card className="p-5 lg:col-span-3">
-        <h2 className="mb-4 text-base font-semibold text-foreground">Top selling products</h2>
+        <h2 className="mb-4 text-base font-semibold text-foreground">{t("salesCharts.topProducts")}</h2>
         {isLoading ? (
-          <p className="py-16 text-center text-sm text-foreground-muted">Loading…</p>
+          <p className="py-16 text-center text-sm text-foreground-muted">{t("salesCharts.loading")}</p>
         ) : !hasProducts ? (
-          <p className="py-16 text-center text-sm text-foreground-muted">No sales recorded yet.</p>
+          <p className="py-16 text-center text-sm text-foreground-muted">{t("salesCharts.noSales")}</p>
         ) : (
           <div className="flex flex-col gap-1">
             {data!.topProducts.map((p, i) => (
@@ -180,7 +190,7 @@ export function SalesCharts({ sym }: { sym: string }) {
                 <span className="order-3 min-w-0 flex-1 truncate text-sm font-medium text-foreground sm:order-3 sm:w-48 sm:flex-none">
                   {p.name}
                 </span>
-                <span className="order-4 shrink-0 text-right text-sm text-foreground-muted sm:order-5 sm:w-20">{p.quantity} sold</span>
+                <span className="order-4 shrink-0 text-right text-sm text-foreground-muted sm:order-5 sm:w-20">{p.quantity} {t("salesCharts.sold")}</span>
                 <span className="order-5 shrink-0 text-right text-sm font-semibold text-foreground sm:order-6 sm:w-24">
                   {money(p.revenue)}
                 </span>

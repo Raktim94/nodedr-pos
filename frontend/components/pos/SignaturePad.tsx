@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Eraser, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useTranslation } from "@/components/I18nProvider";
 
 // Draw with a finger/stylus/mouse, or upload an image of a signature.
 // Returns a PNG data URL (the backend validates the bytes and re-hashes it).
 export function SignaturePad({ title, onSave, onClose }: { title: string; onSave: (dataUrl: string) => void; onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { t } = useTranslation();
   const drawing = useRef(false);
   const [dirty, setDirty] = useState(false);
   const [upload, setUpload] = useState<string | null>(null);
@@ -56,7 +58,7 @@ export function SignaturePad({ title, onSave, onClose }: { title: string; onSave
   function onFile(f: File | undefined) {
     if (!f) return;
     if (!/^image\/(png|jpeg)$/.test(f.type) || f.size > 300 * 1024) {
-      alert("Choose a PNG or JPEG under 300 KB");
+      alert(t("signature.errFile"));
       return;
     }
     const r = new FileReader();
@@ -80,11 +82,11 @@ export function SignaturePad({ title, onSave, onClose }: { title: string; onSave
       <div className="flex flex-col gap-3">
         {upload ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={upload} alt="Signature preview" className="h-40 w-full rounded-xl border border-border bg-white object-contain" />
+          <img src={upload} alt={t("signature.previewAlt")} className="h-40 w-full rounded-xl border border-border bg-white object-contain" />
         ) : (
           <canvas
             ref={canvasRef}
-            aria-label="Signature drawing area"
+            aria-label={t("signature.canvasAria")}
             className="h-40 w-full touch-none rounded-xl border border-dashed border-border bg-white"
             onPointerDown={down}
             onPointerMove={move}
@@ -95,15 +97,15 @@ export function SignaturePad({ title, onSave, onClose }: { title: string; onSave
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex gap-2">
             <Button variant="secondary" onClick={clear}>
-              <Eraser className="h-4 w-4" aria-hidden="true" /> Clear
+              <Eraser className="h-4 w-4" aria-hidden="true" /> {t("signature.clear")}
             </Button>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border-subtle bg-surface-muted px-4 py-2.5 text-sm font-semibold hover:bg-border">
-              <Upload className="h-4 w-4" aria-hidden="true" /> Upload image
+              <Upload className="h-4 w-4" aria-hidden="true" /> {t("signature.uploadImage")}
               <input type="file" accept="image/png,image/jpeg" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
             </label>
           </div>
           <Button onClick={save} disabled={!dirty && !upload}>
-            Save signature
+            {t("signature.save")}
           </Button>
         </div>
       </div>

@@ -17,34 +17,39 @@ import { OnlineMatchPanel } from "@/components/OnlineMatchPanel";
 import { productImageSrc } from "@/lib/productImage";
 import { useCreateProduct, useProducts, useUpdateProduct, type ProductInput } from "@/hooks/useProducts";
 import { useShopSettings } from "@/hooks/useShopSettings";
+import { useTranslation } from "@/components/I18nProvider";
 import { useToast } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { generateEan13 } from "@/lib/barcode";
+import type { TranslationKey } from "@/lib/i18n";
 import { formatMoney } from "@/lib/format";
 import { GENERIC_PRODUCT_CATEGORIES, GST_RATES, UQC_UNITS } from "@/lib/masters";
+import { productCategoryKey, unitNameKey } from "@/lib/enumLabels";
 import type { Product } from "@/lib/types";
 
-const productSchema = z.object({
-  barcode: z.string().trim().min(1, "Barcode is required"),
-  sku: z.string().trim().optional(),
-  name: z.string().trim().min(1, "Product name is required"),
-  category: z.string().trim().optional(),
-  hsn: z.string().trim().optional(),
-  unit: z.string().trim().optional(),
-  purchasePrice: z.number().min(0, "Must be 0 or more"),
-  sellingPrice: z.number().min(0, "Must be 0 or more"),
-  taxRate: z.number().min(0).max(100),
-  discountType: z.enum(["percent", "amount"]).nullable(),
-  discountValue: z.number().min(0, "Must be 0 or more"),
-  stock: z.number().min(0, "Must be 0 or more"),
-  trackSerial: z.boolean(),
-  warrantyMonths: z.number().int().min(0).max(240),
-  reorderPoint: z.number().min(0),
-  supplierId: z.number().int().positive().nullable(),
-});
-type ProductForm = z.infer<typeof productSchema>;
+type TranslateFn = (key: TranslationKey, params?: Record<string, string | number>) => string;
 
-const UNIT_OPTIONS = [{ value: "", label: "No unit" }, ...UQC_UNITS.map((u) => ({ value: u.code, label: `${u.code} — ${u.name}` }))];
+function buildProductSchema(t: TranslateFn) {
+  return z.object({
+    barcode: z.string().trim().min(1, t("productModal.errBarcodeRequired")),
+    sku: z.string().trim().optional(),
+    name: z.string().trim().min(1, t("productModal.errNameRequired")),
+    category: z.string().trim().optional(),
+    hsn: z.string().trim().optional(),
+    unit: z.string().trim().optional(),
+    purchasePrice: z.number().min(0, t("productModal.errMin0")),
+    sellingPrice: z.number().min(0, t("productModal.errMin0")),
+    taxRate: z.number().min(0).max(100),
+    discountType: z.enum(["percent", "amount"]).nullable(),
+    discountValue: z.number().min(0, t("productModal.errMin0")),
+    stock: z.number().min(0, t("productModal.errMin0")),
+    trackSerial: z.boolean(),
+    warrantyMonths: z.number().int().min(0).max(240),
+    reorderPoint: z.number().min(0),
+    supplierId: z.number().int().positive().nullable(),
+  });
+}
+type ProductForm = z.infer<ReturnType<typeof buildProductSchema>>;
 
 interface TaxCodeSuggestion {
   code: string;
@@ -62,6 +67,18 @@ interface ProductModalProps {
 
 export function ProductModal({ mode, product, initialBarcode, prefill, onClose }: ProductModalProps) {
   const { show } = useToast();
+  const { t } = useTranslation();
+  const productSchema = useMemo(() => buildProductSchema(t), [t]);
+  const unitOptions = useMemo(
+    () => [
+      { value: "", label: t("productModal.unitNone") },
+      ...UQC_UNITS.map((u) => {
+        const key = unitNameKey(u.code);
+        return { value: u.code, label: `${u.code} — ${key ? t(key) : u.name}` };
+      }),
+    ],
+    [t]
+  );
   const { data: shop } = useShopSettings();
   const { data: products } = useProducts();
   const createProduct = useCreateProduct();
@@ -117,14 +134,14 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
       else if (onlineImage) payload.imageUrl = onlineImage;
       if (mode === "edit" && product) {
         await updateProduct.mutateAsync({ id: product.id, data: payload });
-        show("Product updated", "success");
+        show(t("productModal.updated"), "success");
       } else {
         await createProduct.mutateAsync(payload);
-        show("Product added", "success");
+        show(t("productModal.added"), "success");
       }
       onClose();
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Could not save product", "error");
+      show(err instanceof ApiError ? err.message : t("productModal.saveFailed"), "error");
     }
   }
 
@@ -157,8 +174,12 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
 
   const categoryOptions = useMemo(() => {
     const existing = new Set((products ?? []).map((p) => p.category).filter((c): c is string => !!c));
-    return Array.from(new Set([...existing, ...GENERIC_PRODUCT_CATEGORIES])).sort();
-  }, [products]);
+    const generic = GENERIC_PRODUCT_CATEGORIES.map((c) => {
+      const key = productCategoryKey(c);
+      return key ? t(key) : c;
+    });
+    return Array.from(new Set([...existing, ...generic])).sort();
+  }, [products, t]);
 
   const [showBarcodeImage, setShowBarcodeImage] = useState(false);
   const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
@@ -179,7 +200,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
   }, [gst, hsnValue]);
 
   return (
-    <Modal title={mode === "edit" ? "Edit product" : "Add new product"} onClose={onClose} size="lg" closeOnBackdrop={false}>
+    <Modal title={mode === "edit" ? t("productModal.editTitle") : t("productModal.addTitle")} onClose={onClose} size="lg" closeOnBackdrop={false}>
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-5">
         <ProductImageField src={imagePreview} onChange={(v) => { setChosenOnline(null); setNewImage(v); }} />
         {barcodeValue?.trim() && (
@@ -191,18 +212,18 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
             onUseImage={(url) => { setNewImage(undefined); setChosenOnline(url); }}
           />
         )}
-        <section aria-label="Barcode" className="flex flex-col gap-2.5">
-          <Field label="Barcode" autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
+        <section aria-label={t("productModal.barcodeSectionAria")} className="flex flex-col gap-2.5">
+          <Field label={t("productModal.barcode")} autoFocus={mode === "add"} error={errors.barcode?.message} {...register("barcode")} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" onClick={generateBarcode} title="Create a new barcode for a product that doesn't have one">
+            <Button type="button" variant="secondary" onClick={generateBarcode} title={t("productModal.generateBarcodeTitle")}>
               <BarcodeIcon className="h-4 w-4" aria-hidden="true" />
-              Generate barcode
+              {t("productModal.generateBarcode")}
             </Button>
-            <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)} title="Scan an existing barcode with your camera">
+            <Button type="button" variant="secondary" onClick={() => setCameraScannerOpen(true)} title={t("productModal.scanCameraTitle")}>
               <Camera className="h-4 w-4" aria-hidden="true" />
-              Scan with camera
+              {t("productModal.scanCamera")}
             </Button>
-            <span className="text-xs text-foreground-muted">No barcode on the item? Generate one, then print the label.</span>
+            <span className="text-xs text-foreground-muted">{t("productModal.noBarcodeHint")}</span>
           </div>
           {cameraScannerOpen && (
             <CameraScannerModal
@@ -220,7 +241,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
                 onClick={() => setShowBarcodeImage((v) => !v)}
                 className="text-sm font-medium text-brand hover:underline"
               >
-                {showBarcodeImage ? "Hide barcode image" : "Get barcode image to print (PNG/JPG)"}
+                {showBarcodeImage ? t("productModal.hideBarcodeImage") : t("productModal.getBarcodeImage")}
               </button>
               {showBarcodeImage && (
                 <div className="mt-3">
@@ -230,24 +251,23 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
             </div>
           )}
         </section>
-          <Field label="Product name" error={errors.name?.message} {...register("name")} />
+          <Field label={t("productModal.productName")} error={errors.name?.message} {...register("name")} />
           <div>
             <Field
-              label="SKU (optional)"
-              placeholder="Links this product to an external system"
+              label={t("productModal.skuOptional")}
+              placeholder={t("productModal.skuPlaceholder")}
               error={errors.sku?.message}
               {...register("sku")}
             />
             <p className="mt-1 text-xs text-foreground/50">
-              Used to match this product against an e-commerce storefront over the External Stock API — see Settings
-              → Integrations. Leave blank if this product isn&apos;t sold anywhere else.
+              {t("productModal.skuHint")}
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Category" list="category-options" {...register("category")} />
-            <Select label="Unit" options={UNIT_OPTIONS} {...register("unit")} />
+            <Field label={t("productModal.category")} list="category-options" {...register("category")} />
+            <Select label={t("productModal.unit")} options={unitOptions} {...register("unit")} />
           </div>
-          {gst && <Field label="HSN / SAC" list="hsn-options" {...register("hsn")} />}
+          {gst && <Field label={t("productModal.hsn")} list="hsn-options" {...register("hsn")} />}
           <datalist id="category-options">
             {categoryOptions.map((c) => (
               <option key={c} value={c} />
@@ -262,7 +282,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
           </datalist>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field
-              label="Purchase price"
+              label={t("productModal.purchasePrice")}
               type="number"
               step="0.01"
               min={0}
@@ -270,7 +290,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
               {...register("purchasePrice", { valueAsNumber: true })}
             />
             <Field
-              label="Selling price"
+              label={t("productModal.sellingPrice")}
               type="number"
               step="0.01"
               min={0}
@@ -280,15 +300,15 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-foreground">
-              Standing discount (applied automatically at checkout)
+              {t("productModal.standingDiscount")}
             </label>
             <div className="flex gap-2">
               <select
-                aria-label="Discount type"
+                aria-label={t("productModal.discountTypeAria")}
                 className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground"
                 {...register("discountType", { setValueAs: (v) => (v === "" ? null : v) })}
               >
-                <option value="">None</option>
+                <option value="">{t("productModal.none")}</option>
                 <option value="percent">%</option>
                 <option value="amount">{sym}</option>
               </select>
@@ -297,20 +317,20 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
                 min={0}
                 step="0.01"
                 disabled={!discountType}
-                placeholder="Discount value"
-                aria-label="Discount value"
+                placeholder={t("productModal.discountValuePlaceholder")}
+                aria-label={t("productModal.discountValueAria")}
                 className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground disabled:opacity-50"
                 {...register("discountValue", { valueAsNumber: true })}
               />
             </div>
             {errors.discountValue?.message && <p className="mt-1 text-sm text-danger">{errors.discountValue.message}</p>}
             {discountType && discountValue > 0 && (
-              <p className="mt-1 text-xs text-success">Sells at {formatMoney(discountedPrice, sym)}</p>
+              <p className="mt-1 text-xs text-success">{t("productModal.sellsAt", { amount: formatMoney(discountedPrice, sym) })}</p>
             )}
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field
-              label="Stock quantity"
+              label={t("productModal.stockQuantity")}
               type="number"
               min={0}
               step="0.001"
@@ -320,7 +340,7 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
             />
             {gst && (
               <Field
-                label="GST rate %"
+                label={t("productModal.gstRate")}
                 type="number"
                 min={0}
                 step="0.01"
@@ -350,29 +370,29 @@ export function ProductModal({ mode, product, initialBarcode, prefill, onClose }
 
           {shop?.serialTracking && (
             <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
-              <legend className="px-1 text-sm font-semibold">IMEI / serial &amp; warranty</legend>
+              <legend className="px-1 text-sm font-semibold">{t("productModal.serialLegend")}</legend>
               <label className="flex items-start gap-2.5 text-sm">
                 <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[var(--brand)]" {...register("trackSerial")} />
-                <span><span className="font-medium">Ask for the IMEI / serial number when selling this</span><span className="block text-xs text-foreground-muted">Entered at checkout for each unit sold — nothing to register in stock.</span></span>
+                <span><span className="font-medium">{t("productModal.askSerial")}</span><span className="block text-xs text-foreground-muted">{t("productModal.serialHint")}</span></span>
               </label>
-              {trackSerial && <Field label="Warranty (months)" type="number" min={0} max={240} error={errors.warrantyMonths?.message} {...register("warrantyMonths", { valueAsNumber: true })} />}
+              {trackSerial && <Field label={t("productModal.warrantyMonths")} type="number" min={0} max={240} error={errors.warrantyMonths?.message} {...register("warrantyMonths", { valueAsNumber: true })} />}
             </fieldset>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Reorder at (stock)" type="number" min={0} step="0.001" error={errors.reorderPoint?.message} {...register("reorderPoint", { valueAsNumber: true })} />
-            <label className="flex flex-col gap-1.5 text-sm font-medium">Supplier
+            <Field label={t("productModal.reorderAt")} type="number" min={0} step="0.001" error={errors.reorderPoint?.message} {...register("reorderPoint", { valueAsNumber: true })} />
+            <label className="flex flex-col gap-1.5 text-sm font-medium">{t("productModal.supplier")}
               <select className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm" {...register("supplierId", { setValueAs: (v) => (v === "" || v == null ? null : Number(v)) })}>
-                <option value="">None</option>
+                <option value="">{t("productModal.none")}</option>
                 {(suppliers ?? []).map((sp) => (<option key={sp.id} value={sp.id}>{sp.name}</option>))}
               </select>
             </label>
           </div>
           <div className="sticky -bottom-5 -mx-5 -mb-5 flex justify-end gap-3 border-t border-border-subtle bg-surface px-5 py-3">
             <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
+              {t("productModal.cancel")}
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {mode === "edit" ? "Save changes" : "Add product"}
+              {mode === "edit" ? t("productModal.saveChanges") : t("productModal.addProduct")}
             </Button>
           </div>
         </form>
