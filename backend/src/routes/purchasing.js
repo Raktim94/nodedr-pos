@@ -8,6 +8,7 @@ const { buildPurchaseOrderPdf } = require('../lib/pdfPurchaseOrder');
 
 const { getSettings } = require('../lib/settings');
 const { httpError } = require('../lib/http');
+const { PURCHASE_ORDER_STATUS, PURCHASE_ORDER_STATUSES, isPurchaseOrderClosed } = require('../lib/statuses');
 const router = express.Router();
 router.use(requireAuth, requirePerm('purchasing'));
 
@@ -108,7 +109,7 @@ router.post('/orders', wrap(async (req, res) => {
 }));
 
 router.get('/orders', wrap(async (req, res) => {
-  const status = ['DRAFT', 'SENT', 'RECEIVED', 'CANCELLED'].includes(req.query.status) ? req.query.status : undefined;
+  const status = PURCHASE_ORDER_STATUSES.includes(req.query.status) ? req.query.status : undefined;
   res.json(await prisma.purchaseOrder.findMany({ where: status ? { status } : undefined, include: { supplier: { select: { name: true } }, _count: { select: { items: true } } }, orderBy: { id: 'desc' }, take: 200 }));
 }));
 
@@ -129,7 +130,7 @@ router.patch('/orders/:id/status', wrap(async (req, res) => {
   if (!p.success) throw httpError('Invalid status');
   const o = await prisma.purchaseOrder.findUnique({ where: { id: idParam(req) } });
   if (!o) throw httpError('Not found', 404);
-  if (o.status === 'RECEIVED' || o.status === 'CANCELLED') throw httpError(`Order is already ${o.status.toLowerCase()}`, 409);
+  if (isPurchaseOrderClosed(o.status)) throw httpError(`Order is already ${o.status.toLowerCase()}`, 409);
   res.json(await prisma.purchaseOrder.update({ where: { id: o.id }, data: { status: p.data.status } }));
 }));
 
@@ -150,7 +151,7 @@ router.post('/orders/:id/receive', wrap(async (req, res) => {
   const updated = await prisma.$transaction(async (tx) => {
     const order = await tx.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true } });
     if (!order) throw httpError('Not found', 404);
-    if (order.status === 'RECEIVED' || order.status === 'CANCELLED') throw httpError(`Order is already ${order.status.toLowerCase()}`, 409);
+    if (isPurchaseOrderClosed(order.status)) throw httpError(`Order is already ${order.status.toLowerCase()}`, 409);
     const byId = new Map(order.items.map((i) => [i.id, i]));
     for (const line of p.data.items) {
       const it = byId.get(line.itemId);
@@ -161,7 +162,7 @@ router.post('/orders/:id/receive', wrap(async (req, res) => {
     }
     const fresh = await tx.purchaseOrderItem.findMany({ where: { orderId: order.id } });
     const done = fresh.every((i) => i.receivedQty + 1e-9 >= i.quantity);
-    return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: done ? 'RECEIVED' : 'SENT', receivedAt: done ? new Date() : null }, include: { items: true, supplier: true } });
+    return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: done ? PURCHASE_ORDER_STATUS.RECEIVED : PURCHASE_ORDER_STATUS.SENT, receivedAt: done ? new Date() : null }, include: { items: true, supplier: true } });
   });
   res.json(updated);
 }));

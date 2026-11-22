@@ -16,6 +16,7 @@ const { lookupWarranty } = require('../lib/warranty');
 const { getSettings } = require('../lib/settings');
 const { publicBaseUrl, httpError } = require('../lib/http');
 const { writeStockLevel } = require('../lib/stock');
+const { ORDER_STATUS, ORDER_STATUSES } = require('../lib/statuses');
 const router = express.Router();
 
 // This is the one surface in the app meant to be reachable from the public
@@ -246,7 +247,7 @@ router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res
 // Poll fallback for stores that can't take webhooks: own orders only, newest
 // first. ?status=NEW,READY&updatedSince=ISO&limit=100
 router.get('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res) => {
-  const statuses = String(req.query.status || '').split(',').filter((x) => ['NEW', 'PACKING', 'READY', 'COLLECTED', 'CANCELLED'].includes(x));
+  const statuses = String(req.query.status || '').split(',').filter((x) => ORDER_STATUSES.includes(x));
   const since = req.query.updatedSince ? new Date(String(req.query.updatedSince)) : null;
   if (since && Number.isNaN(since.getTime())) return res.status(400).json({ error: 'updatedSince must be an ISO date' });
   const list = await prisma.order.findMany({
@@ -273,7 +274,7 @@ router.post('/orders/:ref/cancel', requireApiKey({ scope: 'orders:write' }), asy
   const o = await findOwnOrder(req);
   if (!o) return res.status(404).json({ error: 'Order not found' });
   try {
-    res.json(orders.publicOrder(await orders.setStatus(o.id, 'CANCELLED')));
+    res.json(orders.publicOrder(await orders.setStatus(o.id, ORDER_STATUS.CANCELLED)));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

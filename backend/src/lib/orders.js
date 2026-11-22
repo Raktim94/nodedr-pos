@@ -21,10 +21,9 @@ const { notifyEvent, notifyStockChange } = require('./webhooks');
 const { getSettings } = require('./settings');
 const { lacksStock } = require('./stock');
 const { httpError } = require('./http');
-const OPEN = ['NEW', 'PACKING', 'READY'];
-const NEXT = { NEW: ['PACKING', 'READY', 'CANCELLED'], PACKING: ['READY', 'CANCELLED'], READY: ['CANCELLED'] };
 
 
+const { ORDER_STATUS, OPEN_ORDER_STATUSES, ORDER_TRANSITIONS } = require('./statuses');
 // 6 chars, no look-alikes (0/O, 1/I) — read out loud or scanned as Code128.
 function pickupCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -34,7 +33,7 @@ function pickupCode() {
 async function reservedByProduct(tx, productIds) {
   const rows = await tx.orderItem.groupBy({
     by: ['productId'],
-    where: { productId: { in: productIds }, order: { status: { in: OPEN } } },
+    where: { productId: { in: productIds }, order: { status: { in: OPEN_ORDER_STATUSES } } },
     _sum: { quantity: true },
   });
   return new Map(rows.map((r) => [r.productId, r._sum.quantity || 0]));
@@ -107,7 +106,7 @@ function publicOrder(o) {
 async function setStatus(id, status) {
   const o = await prisma.order.findUnique({ where: { id }, include: { items: true } });
   if (!o) throw httpError('Order not found', 404);
-  if (!(NEXT[o.status] || []).includes(status)) throw httpError(`Cannot move an order from ${o.status} to ${status}`, 409);
+  if (!(ORDER_TRANSITIONS[o.status] || []).includes(status)) throw httpError(`Cannot move an order from ${o.status} to ${status}`, 409);
   const updated = await prisma.order.update({ where: { id }, data: { status }, include: { items: true } });
   emitOrderEvent('order.updated', updated, o.status);
   return updated;
@@ -123,8 +122,8 @@ async function setStatus(id, status) {
 async function collect(id, { bill, paymentMethod = 'CASH', amountPaid = 0, serials = {}, user } = {}) {
   const o = await prisma.order.findUnique({ where: { id }, include: { items: true } });
   if (!o) throw httpError('Order not found', 404);
-  if (o.status === 'COLLECTED') throw httpError('Order was already collected', 409);
-  if (o.status === 'CANCELLED') throw httpError('Order is cancelled', 409);
+  if (o.status === ORDER_STATUS.COLLECTED) throw httpError('Order was already collected', 409);
+  if (o.status === ORDER_STATUS.CANCELLED) throw httpError('Order is cancelled', 409);
   const doBill = bill === undefined ? !o.paid : bill;
 
   if (!doBill) return handOverWithoutBill(o);
@@ -133,12 +132,12 @@ async function collect(id, { bill, paymentMethod = 'CASH', amountPaid = 0, seria
   // double click, two tills) would otherwise both pass the status check and
   // bill — and decrement stock — twice. Only the caller whose conditional
   // update flips the row proceeds; a failed bill releases the claim.
-  const claimed = await prisma.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
+  const claimed = await prisma.order.updateMany({ where: { id, status: { in: OPEN_ORDER_STATUSES } }, data: { status: ORDER_STATUS.COLLECTED } });
   if (claimed.count !== 1) throw httpError('Order was already collected or cancelled', 409);
   try {
     return await billClaimedOrder(o, { paymentMethod, amountPaid, serials, user });
   } catch (e) {
-    await prisma.order.updateMany({ where: { id, status: 'COLLECTED', invoiceId: null }, data: { status: o.status } });
+    await prisma.order.updateMany({ where: { id, status: ORDER_STATUS.COLLECTED, invoiceId: null }, data: { status: o.status } });
     throw e;
   }
 }
@@ -155,7 +154,7 @@ async function billClaimedOrder(o, { paymentMethod, amountPaid, serials, user })
   });
   // Idempotent per order: a double-click can't bill twice.
   const { invoice } = await performCheckout(body, { source: 'ORDER', cashierName: user?.name, user, apiKeyId: null });
-  const updated = await prisma.order.update({ where: { id }, data: { status: 'COLLECTED', invoiceId: invoice.id }, include: { items: true } });
+  const updated = await prisma.order.update({ where: { id }, data: { status: ORDER_STATUS.COLLECTED, invoiceId: invoice.id }, include: { items: true } });
   emitOrderEvent('order.updated', updated, o.status);
   return { order: updated, invoice };
 }
@@ -167,7 +166,7 @@ async function handOverWithoutBill(o) {
   const id = o.id;
   const changed = [];
   const updated = await prisma.$transaction(async (tx) => {
-    const claimed = await tx.order.updateMany({ where: { id, status: { in: OPEN } }, data: { status: 'COLLECTED' } });
+    const claimed = await tx.order.updateMany({ where: { id, status: { in: OPEN_ORDER_STATUSES } }, data: { status: ORDER_STATUS.COLLECTED } });
     if (claimed.count !== 1) throw httpError('Order was already collected or cancelled', 409);
     const settings = await getSettings(tx);
     for (const it of o.items) {
@@ -186,4 +185,4 @@ async function handOverWithoutBill(o) {
   return { order: updated };
 }
 
-module.exports = { createOrder, setStatus, collect, publicOrder, reservedByProduct, OPEN };
+module.exports = { createOrder, setStatus, collect, publicOrder, reservedByProduct, OPEN_ORDER_STATUSES };

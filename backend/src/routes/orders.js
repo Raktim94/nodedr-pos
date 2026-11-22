@@ -5,6 +5,7 @@ const { requireAuth, requirePerm } = require('../middleware/auth');
 const orders = require('../lib/orders');
 
 const { httpError } = require('../lib/http');
+const { ORDER_STATUSES } = require('../lib/statuses');
 const router = express.Router();
 router.use(requireAuth, requirePerm('orders'));
 
@@ -25,7 +26,7 @@ const idOf = (req) => {
 
 // GET /api/orders?status=NEW,PACKING,READY (default: all open) — the board.
 router.get('/', wrap(async (req, res) => {
-  const wanted = String(req.query.status || 'NEW,PACKING,READY').split(',').filter((s) => ['NEW', 'PACKING', 'READY', 'COLLECTED', 'CANCELLED'].includes(s));
+  const wanted = String(req.query.status || 'NEW,PACKING,READY').split(',').filter((s) => ORDER_STATUSES.includes(s));
   const list = await prisma.order.findMany({
     where: { status: { in: wanted } },
     include: { items: true },
