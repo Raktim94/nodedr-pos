@@ -1,11 +1,11 @@
 # --- deps stage ---
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
 # --- builder stage ---
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -22,7 +22,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # --- runtime stage ---
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 # node:24-alpine ships a global npm/npx/corepack this stage never uses (CMD
 # is plain `node server.js`), but npm vendors its own internal copies of
 # tar/brace-expansion/undici carrying real CVEs (Scout: 1 critical, 4 high)
