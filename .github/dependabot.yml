@@ -1,0 +1,28 @@
+# Security updates for known-vulnerable dependencies open on their own (and are
+# auto-merged by dependabot-auto-merge.yml once CI passes). These version
+# updates keep everything else from falling far behind, in weekly batches.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directories: [/backend, /frontend, /updater]
+    schedule: { interval: weekly }

@@ -34,7 +34,7 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.5.0",
-    "node-forge": "^1.4.0",
+    "node-forge": "^1.4.3",
     "nodemailer": "^10.1.4",
     "pdfkit": "^0.19.1",
     "qrcode": "^1.5.4",
@@ -48,7 +48,9 @@
   "overrides": {
     "fast-uri": ">=4.2.3",
     "body-parser": ">=2.4.0",
-    "@hono/node-server": ">=2.0.5",
+    "@hono/node-server": ">=2.1.11",
+    "hono": ">=4.13.20",
+    "effect": ">=3.22.1 <4",
     "valibot": ">=1.4.2",
     "deepmerge-ts": ">=8.0.0",
     "mysql2": ">=3.22.0"
