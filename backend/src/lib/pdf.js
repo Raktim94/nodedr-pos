@@ -6,10 +6,8 @@ const PDFDocument = require('pdfkit');
 const { readSignature } = require('./signatures');
 const { drawQrPdf } = require('./verifactu/qr');
 
-function money(sym, n) {
-  return `${sym} ${Number(n).toFixed(2)}`;
-}
-
+const { formatMoney } = require('./format');
+const { usesSpanishInvoices } = require('./region');
 // A drawn horizontal rule spanning the content width. Earlier this used
 // repeated '-'/'=' characters via doc.text(), but at this page width that
 // wraps onto multiple lines instead of drawing a single separator.
@@ -43,7 +41,7 @@ function wrappedLines(text, charsPerLine) {
 }
 
 function estimateHeight({ shop, invoice }) {
-  const es = !!shop.vfEnabled;
+  const es = usesSpanishInvoices(shop);
   let h = 40; // top/bottom margins + rounding buffer
   h += 16; // shop name
   if (shop.legalName) h += 10;
@@ -86,7 +84,7 @@ function estimateHeight({ shop, invoice }) {
 }
 
 function buildReceiptPdf({ shop, invoice }) {
-  const es = !!shop.vfEnabled; // Spain: IVA wording and the NIF instead of India's GST
+  const es = usesSpanishInvoices(shop); // Spain: IVA wording and the NIF instead of India's GST
   return new Promise((resolve, reject) => {
     const height = estimateHeight({ shop, invoice });
     const doc = new PDFDocument({ size: [227, height], margin: 16 }); // ~80mm wide, height fit to this receipt
@@ -145,8 +143,8 @@ function buildReceiptPdf({ shop, invoice }) {
         width: colQty - GAP,
         align: 'right',
       });
-      doc.text(money(sym, it.price), doc.page.margins.left + colName + colQty, y, { width: colRate - GAP, align: 'right' });
-      doc.text(money(sym, base), doc.page.margins.left + colName + colQty + colRate, y, { width: colAmt, align: 'right' });
+      doc.text(formatMoney(sym, it.price), doc.page.margins.left + colName + colQty, y, { width: colRate - GAP, align: 'right' });
+      doc.text(formatMoney(sym, base), doc.page.margins.left + colName + colQty + colRate, y, { width: colAmt, align: 'right' });
       doc.y = y + Math.max(rowHeight, 11);
       if (shop.gstEnabled && shop.showGst && it.taxRate > 0) {
         doc.fontSize(6.5).fillColor('#666').text(`  ${es ? 'IVA' : 'GST'} @ ${it.taxRate}%`);
@@ -168,27 +166,27 @@ function buildReceiptPdf({ shop, invoice }) {
       doc.font('Helvetica').fontSize(8);
     };
 
-    totalLine('Subtotal', money(sym, invoice.subtotal));
+    totalLine('Subtotal', formatMoney(sym, invoice.subtotal));
     if (invoice.discountAmount > 0) {
       const label = invoice.discountType === 'percent' ? `Discount (${invoice.discountValue}%)` : 'Discount';
-      totalLine(label, `- ${money(sym, invoice.discountAmount)}`);
+      totalLine(label, `- ${formatMoney(sym, invoice.discountAmount)}`);
     }
     if (shop.gstEnabled && invoice.taxAmount > 0) {
       // Prices are MRP — GST-inclusive by law — so this is a breakup of
       // tax already inside the total, not an addition to it.
       if (es) {
-        totalLine('IVA (incl.)', money(sym, invoice.taxAmount));
+        totalLine('IVA (incl.)', formatMoney(sym, invoice.taxAmount));
       } else {
         const half = Math.round((invoice.taxAmount / 2 + Number.EPSILON) * 100) / 100;
-        totalLine('CGST (incl.)', money(sym, half));
-        totalLine('SGST (incl.)', money(sym, invoice.taxAmount - half));
+        totalLine('CGST (incl.)', formatMoney(sym, half));
+        totalLine('SGST (incl.)', formatMoney(sym, invoice.taxAmount - half));
       }
     }
     if (invoice.loyaltyDiscount > 0) {
-      totalLine(`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${money(sym, invoice.loyaltyDiscount)}`);
+      totalLine(`Loyalty (${invoice.pointsRedeemed} pts)`, `- ${formatMoney(sym, invoice.loyaltyDiscount)}`);
     }
-    if (invoice.returnValue > 0) totalLine('Returns', `- ${money(sym, invoice.returnValue)}`);
-    if (invoice.creditApplied > 0) totalLine('Store credit used', `- ${money(sym, invoice.creditApplied)}`);
+    if (invoice.returnValue > 0) totalLine('Returns', `- ${formatMoney(sym, invoice.returnValue)}`);
+    if (invoice.creditApplied > 0) totalLine('Store credit used', `- ${formatMoney(sym, invoice.creditApplied)}`);
 
     const payable = Math.max(0, Math.round((invoice.totalAmount - invoice.returnValue - invoice.creditApplied) * 100) / 100);
     const hasRefund = invoice.refundValue > 0;
@@ -196,22 +194,22 @@ function buildReceiptPdf({ shop, invoice }) {
     // an old due went before the final refund line, or the receipt reads as
     // "Returns -500 / REFUND 200" with 300 unaccounted for.
     if (hasRefund && invoice.previousDuePaid > 0) {
-      totalLine('Old Due Cleared', `- ${money(sym, invoice.previousDuePaid)}`);
+      totalLine('Old Due Cleared', `- ${formatMoney(sym, invoice.previousDuePaid)}`);
     }
     rule(doc);
     if (hasRefund) {
-      totalLine(`REFUND (${invoice.refundMode === 'CREDIT' ? 'store credit' : 'cash'})`, money(sym, invoice.refundValue), true);
+      totalLine(`REFUND (${invoice.refundMode === 'CREDIT' ? 'store credit' : 'cash'})`, formatMoney(sym, invoice.refundValue), true);
     } else {
       const grandLabel = invoice.returnValue > 0 || invoice.creditApplied > 0 ? 'NET PAYABLE' : 'GRAND TOTAL';
-      totalLine(grandLabel, money(sym, payable), true);
+      totalLine(grandLabel, formatMoney(sym, payable), true);
       rule(doc);
-      totalLine(`Paid (${invoice.paymentMethod})`, money(sym, invoice.amountPaid));
+      totalLine(`Paid (${invoice.paymentMethod})`, formatMoney(sym, invoice.amountPaid));
       if (invoice.previousDuePaid > 0) {
-        totalLine('Old Due Cleared', money(sym, invoice.previousDuePaid));
-        totalLine('Total Collected', money(sym, invoice.amountPaid + invoice.previousDuePaid), true);
+        totalLine('Old Due Cleared', formatMoney(sym, invoice.previousDuePaid));
+        totalLine('Total Collected', formatMoney(sym, invoice.amountPaid + invoice.previousDuePaid), true);
       }
-      if (invoice.changeDue > 0) totalLine('Change', money(sym, invoice.changeDue));
-      if (invoice.dueAmount > 0) totalLine('Balance Due', money(sym, invoice.dueAmount));
+      if (invoice.changeDue > 0) totalLine('Change', formatMoney(sym, invoice.changeDue));
+      if (invoice.dueAmount > 0) totalLine('Balance Due', formatMoney(sym, invoice.dueAmount));
     }
 
     if (shop.loyaltyEnabled && invoice.pointsEarned > 0) {

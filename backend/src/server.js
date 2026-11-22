@@ -43,7 +43,13 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:1994';
 
 // Behind the Next.js proxy we see its address; trust one hop so rate-limit
 // and IP logging use the real client where a forwarded header is present.
-app.set('trust proxy', 1);
+// Next.js passes a client-supplied X-Forwarded-For through unchanged, so with
+// no proxy in front the address is whatever the caller claims; behind Caddy
+// (which overwrites an untrusted header) it is the real client. Per-address
+// limits are therefore best effort. Only raise TRUST_PROXY_HOPS if every extra
+// hop is a proxy of yours that overwrites the header.
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 1);
+app.set('trust proxy', Number.isInteger(proxyHops) && proxyHops >= 0 ? proxyHops : 1);
 
 app.use(helmet({ contentSecurityPolicy: false })); // CSP is served by the Next.js frontend
 app.use(compression()); // JSON/CSV shrink ~80%; PDFs are already compressed and skipped by the filter
@@ -60,28 +66,22 @@ app.use(
   })
 );
 
-// Defense-in-depth: cap overall request volume per IP.
+// Defense-in-depth: cap overall request volume per IP. Best effort only — the
+// address is as honest as the proxy in front (see TRUST_PROXY_HOPS), so the
+// login also has a per-account limit, and signed webhooks are not limited by
+// address at all (the signature is their gate).
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
     limit: 300,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => req.path.startsWith('/api/webhooks/'),
   })
 );
 
-// Every /api/* response is dynamic and often auth-sensitive (login state,
-// stock levels, prices, invoices) — none of it may ever be cached by the
-// browser or an intermediate proxy. Without this, a route like GET
-// /auth/status only had an Express-auto-generated ETag and no
-// Cache-Control at all, which per HTTP caching rules leaves a browser free
-// to serve an old cached response with ZERO network round-trip — e.g. a
-// stale "onboarded: true" reappearing right after the app's onboarding
-// state actually changed back to false. Added while investigating a
-// report of exactly that shape ("reach onboarding, then instantly bounce
-// to sign-in"); every attempt to reproduce it cleanly in this session
-// traced back to stale test data instead, so this is a real gap being
-// closed on general principle, not a confirmed root cause of that report.
+// /api responses are dynamic and often auth-sensitive; without Cache-Control a
+// browser may reuse an ETag-only response with no round-trip.
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();

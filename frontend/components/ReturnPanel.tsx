@@ -5,6 +5,7 @@ import { Search, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { useToast } from "@/components/Toast";
+import { useTranslation } from "@/components/I18nProvider";
 import { api, ApiError } from "@/lib/api";
 import { formatMoney, round2 } from "@/lib/format";
 import type { Invoice, ReturnRecord } from "@/lib/types";
@@ -36,6 +37,7 @@ interface Props {
 
 export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
   const { show } = useToast();
+  const { t } = useTranslation();
   const money = (n: number) => formatMoney(n, sym);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -51,7 +53,7 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
       const inv =
         matches.find((m) => m.invoiceNumber.toLowerCase() === q.toLowerCase()) || (matches.length === 1 ? matches[0] : null);
       if (!inv) {
-        show(matches.length > 1 ? "Multiple bills match — type the full invoice number" : "No bill found", "error");
+        show(matches.length > 1 ? t("return.multipleMatches") : t("return.noBill"), "error");
         setInvoice(null);
         setRows([]);
         return;
@@ -71,12 +73,12 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
           return { invoiceItemId: it.id, productId: it.productId, name: it.name, returnable, unitPaid: it.total / it.quantity, qty: 0, refund: "" };
         })
         .filter((r) => r.returnable > 0);
-      if (next.length === 0) show("Everything on this bill has already been returned", "info");
+      if (next.length === 0) show(t("return.allReturned"), "info");
       setInvoice(full);
       setRows(next);
       onInvoiceFound?.({ customerPhone: full.customerPhone, customerName: full.customerName });
     } catch (err) {
-      show(err instanceof ApiError ? err.message : "Lookup failed", "error");
+      show(err instanceof ApiError ? err.message : t("return.lookupFailed"), "error");
     } finally {
       setLoading(false);
     }
@@ -109,7 +111,7 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
         refundAmount: round2(Math.min(Number(r.refund) || 0, r.unitPaid * r.qty)),
       }));
     if (lines.length === 0) {
-      show("Set a quantity to return first", "error");
+      show(t("return.setQtyFirst"), "error");
       return;
     }
     onAdd(lines);
@@ -123,7 +125,7 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <Field
-            label="Return from bill #"
+            label={t("return.fromBill")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="INV-2026-00001"
@@ -135,28 +137,28 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
             }}
           />
         </div>
-        <Button type="button" variant="secondary" onClick={lookup} disabled={loading} aria-label="Find bill">
+        <Button type="button" variant="secondary" onClick={lookup} disabled={loading} aria-label={t("return.findBill")}>
           <Search className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
 
       {invoice && rows.length > 0 && (
         <div className="rounded-lg border border-border p-3">
-          <p className="mb-2 text-xs font-medium text-foreground/60">{invoice.invoiceNumber} — set quantity and refund</p>
+          <p className="mb-2 text-xs font-medium text-foreground/60">{t("return.setQtyPrompt", { invoice: invoice.invoiceNumber })}</p>
           <div className="flex flex-col gap-2">
             {rows.map((r) => (
               <div key={r.invoiceItemId} className="flex items-center gap-2">
                 <span className="flex-1 truncate text-sm text-foreground/80" title={r.name}>
                   {r.name}
                 </span>
-                <span className="whitespace-nowrap text-xs text-foreground/40">of {r.returnable}</span>
+                <span className="whitespace-nowrap text-xs text-foreground/40">{t("return.of", { count: r.returnable })}</span>
                 <input
                   type="number"
                   min={0}
                   max={r.returnable}
                   value={r.qty || ""}
                   onChange={(e) => setQty(r.invoiceItemId, Number(e.target.value) || 0)}
-                  aria-label={`Return quantity for ${r.name}`}
+                  aria-label={t("return.quantityAria", { name: r.name })}
                   placeholder="0"
                   className="w-14 rounded-lg border border-border bg-surface px-2 py-1.5 text-right text-sm text-foreground"
                 />
@@ -167,9 +169,9 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
                   disabled={r.qty === 0}
                   value={r.refund}
                   onChange={(e) => setRows((prev) => prev.map((x) => (x.invoiceItemId === r.invoiceItemId ? { ...x, refund: e.target.value } : x)))}
-                  aria-label={`Refund amount for ${r.name}`}
+                  aria-label={t("return.refundAria", { name: r.name })}
                   placeholder={money(0)}
-                  title="Refund amount (editable)"
+                  title={t("return.refundTitle")}
                   className="w-20 rounded-lg border border-border bg-surface px-2 py-1.5 text-right text-sm text-foreground disabled:opacity-50"
                 />
               </div>
@@ -177,7 +179,7 @@ export function ReturnPanel({ sym, drafted, onAdd, onInvoiceFound }: Props) {
           </div>
           <Button type="button" variant="secondary" className="mt-3 w-full" onClick={addToReturn}>
             <Undo2 className="h-4 w-4" aria-hidden="true" />
-            Add to return
+            {t("return.addToReturn")}
           </Button>
         </div>
       )}

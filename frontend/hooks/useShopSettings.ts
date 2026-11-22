@@ -3,10 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShopSettings } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useShopSettings() {
   return useQuery({
-    queryKey: ["shop-settings"],
+    queryKey: queryKeys.shopSettings,
     queryFn: () => api.get<ShopSettings>("/settings"),
   });
 }
@@ -35,6 +36,6 @@ export function useUpdateSettings() {
     // on PUT /settings), not a real shop setting — kept out of ShopSettings itself.
     mutationFn: (data: Partial<ShopSettings> & { confirmPassword?: string }) =>
       api.put<ShopSettings>("/settings", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shop-settings"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.shopSettings }),
   });
 }

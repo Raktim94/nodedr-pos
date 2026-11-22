@@ -10,6 +10,8 @@ const { decrypt } = require('./secretBox');
 const { round2 } = require('./pricing');
 const { dayKey } = require('./reports');
 
+const { getSettings } = require('./settings');
+const { TRANSFER_STATUS } = require('./statuses');
 const MAX_SKEW_MS = 10 * 60 * 1000;
 
 const keyFor = (secret) => crypto.createHash('sha256').update(`nodedr-sync-v1:${secret}`).digest();
@@ -87,7 +89,7 @@ async function applyTransfers(transfers) {
 let pendingAcks = [];
 
 async function pushToHub() {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   if (!shop || shop.syncRole !== 'branch' || !shop.syncHubUrl || !shop.syncBranchCode) return { skipped: true };
   const secret = decrypt(shop.syncSecretEnc);
   if (!secret) throw new Error('Sync secret is missing or unreadable');
@@ -133,8 +135,8 @@ async function handleIngest(branchCode, blob) {
     for (const a of msg.acks || []) {
       const t = await tx.transfer.findUnique({ where: { id: Number(a.id) } });
       if (!t) continue;
-      if (a.status === 'SHIPPED' && t.fromBranchId === branch.id && t.status === 'PENDING') await tx.transfer.update({ where: { id: t.id }, data: { status: 'SHIPPED' } });
-      if (a.status === 'RECEIVED' && t.toBranchId === branch.id && t.status === 'SHIPPED') await tx.transfer.update({ where: { id: t.id }, data: { status: 'RECEIVED' } });
+      if (a.status === TRANSFER_STATUS.SHIPPED && t.fromBranchId === branch.id && t.status === TRANSFER_STATUS.PENDING) await tx.transfer.update({ where: { id: t.id }, data: { status: TRANSFER_STATUS.SHIPPED } });
+      if (a.status === TRANSFER_STATUS.RECEIVED && t.toBranchId === branch.id && t.status === TRANSFER_STATUS.SHIPPED) await tx.transfer.update({ where: { id: t.id }, data: { status: TRANSFER_STATUS.RECEIVED } });
     }
     await tx.branch.update({ where: { id: branch.id }, data: { lastSyncAt: new Date() } });
   });
@@ -142,11 +144,11 @@ async function handleIngest(branchCode, blob) {
   // Work for this branch: items to send out (PENDING, it is the source) and
   // items arriving (SHIPPED, it is the destination).
   const [outgoing, incoming] = await Promise.all([
-    prisma.transfer.findMany({ where: { fromBranchId: branch.id, status: 'PENDING' }, include: { items: true } }),
-    prisma.transfer.findMany({ where: { toBranchId: branch.id, status: 'SHIPPED' }, include: { items: true } }),
+    prisma.transfer.findMany({ where: { fromBranchId: branch.id, status: TRANSFER_STATUS.PENDING }, include: { items: true } }),
+    prisma.transfer.findMany({ where: { toBranchId: branch.id, status: TRANSFER_STATUS.SHIPPED }, include: { items: true } }),
   ]);
   const shape = (t, direction, status) => ({ id: t.id, direction, status, items: t.items.map((i) => ({ barcode: i.barcode, quantity: i.quantity })) });
-  return seal(secret, { ts: Date.now(), transfers: [...outgoing.map((t) => shape(t, 'OUT', 'SHIPPED')), ...incoming.map((t) => shape(t, 'IN', 'RECEIVED'))] });
+  return seal(secret, { ts: Date.now(), transfers: [...outgoing.map((t) => shape(t, 'OUT', TRANSFER_STATUS.SHIPPED)), ...incoming.map((t) => shape(t, 'IN', TRANSFER_STATUS.RECEIVED))] });
 }
 
 function startSync() {

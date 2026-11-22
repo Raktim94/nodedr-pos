@@ -1,7 +1,12 @@
+"use client";
+
+import { useTranslation } from "@/components/I18nProvider";
+
 export function BrandFooter({ className }: { className?: string }) {
+  const { t } = useTranslation();
   return (
     <p className={`text-center text-[11px] leading-tight text-foreground/40 ${className ?? ""}`}>
-      Developed by{" "}
+      {t("brand.developedBy")}{" "}
       <a
         href="https://www.nodedr.com/"
         target="_blank"

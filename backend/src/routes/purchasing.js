@@ -6,10 +6,12 @@ const { round2 } = require('../lib/pricing');
 const { qtySchema, r3 } = require('../lib/qty');
 const { buildPurchaseOrderPdf } = require('../lib/pdfPurchaseOrder');
 
+const { getSettings } = require('../lib/settings');
+const { httpError } = require('../lib/http');
+const { PURCHASE_ORDER_STATUS, PURCHASE_ORDER_STATUSES, isPurchaseOrderClosed } = require('../lib/statuses');
 const router = express.Router();
 router.use(requireAuth, requirePerm('purchasing'));
 
-const err = (m, status = 400) => Object.assign(new Error(m), { status });
 const wrap = (fn) => async (req, res) => {
   try {
     await fn(req, res);
@@ -20,7 +22,7 @@ const wrap = (fn) => async (req, res) => {
 };
 const idParam = (req) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id)) throw err('Invalid id');
+  if (!Number.isInteger(id)) throw httpError('Invalid id');
   return id;
 };
 
@@ -36,24 +38,24 @@ const supplierSchema = z.object({
 router.get('/suppliers', wrap(async (req, res) => res.json(await prisma.supplier.findMany({ orderBy: { name: 'asc' } }))));
 router.post('/suppliers', wrap(async (req, res) => {
   const p = supplierSchema.safeParse(req.body);
-  if (!p.success) throw err('Invalid input');
+  if (!p.success) throw httpError('Invalid input');
   res.status(201).json(await prisma.supplier.create({ data: p.data }));
 }));
 router.put('/suppliers/:id', wrap(async (req, res) => {
   const p = supplierSchema.partial().safeParse(req.body);
-  if (!p.success) throw err('Invalid input');
+  if (!p.success) throw httpError('Invalid input');
   try {
     res.json(await prisma.supplier.update({ where: { id: idParam(req) }, data: p.data }));
   } catch (e) {
     if (e.status) throw e;
-    throw err('Supplier not found', 404);
+    throw httpError('Supplier not found', 404);
   }
 }));
 router.delete('/suppliers/:id', wrap(async (req, res) => {
   const id = idParam(req);
-  if (await prisma.purchaseOrder.count({ where: { supplierId: id } })) throw err('Supplier has purchase orders and cannot be deleted', 409);
+  if (await prisma.purchaseOrder.count({ where: { supplierId: id } })) throw httpError('Supplier has purchase orders and cannot be deleted', 409);
   await prisma.product.updateMany({ where: { supplierId: id }, data: { supplierId: null } });
-  await prisma.supplier.delete({ where: { id } }).catch(() => { throw err('Supplier not found', 404); });
+  await prisma.supplier.delete({ where: { id } }).catch(() => { throw httpError('Supplier not found', 404); });
   res.status(204).end();
 }));
 
@@ -87,15 +89,15 @@ const poSchema = z.object({
 });
 router.post('/orders', wrap(async (req, res) => {
   const p = poSchema.safeParse(req.body);
-  if (!p.success) throw err('Invalid input');
+  if (!p.success) throw httpError('Invalid input');
   const order = await prisma.$transaction(async (tx) => {
     const supplier = await tx.supplier.findUnique({ where: { id: p.data.supplierId } });
-    if (!supplier) throw err('Supplier not found', 404);
+    if (!supplier) throw httpError('Supplier not found', 404);
     const products = await tx.product.findMany({ where: { id: { in: p.data.items.map((i) => i.productId) } } });
     const map = new Map(products.map((x) => [x.id, x]));
     const items = p.data.items.map((i) => {
       const prod = map.get(i.productId);
-      if (!prod) throw err(`Product ${i.productId} not found`, 404);
+      if (!prod) throw httpError(`Product ${i.productId} not found`, 404);
       return { productId: i.productId, name: prod.name, quantity: i.quantity, unitCost: i.unitCost };
     });
     return tx.purchaseOrder.create({
@@ -107,28 +109,28 @@ router.post('/orders', wrap(async (req, res) => {
 }));
 
 router.get('/orders', wrap(async (req, res) => {
-  const status = ['DRAFT', 'SENT', 'RECEIVED', 'CANCELLED'].includes(req.query.status) ? req.query.status : undefined;
+  const status = PURCHASE_ORDER_STATUSES.includes(req.query.status) ? req.query.status : undefined;
   res.json(await prisma.purchaseOrder.findMany({ where: status ? { status } : undefined, include: { supplier: { select: { name: true } }, _count: { select: { items: true } } }, orderBy: { id: 'desc' }, take: 200 }));
 }));
 
 router.get('/orders/:id', wrap(async (req, res) => {
   const o = await prisma.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true, supplier: true } });
-  if (!o) throw err('Not found', 404);
+  if (!o) throw httpError('Not found', 404);
   res.json(o);
 }));
 
 router.get('/orders/:id/pdf', wrap(async (req, res) => {
-  const [order, shop] = await Promise.all([prisma.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true, supplier: true } }), prisma.shopSettings.findFirst()]);
-  if (!order || !shop) throw err('Not found', 404);
+  const [order, shop] = await Promise.all([prisma.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true, supplier: true } }), getSettings()]);
+  if (!order || !shop) throw httpError('Not found', 404);
   res.type('application/pdf').set('Content-Disposition', `attachment; filename="${order.number}.pdf"`).send(await buildPurchaseOrderPdf({ shop, order }));
 }));
 
 router.patch('/orders/:id/status', wrap(async (req, res) => {
   const p = z.object({ status: z.enum(['SENT', 'CANCELLED']) }).safeParse(req.body);
-  if (!p.success) throw err('Invalid status');
+  if (!p.success) throw httpError('Invalid status');
   const o = await prisma.purchaseOrder.findUnique({ where: { id: idParam(req) } });
-  if (!o) throw err('Not found', 404);
-  if (o.status === 'RECEIVED' || o.status === 'CANCELLED') throw err(`Order is already ${o.status.toLowerCase()}`, 409);
+  if (!o) throw httpError('Not found', 404);
+  if (isPurchaseOrderClosed(o.status)) throw httpError(`Order is already ${o.status.toLowerCase()}`, 409);
   res.json(await prisma.purchaseOrder.update({ where: { id: o.id }, data: { status: p.data.status } }));
 }));
 
@@ -136,26 +138,31 @@ router.patch('/orders/:id/status', wrap(async (req, res) => {
 // latest purchase cost on the product (feeds margin reports). Partial
 // receipts are allowed.
 const receiveSchema = z.object({
-  items: z.array(z.object({ itemId: z.number().int().positive(), quantity: qtySchema })).min(1),
+  items: z
+    .array(z.object({ itemId: z.number().int().positive(), quantity: qtySchema }))
+    .min(1)
+    .refine((lines) => new Set(lines.map((l) => l.itemId)).size === lines.length, {
+      message: 'Each order line may appear only once per receipt',
+    }),
 });
 router.post('/orders/:id/receive', wrap(async (req, res) => {
   const p = receiveSchema.safeParse(req.body);
-  if (!p.success) throw err('Invalid input');
+  if (!p.success) throw httpError('Invalid input');
   const updated = await prisma.$transaction(async (tx) => {
     const order = await tx.purchaseOrder.findUnique({ where: { id: idParam(req) }, include: { items: true } });
-    if (!order) throw err('Not found', 404);
-    if (order.status === 'RECEIVED' || order.status === 'CANCELLED') throw err(`Order is already ${order.status.toLowerCase()}`, 409);
+    if (!order) throw httpError('Not found', 404);
+    if (isPurchaseOrderClosed(order.status)) throw httpError(`Order is already ${order.status.toLowerCase()}`, 409);
     const byId = new Map(order.items.map((i) => [i.id, i]));
     for (const line of p.data.items) {
       const it = byId.get(line.itemId);
-      if (!it) throw err('Item is not on this order', 404);
-      if (r3(it.receivedQty + line.quantity) > it.quantity + 1e-9) throw err(`Cannot receive more than ordered for "${it.name}"`, 409);
+      if (!it) throw httpError('Item is not on this order', 404);
+      if (r3(it.receivedQty + line.quantity) > it.quantity + 1e-9) throw httpError(`Cannot receive more than ordered for "${it.name}"`, 409);
       await tx.product.update({ where: { id: it.productId }, data: { stock: { increment: line.quantity }, purchasePrice: it.unitCost } });
       await tx.purchaseOrderItem.update({ where: { id: it.id }, data: { receivedQty: r3(it.receivedQty + line.quantity) } });
     }
     const fresh = await tx.purchaseOrderItem.findMany({ where: { orderId: order.id } });
     const done = fresh.every((i) => i.receivedQty + 1e-9 >= i.quantity);
-    return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: done ? 'RECEIVED' : 'SENT', receivedAt: done ? new Date() : null }, include: { items: true, supplier: true } });
+    return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: done ? PURCHASE_ORDER_STATUS.RECEIVED : PURCHASE_ORDER_STATUS.SENT, receivedAt: done ? new Date() : null }, include: { items: true, supplier: true } });
   });
   res.json(updated);
 }));

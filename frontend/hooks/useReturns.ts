@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { RefundMethod, ReturnRecord } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 export function useReturnsForInvoice(invoiceId: number | null) {
   return useQuery({
@@ -17,6 +18,7 @@ export interface CreateReturnInput {
   items: { invoiceItemId: number; quantity: number }[];
   refundMethod: RefundMethod;
   note?: string;
+  confirmPassword: string;
 }
 
 export function useCreateReturn() {
@@ -26,8 +28,8 @@ export function useCreateReturn() {
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["returns", "invoice", variables.invoiceId] });
       queryClient.invalidateQueries({ queryKey: ["invoice", variables.invoiceId] });
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products });
+      queryClient.invalidateQueries({ queryKey: queryKeys.customers });
     },
   });
 }

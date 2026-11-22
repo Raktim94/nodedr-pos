@@ -60,8 +60,8 @@ test('IMEI / serial: off by default, captured only at sale, one sale per unit, r
   assert.match(dup.data.error, /already sold/);
   // ...a return must name the IMEI...
   const lineId = (await admin.get(`/api/invoices/${sale.data.id}`)).data.items[0].id;
-  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }] })).status, 400);
-  const ret = await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1, serials: ['490154203237518'] }] });
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }], confirmPassword: PW })).status, 400);
+  const ret = await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1, serials: ['490154203237518'] }], confirmPassword: PW });
   assert.equal(ret.status, 201, JSON.stringify(ret.data));
   assert.equal((await admin.get('/api/warranty/490154203237518')).data.warranty, 'RETURNED');
   assert.equal((await admin.get('/api/products')).data.find((x) => x.id === phone.id).stock, 5);
@@ -245,6 +245,22 @@ test('permissions: cashier without returns/discount is blocked; discount cap enf
   assert.equal(over.data.code, 'DISCOUNT_LIMIT');
   assert.equal((await c.post('/api/returns', { invoiceId: 1, items: [{ invoiceItemId: 1, quantity: 1 }] })).status, 403);
   assert.equal((await c.get('/api/reports/overview')).status, 403);
+  // The same product on two lines is checked as one quantity, not twice against the same stock.
+  const stockNow = (await admin.get('/api/products')).data.find((p) => p.id === rice.id).stock;
+  const split = await admin.post('/api/invoices', { items: [{ productId: rice.id, quantity: stockNow }, { productId: rice.id, quantity: stockNow }], paymentMethod: 'UPI' });
+  assert.equal(split.status, 409, JSON.stringify(split.data));
+  // Cost and margin data stays with staff who manage stock or read reports.
+  assert.ok(!('purchasePrice' in (await c.get('/api/products')).data[0]));
+  assert.ok('purchasePrice' in (await admin.get('/api/products')).data[0]);
+  assert.ok(ok.data.items.every((i) => !('costPrice' in i)), 'POST /invoices response');
+  const riceFull = (await admin.get('/api/products')).data.find((p) => p.name === 'Loose Rice');
+  for (const path of [`/api/products/barcode/${riceFull.barcode}`, `/api/products/scan/${riceFull.barcode}`]) {
+    const body = (await c.get(path)).data;
+    assert.ok(!('purchasePrice' in (body.product ?? body)), path);
+  }
+  assert.ok((await c.get('/api/products/low-stock')).data.products.every((p) => !('purchasePrice' in p)));
+  const billed = (await c.get(`/api/invoices/${ok.data.id}`)).data;
+  assert.ok(billed.items.every((i) => !('costPrice' in i)));
   assert.equal((await c.post('/api/products', { barcode: 'x', name: 'x', purchasePrice: 1, sellingPrice: 2, taxRate: 0 })).status, 403);
   // 'customers' is enforced server-side, not just hidden in the UI
   assert.equal((await c.post('/api/customers', { name: 'Nope', phone: '9000000001' })).status, 403);
@@ -382,7 +398,7 @@ test('UPI uri, FX rates + multi-currency sale, label ZPL', async () => {
   const upi = await admin.get('/api/payments/upi?amount=11800&ref=INV1');
   assert.match(upi.data.uri, /^upi:\/\/pay\?pa=shop%40okbank/);
   assert.match(upi.data.uri, /am=11800\.00/);
-  assert.equal((await admin.put('/api/payments/fx', { rates: { USD: 80 } })).status, 200);
+  assert.equal((await admin.put('/api/payments/fx', { rates: { USD: 80 }, confirmPassword: PW })).status, 200);
   const rice = (await admin.get('/api/products')).data.find((p) => p.name === 'Loose Rice');
   const s = await admin.post('/api/invoices', { items: [{ productId: rice.id, quantity: 1 }], paymentMethod: 'CASH', amountPaid: 95, payCurrency: 'USD' });
   assert.equal(s.data.payCurrency, 'USD');
@@ -576,4 +592,30 @@ test('orders: paid on the website -> no POS bill; pay-at-pickup -> billed in the
   const unpaid2 = await place('bm-unpaid2', false);
   const skip = await admin.post(`/api/orders/${unpaid2.id}/collect`, { bill: false });
   assert.equal(skip.data.invoice, undefined, 'bill:false hands over without a POS bill');
+});
+
+test('audit fixes: repeated lines are rejected, unsigned webhook floods are refused not throttled', async () => {
+  const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
+  const sale = await admin.post('/api/invoices', { items: [{ productId: cola.id, quantity: 3 }], paymentMethod: 'UPI' });
+  assert.equal(sale.status, 201, JSON.stringify(sale.data));
+  const lineId = (await admin.get(`/api/invoices/${sale.data.id}`)).data.items[0].id;
+  const stockBefore = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
+  // The same line twice would pass the per-line cap twice: refuse it, change nothing.
+  const dup = [{ invoiceItemId: lineId, quantity: 2 }, { invoiceItemId: lineId, quantity: 2 }];
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: dup, confirmPassword: PW })).status, 400);
+  // Refunds need the password re-entered, like the checkout refund path.
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: [{ invoiceItemId: lineId, quantity: 1 }] })).status, 401);
+  const viaCheckout = await admin.post('/api/invoices', { items: [], returns: [{ invoiceId: sale.data.id, items: dup }], paymentMethod: 'UPI' });
+  assert.equal(viaCheckout.status, 400);
+  assert.equal((await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock, stockBefore);
+
+  const sup = (await admin.post('/api/purchasing/suppliers', { name: 'Dup Supplier' })).data;
+  const po = await admin.post('/api/purchasing/orders', { supplierId: sup.id, items: [{ productId: cola.id, quantity: 10, unitCost: 30 }] });
+  const itemId = po.data.items[0].id;
+  assert.equal((await admin.post(`/api/purchasing/orders/${po.data.id}/receive`, { items: [{ itemId, quantity: 8 }, { itemId, quantity: 8 }] })).status, 400);
+  assert.equal((await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock, stockBefore);
+
+  // Signed webhooks are never throttled by address (it is client-supplied): unsigned junk is simply refused.
+  const pub = client(srv.base);
+  for (let i = 0; i < 65; i++) assert.equal((await pub.raw('/api/webhooks/woocommerce/999991', '{}', 'application/json', {})).status, 401);
 });

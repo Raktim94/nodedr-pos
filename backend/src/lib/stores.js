@@ -11,6 +11,7 @@ const prisma = require('./prisma');
 const { encrypt, decrypt, decryptJson } = require('./secretBox');
 const { createOrder } = require('./orders');
 
+const { httpError } = require('./http');
 const SCHEMES = {
   shopify: { header: 'x-shopify-hmac-sha256', encoding: 'base64', channel: 'SHOPIFY' },
   woocommerce: { header: 'x-wc-webhook-signature', encoding: 'base64', channel: 'WOOCOMMERCE' },
@@ -74,7 +75,7 @@ function normalize(platform, p) {
 /** Process a verified webhook payload. Returns { ignored } or { order }. */
 async function ingest(integration, payload) {
   const n = normalize(integration.platform, payload);
-  if (!n.externalId || n.lines.length === 0) throw Object.assign(new Error('Unrecognised order payload'), { status: 400 });
+  if (!n.externalId || n.lines.length === 0) throw httpError('Unrecognised order payload', 400);
   const skus = [...new Set(n.lines.map((l) => l.sku).filter(Boolean))];
   const products = await prisma.product.findMany({ where: { sku: { in: skus } } });
   const bySku = new Map(products.map((p) => [p.sku, p]));

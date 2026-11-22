@@ -24,6 +24,20 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts. Try again later.' },
 });
 
+// A second login limit keyed by the account being tried, so rotating or
+// spoofing the client address does not give unlimited password guesses. Only
+// failed attempts count, so signing in correctly never uses it up.
+const loginAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `login:${String(req.body?.email ?? '').trim().toLowerCase().slice(0, 200)}`,
+  validate: { keyGeneratorIpFallback: false },
+  message: { error: 'Too many login attempts. Try again later.' },
+});
+
 const registerSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().toLowerCase().email().max(200),
@@ -74,7 +88,7 @@ router.post('/register', async (req, res) => {
   res.status(201).json(publicUser(user));
 });
 
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', loginAccountLimiter, loginLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input' });
@@ -119,7 +133,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
 
   const passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
-  await prisma.user.update({ where: { id: req.user.id }, data: { password: passwordHash } });
+  // Every other session for this account ends; this one continues on a fresh token.
+  const user = await prisma.user.update({ where: { id: req.user.id }, data: { password: passwordHash, tokenVersion: { increment: 1 } } });
+  setSessionCookie(res, issueToken(user));
   res.status(204).end();
 });
 
@@ -182,8 +198,14 @@ router.put('/users/:id', requireAuth, requireAdmin, requirePasswordConfirm, asyn
   }
 
   const data = { ...parsed.data };
-  if (data.password) data.password = await bcrypt.hash(data.password, 12);
+  if (data.password) {
+    data.password = await bcrypt.hash(data.password, 12);
+    data.tokenVersion = { increment: 1 };
+  }
   if (data.permissions) data.permissions = data.permissions.join(',');
+  // Disabling an account ends its sessions for good, so re-enabling it later
+  // does not bring old cookies back to life.
+  if (data.active === false) data.tokenVersion = { increment: 1 };
 
   const updated = await prisma.user.update({ where: { id }, data });
   res.json(publicUser(updated));

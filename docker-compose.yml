@@ -39,6 +39,8 @@ services:
       # container below to pull the latest images. Unset these two and the
       # Update button simply says this install can't update itself.
       UPDATER_URL: "http://updater:8080"
+      # 2 when Caddy (--profile https) or a Cloudflare Tunnel sits in front of the frontend.
+      TRUST_PROXY_HOPS: "${TRUST_PROXY_HOPS:-1}"
       UPDATER_TOKEN: "${UPDATER_TOKEN:-nodedr-pos-updater}"
     # The backend is intentionally NOT published to the host. It's reachable
     # only over the internal Docker network via the frontend's /api proxy,

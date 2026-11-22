@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Product } from "@/lib/types";
+import { queryKeys } from "@/lib/queryKeys";
 
 export interface ProductInput {
   barcode: string;
@@ -46,7 +47,7 @@ export function useCreateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: ProductInput) => api.post<Product>("/products", data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.products }),
   });
 }
 
@@ -55,7 +56,7 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ProductInput> }) =>
       api.put<Product>(`/products/${id}`, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.products }),
   });
 }
 
@@ -63,6 +64,6 @@ export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.delete(`/products/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.products }),
   });
 }

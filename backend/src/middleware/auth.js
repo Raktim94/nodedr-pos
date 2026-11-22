@@ -15,7 +15,7 @@ const TOKEN_TTL = '30d';
 const TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function issueToken(user) {
-  return jwt.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, {
+  return jwt.sign({ sub: user.id, email: user.email, role: user.role, tv: user.tokenVersion ?? 0 }, JWT_SECRET, {
     algorithm: 'HS256',
     expiresIn: TOKEN_TTL,
   });
@@ -54,6 +54,10 @@ async function requireAuth(req, res, next) {
     clearSessionCookie(res);
     return res.status(401).json({ error: 'Account not found or disabled' });
   }
+  if ((payload.tv ?? 0) !== user.tokenVersion) {
+    clearSessionCookie(res);
+    return res.status(401).json({ error: 'Session ended — sign in again' });
+  }
 
   // A franchisor is a read-only hub viewer: only the consolidated hub views
   // and their own session endpoints — never this shop's customers, bills or
@@ -79,14 +83,20 @@ async function requireAuth(req, res, next) {
 // cookie is present, else null. Unlike requireAuth it never responds — for
 // endpoints that serve BOTH logged-in and anonymous callers different data
 // (e.g. GET /api/settings hides tax identifiers from anonymous LAN clients).
-function readSession(req) {
+// A session counts only while its account is still active, not a franchisor
+// viewer, and on the same tokenVersion — the same rules requireAuth enforces.
+async function readSession(req) {
   const token = req.cookies?.[TOKEN_COOKIE];
   if (!token) return null;
+  let payload;
   try {
-    return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
   } catch {
     return null;
   }
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  if (!user || !user.active || user.role === 'franchisor' || (payload.tv ?? 0) !== user.tokenVersion) return null;
+  return payload;
 }
 
 function requireAdmin(req, res, next) {

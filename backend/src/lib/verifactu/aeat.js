@@ -141,4 +141,4 @@ function postSoap(endpoint, pfx, passphrase, body, trust) {
 /** Posts one RegFactuSistemaFacturacion body to AEAT's test or production service. */
 const sendToAeat = (env, pfx, passphrase, body) => postSoap(AEAT_ENDPOINT[env], pfx, passphrase, body);
 
-module.exports = { AEAT_ENDPOINT, AeatFault, inspectCertificate, parseResponse, postSoap, sendToAeat };
+module.exports = { AeatFault, inspectCertificate, parseResponse, postSoap, sendToAeat };

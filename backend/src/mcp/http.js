@@ -2,6 +2,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { registerTools } = require('./tools');
 
+const { publicBaseUrl } = require('../lib/http');
 // Stateless Streamable-HTTP MCP endpoint: every request builds a fresh
 // server scoped to the caller's API key and tears it down afterwards, so
 // there is no session state to leak between keys and nothing to clean up.
@@ -10,7 +11,7 @@ async function handleMcp(req, res) {
   registerTools(server, {
     apiKey: req.apiKey,
     scopes: req.apiScopes,
-    baseUrl: process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`,
+    baseUrl: publicBaseUrl(req),
   });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {

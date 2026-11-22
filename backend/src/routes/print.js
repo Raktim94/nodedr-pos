@@ -10,6 +10,7 @@ const { sendRaw, findPrinterInterface, probeCharDevices, PrinterNotFoundError } 
 
 const verifactu = require('../lib/verifactu/service');
 
+const { getSettings } = require('../lib/settings');
 const router = express.Router();
 router.use(requireAuth);
 
@@ -105,7 +106,7 @@ router.post('/drawer', async (req, res) => {
 router.get('/label/:productId', async (req, res) => {
   const id = Number(req.params.productId);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
-  const [product, shop] = await Promise.all([prisma.product.findUnique({ where: { id } }), prisma.shopSettings.findFirst()]);
+  const [product, shop] = await Promise.all([prisma.product.findUnique({ where: { id } }), getSettings()]);
   if (!product) return res.status(404).json({ error: 'Product not found' });
   const epl = req.query.language === 'epl';
   const opts = { product, symbol: shop?.currencySymbol || '', copies: Number(req.query.copies) || 1, size: String(req.query.size || '') };
@@ -116,7 +117,7 @@ router.get('/label/:productId', async (req, res) => {
 router.post('/label', async (req, res) => {
   const id = Number(req.body?.productId);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid product id' });
-  const [product, shop] = await Promise.all([prisma.product.findUnique({ where: { id } }), prisma.shopSettings.findFirst()]);
+  const [product, shop] = await Promise.all([prisma.product.findUnique({ where: { id } }), getSettings()]);
   if (!product) return res.status(404).json({ error: 'Product not found' });
   const opts = { product, symbol: shop?.currencySymbol || '', copies: Number(req.body?.copies) || 1, size: String(req.body?.size || '') };
   try {
@@ -135,7 +136,7 @@ async function loadInvoiceAndShop(id) {
       where: { id },
       include: { items: { include: { serials: { select: { serial: true, warrantyEndsAt: true } }, product: { select: { hsn: true } } } } },
     }),
-    prisma.shopSettings.findFirst(),
+    getSettings(),
   ]);
   return { invoice: await verifactu.withQr(invoice), shop };
 }

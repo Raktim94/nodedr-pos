@@ -16,10 +16,10 @@ function freePort() {
   });
 }
 
-async function startServer(_portHint) {
+async function startServer(_portHint, extraEnv = {}) {
   const port = await freePort();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nodedr-test-'));
-  const env = { ...process.env, DATABASE_URL: `file:${path.join(dir, 't.db')}`, PORT: String(port), JWT_SECRET: 'test-secret-test-secret-test-secret', NODE_ENV: 'test' };
+  const env = { ...process.env, DATABASE_URL: `file:${path.join(dir, 't.db')}`, PORT: String(port), JWT_SECRET: 'test-secret-test-secret-test-secret', NODE_ENV: 'test', ...extraEnv };
   execFileSync(process.execPath, ['node_modules/.bin/prisma', 'migrate', 'deploy'], { env, cwd: path.join(__dirname, '..'), stdio: 'pipe' });
   const child = spawn(process.execPath, ['src/server.js'], { env, cwd: path.join(__dirname, '..'), stdio: 'pipe' });
   let log = '';
@@ -66,7 +66,7 @@ function client(base) {
     const data = ct.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
     return { status: res.status, data, headers: res.headers };
   }
-  return { raw, get: (u, h) => call('GET', u, undefined, h), post: (u, b, h) => call('POST', u, b, h), put: (u, b, h) => call('PUT', u, b, h), patch: (u, b, h) => call('PATCH', u, b, h), del: (u, b, h) => call('DELETE', u, b, h) };
+  return { cookie: () => cookie, raw, get: (u, h) => call('GET', u, undefined, h), post: (u, b, h) => call('POST', u, b, h), put: (u, b, h) => call('PUT', u, b, h), patch: (u, b, h) => call('PATCH', u, b, h), del: (u, b, h) => call('DELETE', u, b, h) };
 }
 
 module.exports = { startServer, client };

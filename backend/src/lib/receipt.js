@@ -4,19 +4,17 @@
 
 const { qrSvg } = require('./verifactu/qr');
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
+const { formatMoney, esc } = require('./format');
+const { usesSpanishInvoices } = require('./region');
 // Builds a standalone, self-printing HTML receipt. Loaded into a hidden
 // same-page iframe (see frontend/lib/print.ts) rather than a new tab, it
 // calls window.print() on load — the browser's own print dialog lets the
 // user pick any printer (thermal, laser, PDF virtual printer, whatever the
 // OS/CUPS has configured) instead of us talking to a USB device directly.
 function buildReceiptHtml({ shop, invoice }) {
-  const es = !!shop.vfEnabled; // Spain: IVA wording and the NIF instead of India's GST
+  const es = usesSpanishInvoices(shop); // Spain: IVA wording and the NIF instead of India's GST
   const sym = shop.currencySymbol || 'Rs.';
-  const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
+  const money = (n) => formatMoney(sym, n);
   const date = new Date(invoice.createdAt || Date.now());
   const dateStr = date.toLocaleString();
 

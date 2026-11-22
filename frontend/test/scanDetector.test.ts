@@ -123,7 +123,7 @@ test("Shifted characters (uppercase, symbols) are kept in the code", () => {
 });
 
 import { routeKey } from "../lib/scanDetector.ts";
-import { resolveScan, unmatchedMessage } from "../lib/scanResolve.ts";
+import { resolveScan } from "../lib/scanResolve.ts";
 
 function harness() {
   const d = new ScanDetector();
@@ -191,8 +191,8 @@ test("resolveScan: matched product (barcode or SKU) -> product", async () => {
 
 test("resolveScan: unknown code -> clear unmatched message naming the code", async () => {
   const r = await resolveScan("999000", { product: async () => { throw notFound(); }, customerByCard: async () => { throw notFound(); } });
-  assert.deepEqual(r, { type: "unmatched", message: unmatchedMessage("999000") });
-  assert.match(unmatchedMessage("999000"), /No product matches "999000"/);
+  assert.equal(r.type, "unmatched");
+  assert.match((r as { message: string }).message, /No product matches "999000"/);
 });
 
 test("resolveScan: loyalty card UID still resolves to a customer", async () => {

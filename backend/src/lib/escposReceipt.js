@@ -19,6 +19,8 @@
 
 const { escposQr } = require('./verifactu/qr');
 
+const { formatMoney } = require('./format');
+const { usesSpanishInvoices } = require('./region');
 const ESC = 0x1b;
 const GS = 0x1d;
 
@@ -107,13 +109,13 @@ function wrap(text, width) {
 const DRAWER_KICK = Buffer.from([ESC, 0x70, 0x00, 0x19, 0xfa]);
 
 function buildReceiptEscPos({ shop, invoice, width = 42 }) {
-  const es = !!shop.vfEnabled; // Spain: IVA wording and the NIF instead of India's GST
+  const es = usesSpanishInvoices(shop); // Spain: IVA wording and the NIF instead of India's GST
   // Only fall back to the currency CODE (e.g. "EUR") instead of the symbol
   // when the symbol itself isn't plain ASCII (€, £, ﷼, ₱, ...) — a generic
   // printer's default codepage can't render those reliably, but a 3-letter
   // code always prints cleanly and stays unambiguous.
   const sym = shop.currencySymbol && ASCII_ONLY.test(shop.currencySymbol) ? shop.currencySymbol : shop.currencyCode || '';
-  const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
+  const money = (n) => formatMoney(sym, n);
   const date = new Date(invoice.createdAt || Date.now());
 
   // Each entry is `{ text, bold }` rather than a plain string so the shop
@@ -235,4 +237,4 @@ function buildReceiptEscPos({ shop, invoice, width = 42 }) {
   return Buffer.concat(segments);
 }
 
-module.exports = { buildReceiptEscPos, toPrinterText, DRAWER_KICK };
+module.exports = { buildReceiptEscPos, DRAWER_KICK };

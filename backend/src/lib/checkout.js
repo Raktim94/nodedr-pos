@@ -9,6 +9,10 @@ const { parseRates } = require('./fx');
 const terminal = require('./terminal');
 const verifactu = require('./verifactu/service');
 
+const { getSettings } = require('./settings');
+const { lacksStock, quantityByProduct } = require('./stock');
+const { netOfSale, allocateTender } = require('./settlement');
+const { httpError } = require('./http');
 const checkoutSchema = z
   .object({
     customerName: z.string().trim().max(200).optional().or(z.literal('')),
@@ -70,7 +74,14 @@ const checkoutSchema = z
   })
   .refine((d) => d.items.length > 0 || d.returns.length > 0 || d.duePaid > 0, {
     message: 'Add an item to sell, a return, or a previous due to collect',
-  });
+  })
+  .refine(
+    (d) => {
+      const ids = d.returns.flatMap((g) => g.items.map((l) => l.invoiceItemId));
+      return new Set(ids).size === ids.length;
+    },
+    { message: 'Each invoice line may appear only once in the returns' }
+  );
 
 
 async function nextInvoiceNumber(tx) {
@@ -108,6 +119,233 @@ async function performCheckout(body, ctx = {}) {
   }
 }
 
+// Validates every line returned on this bill against its ORIGINAL invoice:
+// the item must belong to that invoice and the quantity can't exceed what's
+// still returnable (sold minus already returned). The refund defaults to what
+// was originally charged for that quantity and can only be lowered, never
+// raised above it — you can't refund more than the customer paid.
+async function collectReturns(tx, returns) {
+  let returnValue = 0;
+  const restock = new Map();
+  const returnRecords = [];
+  const returnSerials = [];
+  for (const grp of returns) {
+    const original = await tx.invoice.findUnique({ where: { id: grp.invoiceId }, include: { items: true } });
+    if (!original) throw httpError(`Invoice ${grp.invoiceId} not found for return`, 404);
+    const itemMap = new Map(original.items.map((it) => [it.id, it]));
+    const lines = [];
+    let groupRefund = 0;
+    for (const rl of grp.items) {
+      const invItem = itemMap.get(rl.invoiceItemId);
+      if (!invItem) throw httpError('Return item not found on that invoice', 404);
+      const already = await tx.returnItem.aggregate({
+        where: { invoiceItemId: invItem.id },
+        _sum: { quantity: true },
+      });
+      const returnable = invItem.quantity - (already._sum.quantity || 0);
+      if (rl.quantity > returnable + 1e-9) {
+        throw httpError(`Only ${returnable} of "${invItem.name}" can still be returned`, 409);
+      }
+      const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
+      const refund = rl.refundAmount != null ? round2(Math.min(Math.max(0, rl.refundAmount), maxRefund)) : maxRefund;
+      groupRefund = round2(groupRefund + refund);
+      returnValue = round2(returnValue + refund);
+      restock.set(invItem.productId, (restock.get(invItem.productId) || 0) + rl.quantity);
+      // If IMEIs were recorded on this line, the return must say which ones come back.
+      const soldUnits = await tx.serialUnit.findMany({ where: { invoiceItemId: invItem.id, status: 'SOLD' } });
+      if (soldUnits.length > 0) {
+        const sers = new Set((rl.serials || []).map(normalizeSerial));
+        const back = soldUnits.filter((u) => sers.has(u.serial));
+        if (sers.size !== rl.quantity || back.length !== sers.size) {
+          throw httpError(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`, 400);
+        }
+        returnSerials.push(...back.map((u) => ({ id: u.id, invoiceId: original.id })));
+      }
+      lines.push({
+        invoiceItemId: invItem.id,
+        productId: invItem.productId,
+        name: invItem.name,
+        quantity: rl.quantity,
+        refundAmount: refund,
+      });
+    }
+    returnRecords.push({ invoiceId: original.id, customerId: original.customerId, groupRefund, lines, originalItems: original.items });
+  }
+  return { returnValue, restock, returnRecords, returnSerials };
+}
+
+// Loads the products being sold and refuses a line the shop can't cover.
+async function loadSaleLines(tx, settings, items) {
+  const productIds = items.map((i) => i.productId);
+  const products = await tx.product.findMany({ where: { id: { in: productIds } } });
+  const productMap = new Map(products.map((p) => [p.id, p]));
+
+  const wanted = quantityByProduct(items);
+  const lines = [];
+  for (const item of items) {
+    const product = productMap.get(item.productId);
+    if (!product) throw httpError(`Product ${item.productId} not found`, 404);
+    if (lacksStock(settings, product.stock, wanted.get(product.id))) {
+      throw httpError(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${wanted.get(product.id)})`, 409);
+    }
+    lines.push({ product, quantity: item.quantity });
+  }
+  return lines;
+}
+
+async function planSerials(tx, settings, items, lines) {
+  // IMEI / serial numbers are captured at the moment of SALE only (never
+  // pre-registered in stock), and only when the shop switched the feature
+  // on and the product is flagged. A unit can be sold once; it can be sold
+  // again only after it was returned.
+  const tracking = Boolean(settings.serialTracking);
+  const serialPlan = []; // [{ lineIndex, serials, existing: Map(serial -> unit) }]
+  const seenSerials = new Set();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const product = lines[i].product;
+    if (!tracking) continue; // feature off: serials are ignored, the product sells like any other
+    if (!product.trackSerial) {
+      if (item.serials?.length) throw httpError(`"${product.name}" does not use IMEI / serial numbers`, 400);
+      continue;
+    }
+    const wanted = (item.serials || []).map((s) => {
+      const v = validateSerial(s);
+      if (!v.ok) throw httpError(v.error, 400);
+      return v.serial;
+    });
+    if (wanted.length !== item.quantity) {
+      throw httpError(`"${product.name}" needs ${item.quantity} IMEI / serial number(s), got ${wanted.length}`, 400);
+    }
+    for (const s of wanted) {
+      if (seenSerials.has(s)) throw httpError(`IMEI / serial ${s} appears twice on this bill`, 400);
+      seenSerials.add(s);
+    }
+    const units = await tx.serialUnit.findMany({ where: { serial: { in: wanted } }, include: { invoiceItem: { select: { invoice: { select: { invoiceNumber: true } } } } } });
+    const existing = new Map(units.map((u) => [u.serial, u]));
+    for (const s of wanted) {
+      const u = existing.get(s);
+      if (!u) continue;
+      if (u.status === 'SOLD') {
+        throw httpError(`IMEI / serial ${s} was already sold${u.invoiceItem ? ` on ${u.invoiceItem.invoice.invoiceNumber}` : ''} — return it first`, 409);
+      }
+      if (u.productId !== product.id) throw httpError(`IMEI / serial ${s} belongs to a different product`, 409);
+    }
+    serialPlan.push({ lineIndex: i, serials: wanted, existing });
+  }
+  return serialPlan;
+}
+
+async function resolveCustomer(tx, body, settings) {
+  // Resolve customer (needed for loyalty). Match by phone; create if new
+  // and a name was given. Cap redeemable points at the customer's balance.
+  let customer = null;
+  if (body.customerPhone) {
+    customer = await tx.customer.findUnique({ where: { phone: body.customerPhone } });
+    if (!customer && body.customerName) {
+      customer = await tx.customer.create({
+        data: { name: body.customerName, phone: body.customerPhone },
+      });
+    }
+  }
+
+  let pointsRedeemed = body.pointsRedeemed;
+  if (!settings.loyaltyEnabled || !customer) pointsRedeemed = 0;
+  if (customer && pointsRedeemed > customer.loyaltyPoints) pointsRedeemed = customer.loyaltyPoints;
+  return { customer, pointsRedeemed };
+}
+
+function assertDiscountAllowed(user, computed) {
+  // Granular rights: a manual discount needs the 'discount' right and is
+  // capped at the cashier's own limit (% of the pre-discount subtotal).
+  if (user && computed.discountAmount > 0) {
+    if (!hasPerm(user, 'discount')) {
+      throw Object.assign(new Error("You don't have permission to give discounts"), { status: 403, code: 'PERMISSION_DENIED' });
+    }
+    const cap = user.role === 'admin' ? null : user.maxDiscountPercent;
+    if (cap != null && computed.subtotal > 0 && (computed.discountAmount / computed.subtotal) * 100 > cap + 1e-9) {
+      throw Object.assign(new Error(`Your discount limit is ${cap}% of the bill`), { status: 403, code: 'DISCOUNT_LIMIT' });
+    }
+  }
+}
+
+// The units sold on this bill become SOLD (with their warranty clock) and the
+// units returned on it become RETURNED, each with an audit event.
+async function recordSerialMovements(tx, { serialPlan, returnSerials, lines, created, invoiceNumber }) {
+  const soldAt = new Date();
+  for (const plan of serialPlan) {
+    const invItem = created.items[plan.lineIndex];
+    const months = lines[plan.lineIndex].product.warrantyMonths || 0;
+    const warrantyEndsAt = months > 0 ? addMonths(soldAt, months) : null;
+    for (const serial of plan.serials) {
+      const prev = plan.existing.get(serial);
+      const unit = prev
+        ? await tx.serialUnit.update({ where: { id: prev.id }, data: { status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } })
+        : await tx.serialUnit.create({ data: { productId: lines[plan.lineIndex].product.id, serial, status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } });
+      await tx.serialEvent.create({ data: { serialId: unit.id, type: 'SOLD', invoiceId: created.id, note: invoiceNumber } });
+    }
+  }
+  for (const rs of returnSerials) {
+    await tx.serialUnit.update({ where: { id: rs.id }, data: { status: 'RETURNED' } });
+    await tx.serialEvent.create({ data: { serialId: rs.id, type: 'RETURNED', invoiceId: rs.invoiceId, note: invoiceNumber } });
+  }
+}
+
+// Persists the returns taken on this bill (audit trail + fiscal record).
+async function persistReturns(tx, { returnRecords, refundValue, refundMode, invoiceNumber, settings }) {
+  for (const rr of returnRecords) {
+    const createdReturn = await tx.return.create({
+      data: {
+        invoiceId: rr.invoiceId,
+        customerId: rr.customerId,
+        totalRefund: rr.groupRefund,
+        refundMethod: refundValue > 0 ? refundMode : 'BILL_OFFSET',
+        note: `Bill ${invoiceNumber}`,
+        items: { create: rr.lines },
+      },
+      include: { items: true },
+    });
+    await verifactu.recordReturn(tx, settings, createdReturn, rr.originalItems);
+  }
+}
+
+// Returned units go back on the shelf; sold units come off it.
+async function moveStock(tx, { sold, restock }) {
+  for (const [productId, qty] of restock) {
+    await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
+  }
+  for (const item of sold) {
+    await tx.product.update({ where: { id: item.productId }, data: { stock: { decrement: item.quantity } } });
+  }
+}
+
+// Running balances the POS reads back on the customer's next visit.
+async function updateCustomerBalances(tx, { customer, computed, dueAmount, previousDuePaid, refundMode, refundValue, creditApplied }) {
+  // totalDue ("udhaar") and creditBalance are the running balances the
+  // POS reads back on the customer's next visit. They used to be kept
+  // with Prisma `increment`, which performs the addition inside SQLite's
+  // REAL (float) column — so tiny binary rounding residue accumulated
+  // across many bills and a fully-paid customer could keep showing e.g.
+  // Rs. 0.00…03 still owing that never cleared, and reappeared on the
+  // next bill. Compute the new balances in JS and round to paise so the
+  // stored value is always clean (round2 collapses sub-paise noise to
+  // exactly 0). Safe read-modify-write: we're inside the checkout
+  // $transaction and already hold this customer row.
+  const newTotalDue = round2(customer.totalDue + dueAmount - previousDuePaid);
+  const creditDelta = (refundMode === 'CREDIT' ? refundValue : 0) - creditApplied;
+  const newCredit = round2(customer.creditBalance + creditDelta);
+  await tx.customer.update({
+    where: { id: customer.id },
+    data: {
+      loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
+      totalSpent: round2(customer.totalSpent + computed.totalAmount),
+      totalDue: newTotalDue,
+      creditBalance: newCredit,
+      visits: { increment: 1 },
+    },
+  });
+}
+
 async function performCheckoutOnce(body, ctx = {}) {
   // Idempotent API bills: a retry with the same (apiKey, externalRef)
   // returns the invoice already created instead of billing twice.
@@ -125,90 +363,23 @@ async function performCheckoutOnce(body, ctx = {}) {
   let verifiedTerminal = null;
   if (body.terminalPaymentId) {
     if (await prisma.invoice.findFirst({ where: { paymentRef: body.terminalPaymentId }, select: { id: true } })) {
-      throw Object.assign(new Error('That card payment was already used for another bill'), { status: 409 });
+      throw httpError('That card payment was already used for another bill', 409);
     }
     const st = await terminal.getStatus(body.terminalPaymentId);
-    if (st.status !== 'PAID') throw Object.assign(new Error(`Card payment is not completed (${st.status})`), { status: 402 });
+    if (st.status !== 'PAID') throw httpError(`Card payment is not completed (${st.status})`, 402);
     verifiedTerminal = { id: body.terminalPaymentId, amount: st.amount };
   }
 
   {
     const result = await prisma.$transaction(async (tx) => {
-      const settings = await tx.shopSettings.findFirst();
-      if (!settings) throw Object.assign(new Error('Shop settings not configured'), { status: 400 });
+      const settings = await getSettings(tx);
+      if (!settings) throw httpError('Shop settings not configured', 400);
 
-      const productIds = body.items.map((i) => i.productId);
-      const products = await tx.product.findMany({ where: { id: { in: productIds } } });
-      const productMap = new Map(products.map((p) => [p.id, p]));
+      const lines = await loadSaleLines(tx, settings, body.items);
 
-      const lines = [];
-      for (const item of body.items) {
-        const product = productMap.get(item.productId);
-        if (!product) throw Object.assign(new Error(`Product ${item.productId} not found`), { status: 404 });
-        if (!settings.allowNegativeStock && product.stock + 1e-9 < item.quantity) {
-          throw Object.assign(
-            new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, need ${item.quantity})`),
-            { status: 409 }
-          );
-        }
-        lines.push({ product, quantity: item.quantity });
-      }
+      const serialPlan = await planSerials(tx, settings, body.items, lines);
 
-      // IMEI / serial numbers are captured at the moment of SALE only (never
-      // pre-registered in stock), and only when the shop switched the feature
-      // on and the product is flagged. A unit can be sold once; it can be sold
-      // again only after it was returned.
-      const tracking = Boolean(settings.serialTracking);
-      const serialPlan = []; // [{ lineIndex, serials, existing: Map(serial -> unit) }]
-      const seenSerials = new Set();
-      for (let i = 0; i < body.items.length; i++) {
-        const item = body.items[i];
-        const product = lines[i].product;
-        if (!tracking) continue; // feature off: serials are ignored, the product sells like any other
-        if (!product.trackSerial) {
-          if (item.serials?.length) throw Object.assign(new Error(`"${product.name}" does not use IMEI / serial numbers`), { status: 400 });
-          continue;
-        }
-        const wanted = (item.serials || []).map((s) => {
-          const v = validateSerial(s);
-          if (!v.ok) throw Object.assign(new Error(v.error), { status: 400 });
-          return v.serial;
-        });
-        if (wanted.length !== item.quantity) {
-          throw Object.assign(new Error(`"${product.name}" needs ${item.quantity} IMEI / serial number(s), got ${wanted.length}`), { status: 400 });
-        }
-        for (const s of wanted) {
-          if (seenSerials.has(s)) throw Object.assign(new Error(`IMEI / serial ${s} appears twice on this bill`), { status: 400 });
-          seenSerials.add(s);
-        }
-        const units = await tx.serialUnit.findMany({ where: { serial: { in: wanted } }, include: { invoiceItem: { select: { invoice: { select: { invoiceNumber: true } } } } } });
-        const existing = new Map(units.map((u) => [u.serial, u]));
-        for (const s of wanted) {
-          const u = existing.get(s);
-          if (!u) continue;
-          if (u.status === 'SOLD') {
-            throw Object.assign(new Error(`IMEI / serial ${s} was already sold${u.invoiceItem ? ` on ${u.invoiceItem.invoice.invoiceNumber}` : ''} — return it first`), { status: 409 });
-          }
-          if (u.productId !== product.id) throw Object.assign(new Error(`IMEI / serial ${s} belongs to a different product`), { status: 409 });
-        }
-        serialPlan.push({ lineIndex: i, serials: wanted, existing });
-      }
-
-      // Resolve customer (needed for loyalty). Match by phone; create if new
-      // and a name was given. Cap redeemable points at the customer's balance.
-      let customer = null;
-      if (body.customerPhone) {
-        customer = await tx.customer.findUnique({ where: { phone: body.customerPhone } });
-        if (!customer && body.customerName) {
-          customer = await tx.customer.create({
-            data: { name: body.customerName, phone: body.customerPhone },
-          });
-        }
-      }
-
-      let pointsRedeemed = body.pointsRedeemed;
-      if (!settings.loyaltyEnabled || !customer) pointsRedeemed = 0;
-      if (customer && pointsRedeemed > customer.loyaltyPoints) pointsRedeemed = customer.loyaltyPoints;
+      const { customer, pointsRedeemed } = await resolveCustomer(tx, body, settings);
 
       const computed = computeSale(lines, {
         discountType: body.discountType || null,
@@ -219,70 +390,9 @@ async function performCheckoutOnce(body, ctx = {}) {
 
       const saleTotal = computed.totalAmount;
 
-      // Granular rights: a manual discount needs the 'discount' right and is
-      // capped at the cashier's own limit (% of the pre-discount subtotal).
-      if (ctx.user && computed.discountAmount > 0) {
-        if (!hasPerm(ctx.user, 'discount')) {
-          throw Object.assign(new Error("You don't have permission to give discounts"), { status: 403, code: 'PERMISSION_DENIED' });
-        }
-        const cap = ctx.user.role === 'admin' ? null : ctx.user.maxDiscountPercent;
-        if (cap != null && computed.subtotal > 0 && (computed.discountAmount / computed.subtotal) * 100 > cap + 1e-9) {
-          throw Object.assign(new Error(`Your discount limit is ${cap}% of the bill`), { status: 403, code: 'DISCOUNT_LIMIT' });
-        }
-      }
+      assertDiscountAllowed(ctx.user, computed);
 
-      // --- Returns processed as part of this bill --------------------------
-      // Each returned line is validated against its ORIGINAL invoice: the item
-      // must belong to that invoice and the quantity can't exceed what's still
-      // returnable (sold minus already returned). The refund defaults to what
-      // was originally charged for that quantity and can only be lowered, never
-      // raised above it — you can't refund more than the customer paid.
-      let returnValue = 0;
-      const restock = new Map();
-      const returnRecords = [];
-      const returnSerials = [];
-      for (const grp of body.returns) {
-        const original = await tx.invoice.findUnique({ where: { id: grp.invoiceId }, include: { items: true } });
-        if (!original) throw Object.assign(new Error(`Invoice ${grp.invoiceId} not found for return`), { status: 404 });
-        const itemMap = new Map(original.items.map((it) => [it.id, it]));
-        const lines = [];
-        let groupRefund = 0;
-        for (const rl of grp.items) {
-          const invItem = itemMap.get(rl.invoiceItemId);
-          if (!invItem) throw Object.assign(new Error('Return item not found on that invoice'), { status: 404 });
-          const already = await tx.returnItem.aggregate({
-            where: { invoiceItemId: invItem.id },
-            _sum: { quantity: true },
-          });
-          const returnable = invItem.quantity - (already._sum.quantity || 0);
-          if (rl.quantity > returnable + 1e-9) {
-            throw Object.assign(new Error(`Only ${returnable} of "${invItem.name}" can still be returned`), { status: 409 });
-          }
-          const maxRefund = round2((invItem.total / invItem.quantity) * rl.quantity);
-          const refund = rl.refundAmount != null ? round2(Math.min(Math.max(0, rl.refundAmount), maxRefund)) : maxRefund;
-          groupRefund = round2(groupRefund + refund);
-          returnValue = round2(returnValue + refund);
-          restock.set(invItem.productId, (restock.get(invItem.productId) || 0) + rl.quantity);
-          // If IMEIs were recorded on this line, the return must say which ones come back.
-          const soldUnits = await tx.serialUnit.findMany({ where: { invoiceItemId: invItem.id, status: 'SOLD' } });
-          if (soldUnits.length > 0) {
-            const sers = new Set((rl.serials || []).map(normalizeSerial));
-            const back = soldUnits.filter((u) => sers.has(u.serial));
-            if (sers.size !== rl.quantity || back.length !== sers.size) {
-              throw Object.assign(new Error(`Returning "${invItem.name}": enter the ${rl.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
-            }
-            returnSerials.push(...back.map((u) => ({ id: u.id, invoiceId: original.id })));
-          }
-          lines.push({
-            invoiceItemId: invItem.id,
-            productId: invItem.productId,
-            name: invItem.name,
-            quantity: rl.quantity,
-            refundAmount: refund,
-          });
-        }
-        returnRecords.push({ invoiceId: original.id, customerId: original.customerId, groupRefund, lines, originalItems: original.items });
-      }
+      const { returnValue, restock, returnRecords, returnSerials } = await collectReturns(tx, body.returns);
 
       // --- Store credit the customer spends on this bill -------------------
       // Capped at the balance AND at what's still owed after returns, so
@@ -290,20 +400,18 @@ async function performCheckoutOnce(body, ctx = {}) {
       // "spending" more of it than the purchase is worth.
       let creditApplied = 0;
       if (body.creditApplied > 0) {
-        if (!customer) throw Object.assign(new Error('A customer is required to use store credit'), { status: 400 });
+        if (!customer) throw httpError('A customer is required to use store credit', 400);
         creditApplied = round2(Math.min(body.creditApplied, customer.creditBalance, Math.max(0, saleTotal - returnValue)));
       }
 
       // Net the returns and any spent credit against the sale. A positive net
       // is what the customer still pays; a negative net is money owed back.
-      const netBill = round2(saleTotal - returnValue - creditApplied);
-      const payable = round2(Math.max(0, netBill));
-      const grossRefund = round2(Math.max(0, -netBill));
+      const { payable, grossRefund } = netOfSale({ saleTotal, returnValue, creditApplied });
       let refundMode = null;
       if (grossRefund > 0) {
         refundMode = body.refundMode;
         if (refundMode === 'CREDIT' && !customer) {
-          throw Object.assign(new Error('A customer is required to keep a refund as store credit'), { status: 400 });
+          throw httpError('A customer is required to keep a refund as store credit', 400);
         }
       }
 
@@ -312,47 +420,27 @@ async function performCheckoutOnce(body, ctx = {}) {
       let duePaidIntent = 0;
       if (body.duePaid > 0) {
         if (!customer) {
-          throw Object.assign(new Error('A customer (with phone number) is required to clear a previous due'), { status: 400 });
+          throw httpError('A customer (with phone number) is required to clear a previous due', 400);
         }
         duePaidIntent = round2(Math.min(body.duePaid, customer.totalDue));
       }
 
-      // Every source of money on this bill goes into ONE pool before being
-      // allocated, in order: goods first, then the old due, then whatever's
-      // left goes back to the customer as change/refund. Pooling the gross
-      // refund together with tendered cash is the key fix here — a customer
-      // returning something worth more than what they're buying can have
-      // that refund fund an old-due clearance directly, with no fresh cash
-      // changing hands. The previous version only pulled from tendered cash,
-      // so a due-clear requested on a pure-return bill (nothing to "tender")
-      // silently never applied — the balance just sat there unchanged.
       if (verifiedTerminal && verifiedTerminal.amount + 0.005 < payable) {
-        throw Object.assign(new Error(`Card payment (${verifiedTerminal.amount}) is less than the bill (${payable})`), { status: 402 });
+        throw httpError(`Card payment (${verifiedTerminal.amount}) is less than the bill (${payable})`, 402);
       }
       const paymentMethod = verifiedTerminal ? 'CARD' : body.paymentMethod;
       const tenderedCash = paymentMethod === 'CASH' ? body.amountPaid : payable + duePaidIntent;
-      const pool = round2(tenderedCash + grossRefund);
-      const amountPaid = round2(Math.min(pool, payable));
+      const { amountPaid, previousDuePaid, changeDue, refundValue, dueAmount } = allocateTender({ payable, grossRefund, duePaidIntent, tenderedCash });
 
       // Foreign-currency tender: record what the customer handed over in
       // their currency at the server's own rate.
       let fxFields = {};
       if (body.payCurrency && body.payCurrency !== settings.currencyCode) {
         const rate = parseRates(settings)[body.payCurrency];
-        if (!rate) throw Object.assign(new Error(`No exchange rate set for ${body.payCurrency}`), { status: 400 });
+        if (!rate) throw httpError(`No exchange rate set for ${body.payCurrency}`, 400);
         fxFields = { payCurrency: body.payCurrency, payRate: rate, payAmount: round2(amountPaid / rate) };
       }
-      const afterGoods = round2(Math.max(0, pool - amountPaid));
-      const previousDuePaid = round2(Math.min(duePaidIntent, afterGoods));
-      const leftover = round2(Math.max(0, afterGoods - previousDuePaid));
-      // Only ever one of these is nonzero: a change-y "leftover" reads as
-      // GST/receipt "Change" on an ordinary purchase, and as "Refund" on a
-      // bill whose net was a return/credit overage.
-      const changeDue = grossRefund > 0 ? 0 : leftover;
-      const refundValue = grossRefund > 0 ? leftover : 0;
-
       // Paying short of the net payable becomes a new due — needs a customer.
-      const dueAmount = round2(Math.max(0, payable - amountPaid));
       if (dueAmount > 0 && !customer) {
         throw Object.assign(
           new Error('A customer (with phone number) is required to record a due/partial-payment amount'),
@@ -403,23 +491,7 @@ async function performCheckoutOnce(body, ctx = {}) {
       // without it (and a failure to produce it rolls the whole bill back).
       await verifactu.recordSale(tx, settings, created);
 
-      const soldAt = new Date();
-      for (const plan of serialPlan) {
-        const invItem = created.items[plan.lineIndex];
-        const months = lines[plan.lineIndex].product.warrantyMonths || 0;
-        const warrantyEndsAt = months > 0 ? addMonths(soldAt, months) : null;
-        for (const serial of plan.serials) {
-          const prev = plan.existing.get(serial);
-          const unit = prev
-            ? await tx.serialUnit.update({ where: { id: prev.id }, data: { status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } })
-            : await tx.serialUnit.create({ data: { productId: lines[plan.lineIndex].product.id, serial, status: 'SOLD', invoiceItemId: invItem.id, soldAt, warrantyEndsAt } });
-          await tx.serialEvent.create({ data: { serialId: unit.id, type: 'SOLD', invoiceId: created.id, note: invoiceNumber } });
-        }
-      }
-      for (const rs of returnSerials) {
-        await tx.serialUnit.update({ where: { id: rs.id }, data: { status: 'RETURNED' } });
-        await tx.serialEvent.create({ data: { serialId: rs.id, type: 'RETURNED', invoiceId: rs.invoiceId, note: invoiceNumber } });
-      }
+      await recordSerialMovements(tx, { serialPlan, returnSerials, lines, created, invoiceNumber });
 
       if (previousDuePaid > 0) {
         await tx.customerDuePayment.create({
@@ -427,56 +499,11 @@ async function performCheckoutOnce(body, ctx = {}) {
         });
       }
 
-      // Persist the returns (audit trail) and restock the returned units.
-      for (const rr of returnRecords) {
-        const createdReturn = await tx.return.create({
-          data: {
-            invoiceId: rr.invoiceId,
-            customerId: rr.customerId,
-            totalRefund: rr.groupRefund,
-            refundMethod: refundValue > 0 ? refundMode : 'BILL_OFFSET',
-            note: `Bill ${invoiceNumber}`,
-            items: { create: rr.lines },
-          },
-          include: { items: true },
-        });
-        await verifactu.recordReturn(tx, settings, createdReturn, rr.originalItems);
-      }
-      for (const [productId, qty] of restock) {
-        await tx.product.update({ where: { id: productId }, data: { stock: { increment: qty } } });
-      }
-
-      for (const item of body.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { decrement: item.quantity } },
-        });
-      }
+      await persistReturns(tx, { returnRecords, refundValue, refundMode, invoiceNumber, settings });
+      await moveStock(tx, { sold: body.items, restock });
 
       if (customer) {
-        // totalDue ("udhaar") and creditBalance are the running balances the
-        // POS reads back on the customer's next visit. They used to be kept
-        // with Prisma `increment`, which performs the addition inside SQLite's
-        // REAL (float) column — so tiny binary rounding residue accumulated
-        // across many bills and a fully-paid customer could keep showing e.g.
-        // Rs. 0.00…03 still owing that never cleared, and reappeared on the
-        // next bill. Compute the new balances in JS and round to paise so the
-        // stored value is always clean (round2 collapses sub-paise noise to
-        // exactly 0). Safe read-modify-write: we're inside the checkout
-        // $transaction and already hold this customer row.
-        const newTotalDue = round2(customer.totalDue + dueAmount - previousDuePaid);
-        const creditDelta = (refundMode === 'CREDIT' ? refundValue : 0) - creditApplied;
-        const newCredit = round2(customer.creditBalance + creditDelta);
-        await tx.customer.update({
-          where: { id: customer.id },
-          data: {
-            loyaltyPoints: { increment: computed.pointsEarned - computed.pointsRedeemed },
-            totalSpent: round2(customer.totalSpent + computed.totalAmount),
-            totalDue: newTotalDue,
-            creditBalance: newCredit,
-            visits: { increment: 1 },
-          },
-        });
+        await updateCustomerBalances(tx, { customer, computed, dueAmount, previousDuePaid, refundMode, refundValue, creditApplied });
       }
 
       return { created, restockProductIds: [...restock.keys()] };

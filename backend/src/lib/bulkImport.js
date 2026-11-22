@@ -11,6 +11,8 @@ const { parse } = require('csv-parse/sync');
 const { readSheet } = require('read-excel-file/universal');
 const prisma = require('./prisma');
 
+const { httpError } = require('./http');
+const { assertSafeZip } = require('./zipGuard');
 const MAX_ROWS = 5000;
 
 const COLUMNS = [
@@ -31,24 +33,25 @@ const normKey = (k) => String(k ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/
 async function parseRows(buffer, format) {
   let matrix;
   if (format === 'xlsx') {
+    assertSafeZip(buffer);
     const ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
     try {
       matrix = await readSheet(ab);
     } catch {
-      throw Object.assign(new Error('Could not read that .xlsx file'), { status: 400 });
+      throw httpError('Could not read that .xlsx file', 400);
     }
   } else {
     try {
       // BOM stripped; ragged rows tolerated (padded below, reported per row).
       matrix = parse(buffer, { bom: true, relax_column_count: true, skip_empty_lines: true });
     } catch (e) {
-      throw Object.assign(new Error(`Could not read that CSV (${e.message})`), { status: 400 });
+      throw httpError(`Could not read that CSV (${e.message})`, 400);
     }
   }
   if (!matrix.length) return [];
   const header = matrix[0].map(normKey);
   if (!header.includes('name') || !header.includes('selling_price')) {
-    throw Object.assign(new Error('The first row must be a header containing at least: name, selling_price'), { status: 400 });
+    throw httpError('The first row must be a header containing at least: name, selling_price', 400);
   }
   const rows = [];
   matrix.slice(1).forEach((rec, i) => {
@@ -59,7 +62,7 @@ async function parseRows(buffer, format) {
     if (Object.values(fields).every((v) => v === '')) return; // blank spreadsheet row
     rows.push({ number: i + 1, fields });
   });
-  if (rows.length > MAX_ROWS) throw Object.assign(new Error(`Too many rows (max ${MAX_ROWS} per file) — split the file`), { status: 413 });
+  if (rows.length > MAX_ROWS) throw httpError(`Too many rows (max ${MAX_ROWS} per file) — split the file`, 413);
   return rows;
 }
 
@@ -207,4 +210,4 @@ function sampleCsv() {
   return lines.join('\r\n') + '\r\n';
 }
 
-module.exports = { importProducts, sampleCsv, COLUMNS, MAX_ROWS };
+module.exports = { importProducts, sampleCsv, COLUMNS };

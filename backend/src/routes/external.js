@@ -13,6 +13,10 @@ const { buildReceiptPdf } = require('../lib/pdf');
 const verifactu = require('../lib/verifactu/service');
 const { lookupWarranty } = require('../lib/warranty');
 
+const { getSettings } = require('../lib/settings');
+const { publicBaseUrl, httpError } = require('../lib/http');
+const { writeStockLevel } = require('../lib/stock');
+const { ORDER_STATUS, ORDER_STATUSES } = require('../lib/statuses');
 const router = express.Router();
 
 // This is the one surface in the app meant to be reachable from the public
@@ -46,7 +50,7 @@ function publicProduct(p) {
   };
 }
 
-const baseUrl = (req) => process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+const baseUrl = publicBaseUrl;
 
 // GET /api/external/products — every product linked to an external SKU.
 // Read-only: any valid, non-revoked key can call this.
@@ -135,20 +139,15 @@ router.patch('/products/:sku/stock', requireApiKey({ scope: 'stock:write' }), as
   try {
     const updated = await prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { sku: req.params.sku } });
-      if (!product) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
+      if (!product) throw httpError('No product linked to that SKU', 404);
 
       const nextStock = set !== undefined ? set : product.stock + delta;
-      if (nextStock < 0) {
-        const settings = await tx.shopSettings.findFirst();
-        if (!settings?.allowNegativeStock) {
-          throw Object.assign(
-            new Error(`Insufficient stock for "${product.name}" (have ${product.stock}, requested change ${delta ?? `set ${set}`})`),
-            { status: 409 }
-          );
-        }
-      }
-
-      return tx.product.update({ where: { id: product.id }, data: { stock: Math.max(0, nextStock) } });
+      return writeStockLevel(
+        tx,
+        product,
+        nextStock,
+        `Insufficient stock for "${product.name}" (have ${product.stock}, requested change ${delta ?? `set ${set}`})`
+      );
     });
 
     const body = publicProduct(updated);
@@ -198,7 +197,7 @@ router.get('/bills/:ref', requireApiKey({ scope: 'bills:read' }), async (req, re
 router.get('/bills/:ref/pdf', requireApiKey({ scope: 'bills:read' }), async (req, res) => {
   const inv = await findOwnBill(req.apiKey.id, req.params.ref);
   if (!inv) return res.status(404).json({ error: 'Bill not found' });
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await getSettings();
   const layout = req.query.layout === 'receipt' ? 'receipt' : req.query.layout === 'a4' ? 'a4' : shop?.invoiceLayout;
   const withQr = await verifactu.withQr(inv);
   const pdf = layout === 'a4' ? await buildInvoicePdf({ shop, invoice: withQr }) : await buildReceiptPdf({ shop, invoice: withQr });
@@ -234,7 +233,7 @@ router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res
     const products = await prisma.product.findMany({ where: { sku: { not: null }, OR: [{ sku: { in: codes } }, { barcode: { in: codes } }] } });
     const items = p.data.items.map((i) => {
       const pr = products.find((x) => (i.sku && x.sku === i.sku) || (i.barcode && x.barcode === i.barcode));
-      if (!pr) throw Object.assign(new Error(`No product found for ${i.sku || i.barcode}`), { status: 404 });
+      if (!pr) throw httpError(`No product found for ${i.sku || i.barcode}`, 404);
       return { productId: pr.id, quantity: i.quantity };
     });
     const { order, deduplicated } = await orders.createOrder({ ...p.data, items, channel: 'API', apiKeyId: req.apiKey.id });
@@ -248,7 +247,7 @@ router.post('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res
 // Poll fallback for stores that can't take webhooks: own orders only, newest
 // first. ?status=NEW,READY&updatedSince=ISO&limit=100
 router.get('/orders', requireApiKey({ scope: 'orders:write' }), async (req, res) => {
-  const statuses = String(req.query.status || '').split(',').filter((x) => ['NEW', 'PACKING', 'READY', 'COLLECTED', 'CANCELLED'].includes(x));
+  const statuses = String(req.query.status || '').split(',').filter((x) => ORDER_STATUSES.includes(x));
   const since = req.query.updatedSince ? new Date(String(req.query.updatedSince)) : null;
   if (since && Number.isNaN(since.getTime())) return res.status(400).json({ error: 'updatedSince must be an ISO date' });
   const list = await prisma.order.findMany({
@@ -275,7 +274,7 @@ router.post('/orders/:ref/cancel', requireApiKey({ scope: 'orders:write' }), asy
   const o = await findOwnOrder(req);
   if (!o) return res.status(404).json({ error: 'Order not found' });
   try {
-    res.json(orders.publicOrder(await orders.setStatus(o.id, 'CANCELLED')));
+    res.json(orders.publicOrder(await orders.setStatus(o.id, ORDER_STATUS.CANCELLED)));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

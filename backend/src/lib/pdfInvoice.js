@@ -7,6 +7,9 @@ const { readSignature } = require('./signatures');
 const { buildUpiUri } = require('./upi');
 const { drawQrPdf } = require('./verifactu/qr');
 
+const { formatMoney } = require('./format');
+const { usesSpanishInvoices } = require('./region');
+const { supportsUpi } = require('./region');
 const GREEN = '#0d3b28';
 const MUTED = '#66746b';
 const LINE = '#dfe6df';
@@ -37,14 +40,14 @@ function amountInWords(amount) {
 const fmtDate = (d) => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
 async function buildInvoicePdf({ shop, invoice }) {
-  const es = !!shop.vfEnabled; // Spain: IVA wording, the NIF and a simplified-invoice title instead of India's GST
+  const es = usesSpanishInvoices(shop); // Spain: IVA wording, the NIF and a simplified-invoice title instead of India's GST
   const sym = shop.currencySymbol || 'Rs.';
   // Core fonts have no ₹ glyph; the app's symbol for INR is already "Rs.".
-  const money = (n) => `${sym} ${Number(n).toFixed(2)}`;
+  const money = (n) => formatMoney(sym, n);
 
   let qrPng = null;
   const balance = Math.max(0, invoice.dueAmount || 0);
-  if (shop.upiId && shop.currencyCode === 'INR' && balance > 0) {
+  if (shop.upiId && supportsUpi(shop) && balance > 0) {
     qrPng = await QRCode.toBuffer(
       buildUpiUri({ vpa: shop.upiId, name: shop.shopName, amount: balance, note: invoice.invoiceNumber, ref: invoice.invoiceNumber }),
       { type: 'png', margin: 1, width: 220, errorCorrectionLevel: 'M' }
@@ -278,4 +281,4 @@ async function buildInvoicePdf({ shop, invoice }) {
   });
 }
 
-module.exports = { buildInvoicePdf, amountInWords };
+module.exports = { buildInvoicePdf };

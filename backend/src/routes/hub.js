@@ -9,6 +9,9 @@ const { round2 } = require('../lib/pricing');
 const { dayKey } = require('../lib/reports');
 const sync = require('../lib/sync');
 
+const { getSettings } = require('../lib/settings');
+const { httpError } = require('../lib/http');
+const { TRANSFER_STATUS } = require('../lib/statuses');
 // ---- public ingest endpoint (branches push here) ----
 const ingest = express.Router();
 ingest.use(rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false }));
@@ -117,8 +120,8 @@ views.post('/transfers', ...adminOnly, async (req, res) => {
   const have = new Map(stock.map((s) => [s.barcode, s]));
   const items = p.data.items.map((i) => {
     const s = have.get(i.barcode);
-    if (!s) throw Object.assign(new Error(`${from.name} has no product ${i.barcode}`), { status: 404 });
-    if (s.stock < i.quantity) throw Object.assign(new Error(`${from.name} has only ${s.stock} of "${s.name}"`), { status: 409 });
+    if (!s) throw httpError(`${from.name} has no product ${i.barcode}`, 404);
+    if (s.stock < i.quantity) throw httpError(`${from.name} has only ${s.stock} of "${s.name}"`, 409);
     return { barcode: i.barcode, name: s.name, quantity: i.quantity };
   });
   const t = await prisma.transfer.create({ data: { fromBranchId: from.id, toBranchId: to.id, note: p.data.note || null, items: { create: items } }, include: { items: true } });
@@ -128,7 +131,7 @@ views.post('/transfers', ...adminOnly, async (req, res) => {
 views.post('/transfers/:id/cancel', ...adminOnly, async (req, res) => {
   const t = await prisma.transfer.findUnique({ where: { id: Number(req.params.id) } });
   if (!t) return res.status(404).json({ error: 'Not found' });
-  if (t.status !== 'PENDING') return res.status(409).json({ error: 'Only a transfer that has not shipped can be cancelled' });
+  if (t.status !== TRANSFER_STATUS.PENDING) return res.status(409).json({ error: 'Only a transfer that has not shipped can be cancelled' });
   await prisma.transfer.delete({ where: { id: t.id } });
   res.status(204).end();
 });
@@ -137,7 +140,7 @@ views.post('/transfers/:id/cancel', ...adminOnly, async (req, res) => {
 const cfg = express.Router();
 cfg.use(requireAuth, requireAdmin);
 cfg.get('/', async (req, res) => {
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   res.json({ role: s?.syncRole || 'none', hubUrl: s?.syncHubUrl || '', branchCode: s?.syncBranchCode || '', secretSet: Boolean(s?.syncSecretEnc), lastSyncAt: s?.syncLastAt || null });
 });
 const cfgSchema = z.object({
@@ -149,7 +152,7 @@ const cfgSchema = z.object({
 cfg.put('/', requirePasswordConfirm, async (req, res) => {
   const p = cfgSchema.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: 'Invalid input' });
-  const s = await prisma.shopSettings.findFirst();
+  const s = await getSettings();
   if (!s) return res.status(404).json({ error: 'No shop settings' });
   if (p.data.role === 'branch') {
     const url = p.data.hubUrl || s.syncHubUrl;

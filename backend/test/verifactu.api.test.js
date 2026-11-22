@@ -55,10 +55,10 @@ test('a sale made before VERI*FACTU is on has no record; turning it on explains 
   assert.equal(s.enabled, false);
   assert.equal(s.status, 'implemented-not-certified');
   assert.ok(s.problems.some((p) => /NIF/.test(p)));
-  const refused = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1' });
+  const refused = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1', confirmPassword: PW });
   assert.equal(refused.status, 400);
   assert.match(refused.data.error, /NIF/);
-  const on = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1', nif: 'b12345678' });
+  const on = await admin.put('/api/verifactu/settings', { enabled: true, environment: 'TEST', series: 'T1', nif: 'b12345678', confirmPassword: PW });
   assert.equal(on.status, 200, JSON.stringify(on.data));
   assert.equal(on.data.enabled, true);
   assert.equal(on.data.nif, 'B12345678');
@@ -110,7 +110,7 @@ test('a return is a corrective R5 pointing at the original; a return of an older
   const orig = recs[0];
   const full = (await admin.get(`/api/invoices/${orig.invoiceId}`)).data;
   const line = full.items.find((i) => i.taxRate === 10);
-  const ret = await admin.post('/api/returns', { invoiceId: orig.invoiceId, items: [{ invoiceItemId: line.id, quantity: 1 }] });
+  const ret = await admin.post('/api/returns', { invoiceId: orig.invoiceId, items: [{ invoiceItemId: line.id, quantity: 1 }], confirmPassword: PW });
   assert.equal(ret.status, 201, JSON.stringify(ret.data));
   const after = await records();
   const r5 = after[after.length - 1];
@@ -124,7 +124,7 @@ test('a return is a corrective R5 pointing at the original; a return of an older
   const old = list.find((i) => !after.some((r) => r.invoiceId === i.id));
   const oldFull = (await admin.get(`/api/invoices/${old.id}`)).data;
   const n = after.length;
-  assert.equal((await admin.post('/api/returns', { invoiceId: old.id, items: [{ invoiceItemId: oldFull.items[0].id, quantity: 1 }] })).status, 201);
+  assert.equal((await admin.post('/api/returns', { invoiceId: old.id, items: [{ invoiceItemId: oldFull.items[0].id, quantity: 1 }], confirmPassword: PW })).status, 201);
   assert.equal((await records()).length, n);
 });
 
@@ -182,6 +182,7 @@ test('certificate: wrong password refused, secrets never returned, XML exports e
   const body = (password) =>
     Buffer.concat([
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="password"\r\n\r\n${password}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="confirmPassword"\r\n\r\n${PW}\r\n`),
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="c.p12"\r\nContent-Type: application/x-pkcs12\r\n\r\n`),
       p12,
       Buffer.from(`\r\n--${boundary}--\r\n`),
@@ -207,8 +208,6 @@ test('certificate: wrong password refused, secrets never returned, XML exports e
   const xml = (await admin.get('/api/verifactu/export.xml')).data.toString();
   const count = (await records()).length;
   assert.equal((xml.match(/<sfLR:RegistroFactura>/g) || []).length, count);
-  // lets a developer feed the output to AEAT's XSD (see docs/verifactu.md)
-  if (process.env.VERIFACTU_XML_OUT) require('node:fs').writeFileSync(process.env.VERIFACTU_XML_OUT, xml);
   assert.match(xml, /<sf:NombreRazon>Bar &amp; Grill SL<\/sf:NombreRazon><sf:NIF>B12345678<\/sf:NIF>/);
 });
 

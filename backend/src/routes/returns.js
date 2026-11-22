@@ -1,13 +1,15 @@
 const express = require('express');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
-const { requireAuth, requirePerm } = require('../middleware/auth');
+const { requireAuth, requirePerm, requirePasswordConfirm } = require('../middleware/auth');
 const { round2 } = require('../lib/pricing');
 const { notifyStockChange } = require('../lib/webhooks');
 const { normalizeSerial } = require('../lib/serials');
 const { qtySchema } = require('../lib/qty');
 const verifactu = require('../lib/verifactu/service');
 
+const { getSettings } = require('../lib/settings');
+const { httpError } = require('../lib/http');
 const router = express.Router();
 router.use(requireAuth, requirePerm('returns'));
 
@@ -21,7 +23,10 @@ const returnSchema = z.object({
         serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
       })
     )
-    .min(1),
+    .min(1)
+    .refine((lines) => new Set(lines.map((l) => l.invoiceItemId)).size === lines.length, {
+      message: 'Each invoice line may appear only once per return',
+    }),
   refundMethod: z.enum(['CASH', 'UPI', 'CARD', 'DUE_ADJUST']).default('CASH'),
   note: z.string().trim().max(200).optional().or(z.literal('')),
 });
@@ -32,7 +37,7 @@ const returnSchema = z.object({
 // due. "Already returned" is computed by summing prior ReturnItem rows for
 // each invoice item rather than a running counter, so the same unit can
 // never be returned twice even across multiple partial returns.
-router.post('/', async (req, res) => {
+router.post('/', requirePasswordConfirm, async (req, res) => {
   const parsed = returnSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -42,14 +47,14 @@ router.post('/', async (req, res) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findUnique({ where: { id: body.invoiceId }, include: { items: true } });
-      if (!invoice) throw Object.assign(new Error('Invoice not found'), { status: 404 });
+      if (!invoice) throw httpError('Invoice not found', 404);
 
       const itemMap = new Map(invoice.items.map((it) => [it.id, it]));
       const returnLines = [];
       for (const line of body.items) {
         const invoiceItem = itemMap.get(line.invoiceItemId);
         if (!invoiceItem || invoiceItem.invoiceId !== invoice.id) {
-          throw Object.assign(new Error('Invoice item not found on this invoice'), { status: 404 });
+          throw httpError('Invoice item not found on this invoice', 404);
         }
         const alreadyReturned = await tx.returnItem.aggregate({
           where: { invoiceItemId: invoiceItem.id },
@@ -73,7 +78,7 @@ router.post('/', async (req, res) => {
           const sers = new Set((line.serials || []).map(normalizeSerial));
           units = soldUnits.filter((u) => sers.has(u.serial));
           if (sers.size !== line.quantity || units.length !== sers.size) {
-            throw Object.assign(new Error(`Returning "${invoiceItem.name}": enter the ${line.quantity} IMEI / serial number(s) being returned (from this bill)`), { status: 400 });
+            throw httpError(`Returning "${invoiceItem.name}": enter the ${line.quantity} IMEI / serial number(s) being returned (from this bill)`, 400);
           }
         }
         returnLines.push({ invoiceItem, quantity: line.quantity, refundAmount, units });
@@ -83,7 +88,7 @@ router.post('/', async (req, res) => {
 
       if (body.refundMethod === 'DUE_ADJUST') {
         if (!invoice.customerId) {
-          throw Object.assign(new Error('This invoice has no customer to adjust a due for'), { status: 400 });
+          throw httpError('This invoice has no customer to adjust a due for', 400);
         }
       }
 
@@ -108,7 +113,7 @@ router.post('/', async (req, res) => {
       });
 
       // Spain VERI*FACTU: a corrective invoice of the original sale, in this same transaction.
-      await verifactu.recordReturn(tx, await tx.shopSettings.findFirst(), created, invoice.items);
+      await verifactu.recordReturn(tx, await getSettings(tx), created, invoice.items);
 
       for (const l of returnLines) {
         for (const u of l.units) {

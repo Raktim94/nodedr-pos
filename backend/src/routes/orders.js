@@ -4,6 +4,9 @@ const prisma = require('../lib/prisma');
 const { requireAuth, requirePerm } = require('../middleware/auth');
 const orders = require('../lib/orders');
 
+const { httpError } = require('../lib/http');
+const { ORDER_STATUSES } = require('../lib/statuses');
+const { invoiceFor } = require('../lib/serialize');
 const router = express.Router();
 router.use(requireAuth, requirePerm('orders'));
 
@@ -18,13 +21,13 @@ const wrap = (fn) => async (req, res) => {
 };
 const idOf = (req) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id)) throw Object.assign(new Error('Invalid id'), { status: 400 });
+  if (!Number.isInteger(id)) throw httpError('Invalid id', 400);
   return id;
 };
 
 // GET /api/orders?status=NEW,PACKING,READY (default: all open) — the board.
 router.get('/', wrap(async (req, res) => {
-  const wanted = String(req.query.status || 'NEW,PACKING,READY').split(',').filter((s) => ['NEW', 'PACKING', 'READY', 'COLLECTED', 'CANCELLED'].includes(s));
+  const wanted = String(req.query.status || 'NEW,PACKING,READY').split(',').filter((s) => ORDER_STATUSES.includes(s));
   const list = await prisma.order.findMany({
     where: { status: { in: wanted } },
     include: { items: true },
@@ -57,7 +60,7 @@ router.post('/:id/collect', wrap(async (req, res) => {
     serials: z.record(z.string(), z.array(z.string().trim().min(1).max(64)).max(1000)).default({}),
   }).parse(req.body ?? {});
   const { order, invoice } = await orders.collect(idOf(req), { ...p, user: req.user });
-  res.json({ order: orders.publicOrder(order), ...(invoice ? { invoice } : {}) });
+  res.json({ order: orders.publicOrder(order), ...(invoice ? { invoice: invoiceFor(req.user, invoice) } : {}) });
 }));
 
 module.exports = router;

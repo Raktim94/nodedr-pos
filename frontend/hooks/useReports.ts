@@ -17,7 +17,7 @@ export interface Overview {
 }
 export interface Compare { period: string; current: Totals; previous: Totals; deltas: { revenue: number; grossProfit: number; bills: number } }
 
-export const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export function useOverview(days: number) {
   const to = new Date();

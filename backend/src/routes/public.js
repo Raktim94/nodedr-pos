@@ -6,6 +6,8 @@ const { buildInvoicePdf } = require('../lib/pdfInvoice');
 const { buildReceiptPdf } = require('../lib/pdf');
 const verifactu = require('../lib/verifactu/service');
 
+const { getSettings } = require('../lib/settings');
+const { publicBaseUrl } = require('../lib/http');
 const router = express.Router();
 
 router.use(rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }));
@@ -21,7 +23,7 @@ router.get('/receipt/:token', async (req, res) => {
       where: { id },
       include: { items: { include: { serials: { select: { serial: true, warrantyEndsAt: true } }, product: { select: { hsn: true } } } } },
     }),
-    prisma.shopSettings.findFirst(),
+    getSettings(),
   ]);
   if (!invoice || !shop) return res.status(404).json({ error: 'Not found' });
   const withQr = await verifactu.withQr(invoice);
@@ -50,7 +52,7 @@ router.get('/customer/:token', async (req, res) => {
     prisma.invoice.findMany({ where: { customerId: id }, orderBy: { id: 'desc' }, take: 20, select: { id: true, invoiceNumber: true, totalAmount: true, createdAt: true } }),
   ]);
   if (!customer || !shop) return res.status(404).json({ error: 'Not found' });
-  const base = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const base = publicBaseUrl(req);
   res.json({
     shop,
     customer: { name: customer.name, loyaltyPoints: customer.loyaltyPoints, totalDue: customer.totalDue, creditBalance: customer.creditBalance, visits: customer.visits },

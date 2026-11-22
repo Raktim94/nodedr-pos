@@ -4,6 +4,8 @@ const { requireAuth, verifyPassword, hasPerm } = require('../middleware/auth');
 const { round2 } = require('../lib/pricing');
 const { checkoutSchema, performCheckout } = require('../lib/checkout');
 
+const { invoiceFor } = require('../lib/serialize');
+const { csvCell } = require('../lib/format');
 const router = express.Router();
 router.use(requireAuth);
 
@@ -29,7 +31,7 @@ router.post('/', async (req, res) => {
 
   try {
     const { invoice } = await performCheckout(body, { source: 'POS', cashierName: req.user.name, user: req.user });
-    res.status(201).json(invoice);
+    res.status(201).json(invoiceFor(req.user, invoice));
   } catch (err) {
     const status = err.status || 500;
     if (status === 500) console.error(err);
@@ -132,13 +134,6 @@ router.get('/analytics', async (req, res) => {
   });
 });
 
-// Minimal CSV cell escaping: wrap in quotes and double up any embedded
-// quotes if the value contains a comma, quote, or newline.
-function csvCell(value) {
-  const s = String(value ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 // GET /api/invoices/export.csv?from=&to= — one row per invoice. Defaults to
 // all invoices; from/to (ISO dates) narrow the range for a period report.
 router.get('/export.csv', async (req, res) => {
@@ -190,7 +185,7 @@ router.get('/:id', async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid invoice id' });
   const invoice = await prisma.invoice.findUnique({ where: { id }, include: { items: true } });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-  res.json(invoice);
+  res.json(invoiceFor(req.user, invoice));
 });
 
 module.exports = router;

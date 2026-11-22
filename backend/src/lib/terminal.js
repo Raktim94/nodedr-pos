@@ -10,17 +10,19 @@
 const prisma = require('./prisma');
 const { decryptJson } = require('./secretBox');
 
+const { getSettings } = require('./settings');
+const { httpError } = require('./http');
 const ZERO_DECIMAL = new Set(['JPY', 'KRW', 'VND']);
 const toMinor = (amount, currency) => (ZERO_DECIMAL.has(currency) ? Math.round(amount) : Math.round(amount * 100));
 const fromMinor = (minor, currency) => (ZERO_DECIMAL.has(currency) ? minor : minor / 100);
 
 async function loadConfig() {
-  const settings = await prisma.shopSettings.findFirst();
+  const settings = await getSettings();
   if (!settings || settings.terminalProvider === 'none') {
-    throw Object.assign(new Error('No card terminal is configured (Settings > Payments)'), { status: 409 });
+    throw httpError('No card terminal is configured (Settings > Payments)', 409);
   }
   const cfg = decryptJson(settings.terminalConfigEnc);
-  if (!cfg?.secret) throw Object.assign(new Error('Card terminal credentials are missing or unreadable'), { status: 409 });
+  if (!cfg?.secret) throw httpError('Card terminal credentials are missing or unreadable', 409);
   return { provider: settings.terminalProvider, cfg, currency: settings.currencyCode };
 }
 
@@ -29,7 +31,7 @@ async function http(url, { method = 'GET', headers = {}, body } = {}) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = json?.error?.message || json?.errors?.[0]?.detail || `Terminal provider responded ${res.status}`;
-    throw Object.assign(new Error(msg), { status: 502 });
+    throw httpError(msg, 502);
   }
   return json;
 }
@@ -43,10 +45,10 @@ const squareHeaders = (cfg) => ({ Authorization: `Bearer ${cfg.secret}`, 'Conten
 async function startCharge({ amount, reference }) {
   const { provider, cfg, currency } = await loadConfig();
   const minor = toMinor(amount, currency);
-  if (!(minor > 0)) throw Object.assign(new Error('Amount must be greater than zero'), { status: 400 });
+  if (!(minor > 0)) throw httpError('Amount must be greater than zero', 400);
 
   if (provider === 'stripe') {
-    if (!cfg.readerId) throw Object.assign(new Error('Stripe reader id is not configured'), { status: 409 });
+    if (!cfg.readerId) throw httpError('Stripe reader id is not configured', 409);
     const pi = await http('https://api.stripe.com/v1/payment_intents', {
       method: 'POST',
       headers: stripeHeaders(cfg),
@@ -61,7 +63,7 @@ async function startCharge({ amount, reference }) {
   }
 
   if (provider === 'square') {
-    if (!cfg.deviceId) throw Object.assign(new Error('Square device id is not configured'), { status: 409 });
+    if (!cfg.deviceId) throw httpError('Square device id is not configured', 409);
     const out = await http(`${squareBase(cfg)}/v2/terminals/checkouts`, {
       method: 'POST',
       headers: squareHeaders(cfg),
@@ -72,7 +74,7 @@ async function startCharge({ amount, reference }) {
     });
     return { provider, id: out.checkout.id };
   }
-  throw Object.assign(new Error('Unsupported terminal provider'), { status: 409 });
+  throw httpError('Unsupported terminal provider', 409);
 }
 
 // -> { status: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELED', amount, currency }
@@ -98,4 +100,4 @@ async function cancel(id) {
   }
 }
 
-module.exports = { startCharge, getStatus, cancel, toMinor };
+module.exports = { startCharge, getStatus, cancel };

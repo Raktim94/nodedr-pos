@@ -1233,11 +1233,16 @@ Security posture (verified end-to-end):
 
 - **Passwords**: bcrypt (cost 12); login is timing-uniform and returns an
   identical error for unknown-user vs wrong-password. Login is rate-limited
-  (10 / 15 min) on top of a global limiter (300 req/min).
+  (10 failed attempts / 15 min) per account and per address, on top of a global
+  limiter (300 req/min). The address comes from `X-Forwarded-For`, which a
+  caller can set, so address limits are best effort: if you put Caddy or a
+  tunnel in front, set `TRUST_PROXY_HOPS` (default `1`) to the number of
+  proxies of yours that overwrite that header, and no higher.
 - **Sessions**: `HttpOnly`, `SameSite=Lax` JWT cookie (`HS256`, algorithm
   pinned). Every request re-checks the account still exists and is active, so
-  disabling a staff member logs them out immediately. Set `COOKIE_SECURE=true`
-  when serving over HTTPS.
+  disabling a staff member logs them out immediately, and changing or
+  resetting a password ends that account's other sessions. Set
+  `COOKIE_SECURE=true` when serving over HTTPS.
 - **Authorization**: all data routes require auth; settings and staff
   management require the `admin` role. The last active admin can't be demoted
   or disabled.

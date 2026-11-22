@@ -19,6 +19,8 @@ model User {
   // A cashier may discount up to this % of a bill (null = no cap when the
   // "discount" right is held).
   maxDiscountPercent Float?
+  // Embedded in session tokens; bumping it signs the user out everywhere.
+  tokenVersion Int @default(0)
   createdAt DateTime @default(now())
 }
 
@@ -263,7 +265,7 @@ model Invoice {
   payAmount      Float?
   // Card-terminal payment id (Stripe PaymentIntent / Square checkout) that
   // the server verified as paid before accepting this CARD sale.
-  paymentRef     String?
+  paymentRef     String?       @unique
   createdAt      DateTime      @default(now())
   customer       Customer?     @relation(fields: [customerId], references: [id])
   items          InvoiceItem[]

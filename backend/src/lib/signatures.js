@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { httpError } = require('./http');
 const DIR = path.join(require('./dataDir').DATA_DIR, 'signatures');
 const MAX_BYTES = 300 * 1024;
 
@@ -20,13 +21,13 @@ function sniff(buf) {
 }
 
 function saveSignature(input) {
-  if (typeof input !== 'string' || input.length === 0) throw Object.assign(new Error('Signature image required'), { status: 400 });
+  if (typeof input !== 'string' || input.length === 0) throw httpError('Signature image required', 400);
   const b64 = input.replace(/^data:image\/(png|jpe?g);base64,/i, '');
-  if (b64.length > MAX_BYTES * 1.4) throw Object.assign(new Error('Signature image too large (max 300 KB)'), { status: 413 });
+  if (b64.length > MAX_BYTES * 1.4) throw httpError('Signature image too large (max 300 KB)', 413);
   const buf = Buffer.from(b64, 'base64');
-  if (buf.length === 0 || buf.length > MAX_BYTES) throw Object.assign(new Error('Signature image too large (max 300 KB)'), { status: 413 });
+  if (buf.length === 0 || buf.length > MAX_BYTES) throw httpError('Signature image too large (max 300 KB)', 413);
   const ext = sniff(buf);
-  if (!ext) throw Object.assign(new Error('Signature must be a PNG or JPEG image'), { status: 400 });
+  if (!ext) throw httpError('Signature must be a PNG or JPEG image', 400);
   const name = `${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 32)}.${ext}`;
   fs.mkdirSync(DIR, { recursive: true });
   const file = path.join(DIR, name);

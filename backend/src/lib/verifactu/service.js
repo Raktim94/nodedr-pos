@@ -8,10 +8,12 @@ const { encrypt, decrypt } = require('../secretBox');
 const dom = require('./domain');
 const aeat = require('./aeat');
 
+const { getSettings: loadShop } = require('../settings');
+const { httpError } = require('../http');
+const { SPAIN_CURRENCY, verifactuActive } = require('../region');
 const BATCH = 100;
 const RETRY_MS = 5 * 60_000;
 const cents = (n) => Math.round((Number(n) + Number.EPSILON) * 100);
-const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
 // ---- producer identity (a legal fact only the software producer can supply) ----
 function producer() {
@@ -43,7 +45,7 @@ function systemInfo(installationNumber) {
 /** Why this shop cannot issue VERI*FACTU records yet, in plain words. */
 function problems(shop) {
   const out = [];
-  if (shop.currencyCode !== 'EUR') out.push('Set the shop currency to EUR.');
+  if (shop.currencyCode !== SPAIN_CURRENCY) out.push(`Set the shop currency to ${SPAIN_CURRENCY}.`);
   if (!shop.gstEnabled) out.push('Turn tax on (Settings > Tax) and give every product its IVA rate.');
   if ((shop.vfNif || '').trim().length !== 9) out.push('Enter the shop NIF/CIF (9 characters).');
   if (!(shop.legalName || shop.shopName || '').trim()) out.push('Enter the shop legal name.');
@@ -58,8 +60,8 @@ const issuerName = (shop) => (shop.legalName || shop.shopName).trim();
 const issuerNif = (shop) => (shop.vfNif || '').trim().toUpperCase();
 
 async function getSettings() {
-  const shop = await prisma.shopSettings.findFirst();
-  if (!shop) throw fail('Shop settings not configured');
+  const shop = await loadShop();
+  if (!shop) throw httpError('Shop settings not configured');
   const grouped = await prisma.verifactuRecord.groupBy({ by: ['status'], _count: { _all: true } });
   return {
     enabled: shop.vfEnabled,
@@ -77,20 +79,20 @@ async function getSettings() {
 }
 
 async function saveSettings(dto) {
-  const shop = await prisma.shopSettings.findFirst();
-  if (!shop) throw fail('Shop settings not configured');
+  const shop = await loadShop();
+  if (!shop) throw httpError('Shop settings not configured');
   const series = String(dto.series ?? shop.vfSeries).trim();
-  if (!/^[A-Za-z0-9-]{1,12}$/.test(series)) throw fail('The invoice series may use letters, digits and "-" (at most 12 characters).');
+  if (!/^[A-Za-z0-9-]{1,12}$/.test(series)) throw httpError('The invoice series may use letters, digits and "-" (at most 12 characters).');
   const nif = String(dto.nif ?? shop.vfNif ?? '').trim().toUpperCase();
   const environment = dto.environment === 'PRODUCTION' ? 'PRODUCTION' : 'TEST';
   const next = { ...shop, vfNif: nif, vfSeries: series };
   if (dto.enabled) {
     const p = problems(next);
-    if (p.length) throw fail(p.join(' '));
+    if (p.length) throw httpError(p.join(' '));
   }
   const used = await prisma.verifactuRecord.count();
   if (used > 0 && (series !== shop.vfSeries || (shop.vfNif && nif !== shop.vfNif))) {
-    throw fail('The series and the NIF cannot change once records exist; the numbering would restart.', 409);
+    throw httpError('The series and the NIF cannot change once records exist; the numbering would restart.', 409);
   }
   await prisma.shopSettings.update({
     where: { id: shop.id },
@@ -106,16 +108,16 @@ async function saveSettings(dto) {
 }
 
 async function uploadCertificate(file, password) {
-  if (!password) throw fail('Enter the certificate password.');
+  if (!password) throw httpError('Enter the certificate password.');
   let info;
   try {
     info = aeat.inspectCertificate(file, password);
   } catch (e) {
-    throw fail(e.message);
+    throw httpError(e.message);
   }
-  if (info.expiresAt.getTime() < Date.now()) throw fail('This certificate has expired.');
-  const shop = await prisma.shopSettings.findFirst();
-  if (!shop) throw fail('Shop settings not configured');
+  if (info.expiresAt.getTime() < Date.now()) throw httpError('This certificate has expired.');
+  const shop = await loadShop();
+  if (!shop) throw httpError('Shop settings not configured');
   await prisma.shopSettings.update({
     where: { id: shop.id },
     data: {
@@ -142,7 +144,7 @@ async function append(tx, shop, a) {
   try {
     b = dom.buildBreakdown(a.lines, a.targetCents);
   } catch (e) {
-    throw fail(e.message);
+    throw httpError(e.message);
   }
   const id = { issuerNif: nif, number: a.number, issueDate: day };
   const rec = {
@@ -161,7 +163,7 @@ async function append(tx, shop, a) {
   try {
     dom.validateAlta(rec);
   } catch (e) {
-    throw fail(e.message);
+    throw httpError(e.message);
   }
   return tx.verifactuRecord.create({
     data: {
@@ -194,7 +196,7 @@ async function takeNumber(tx, shop, refund) {
 
 function assertReady(shop) {
   const p = problems(shop);
-  if (p.length) throw fail(`VERI*FACTU is on but not ready: ${p.join(' ')}`);
+  if (p.length) throw httpError(`VERI*FACTU is on but not ready: ${p.join(' ')}`);
 }
 
 /**
@@ -204,7 +206,7 @@ function assertReady(shop) {
  */
 async function recordSale(tx, shop, invoice) {
   // Spain only (euro shops): any other currency never records, even if the switch was left on.
-  if (!shop?.vfEnabled || shop.currencyCode !== 'EUR') return null;
+  if (!verifactuActive(shop)) return null;
   if (!invoice.items?.length || !(invoice.totalAmount > 0)) return null;
   assertReady(shop);
   const dup = await tx.verifactuRecord.findFirst({ where: { invoiceId: invoice.id, invoiceType: 'F2' } });
@@ -224,7 +226,7 @@ async function recordSale(tx, shop, invoice) {
  * sale. `ret` is the created Return with its items; `originalItems` are the original invoice's lines.
  */
 async function recordReturn(tx, shop, ret, originalItems) {
-  if (!shop?.vfEnabled || shop.currencyCode !== 'EUR') return null;
+  if (!verifactuActive(shop)) return null;
   const original = await tx.verifactuRecord.findFirst({
     where: { invoiceId: ret.invoiceId, invoiceType: 'F2', environment: shop.vfEnvironment },
   });
@@ -316,7 +318,7 @@ async function verifyChain() {
 }
 
 async function exportXml() {
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   const recs = await prisma.verifactuRecord.findMany({ orderBy: [{ environment: 'asc' }, { seq: 'asc' }] });
   return dom.envelope(issuerName(shop), issuerNif(shop), recs.map((r) => r.xml));
 }
@@ -334,7 +336,7 @@ async function submitChain(nif, environment) {
   if (await prisma.verifactuRecord.findFirst({ where: { ...pending, nextAttemptAt: { gt: new Date() } } })) return 0;
   const recs = await prisma.verifactuRecord.findMany({ where: pending, orderBy: { seq: 'asc' }, take: BATCH });
   if (recs.length === 0) return 0;
-  const shop = await prisma.shopSettings.findFirst();
+  const shop = await loadShop();
   if (!shop?.vfEnabled || !shop.vfCertEnc || !shop.vfCertPassEnc) return 0; // waits for a certificate
   const p12 = decrypt(shop.vfCertEnc);
   const pass = decrypt(shop.vfCertPassEnc);

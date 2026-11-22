@@ -11,6 +11,8 @@ const { receiptUrl } = require('../lib/publicLink');
 const { notifyStockChange } = require('../lib/webhooks');
 const orders = require('../lib/orders');
 
+const { writeStockLevel } = require('../lib/stock');
+const { httpError } = require('../lib/http');
 const text = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 const fail = (message) => ({ content: [{ type: 'text', text: JSON.stringify({ error: message }) }], isError: true });
 
@@ -79,13 +81,9 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
         if ((delta === undefined) === (set === undefined)) return fail('Send exactly one of delta or set');
         const updated = await prisma.$transaction(async (tx) => {
           const p = await tx.product.findUnique({ where: { sku } });
-          if (!p) throw Object.assign(new Error('No product linked to that SKU'), { status: 404 });
+          if (!p) throw httpError('No product linked to that SKU', 404);
           const next = set !== undefined ? set : p.stock + delta;
-          if (next < 0) {
-            const settings = await tx.shopSettings.findFirst();
-            if (!settings?.allowNegativeStock) throw Object.assign(new Error(`Insufficient stock (have ${p.stock})`), { status: 409 });
-          }
-          return tx.product.update({ where: { id: p.id }, data: { stock: Math.max(0, next) } });
+          return writeStockLevel(tx, p, next, `Insufficient stock (have ${p.stock})`);
         });
         notifyStockChange([{ sku: updated.sku, stock: updated.stock }]);
         return text(product(updated));
@@ -152,7 +150,7 @@ function registerTools(server, { apiKey, scopes, baseUrl }) {
         const products = await prisma.product.findMany({ where: { sku: { in: a.items.map((i) => i.sku) } } });
         const items = a.items.map((i) => {
           const p = products.find((x) => x.sku === i.sku);
-          if (!p) throw Object.assign(new Error(`No product with SKU ${i.sku}`), { status: 404 });
+          if (!p) throw httpError(`No product with SKU ${i.sku}`, 404);
           return { productId: p.id, quantity: i.quantity };
         });
         const { order, deduplicated } = await orders.createOrder({

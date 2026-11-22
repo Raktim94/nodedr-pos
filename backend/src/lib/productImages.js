@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { httpError } = require('./http');
 const DIR = path.join(require('./dataDir').DATA_DIR, 'product-images');
 const MAX_BYTES = 800 * 1024;
 const NAME_RE = /^[a-f0-9]{32}\.(png|jpg|webp)$/;
@@ -23,9 +24,9 @@ function sniff(buf) {
 }
 
 function store(buf) {
-  if (buf.length === 0 || buf.length > MAX_BYTES) throw Object.assign(new Error('Product image too large (max 800 KB)'), { status: 413 });
+  if (buf.length === 0 || buf.length > MAX_BYTES) throw httpError('Product image too large (max 800 KB)', 413);
   const ext = sniff(buf);
-  if (!ext) throw Object.assign(new Error('Product image must be a PNG, JPEG or WebP file'), { status: 400 });
+  if (!ext) throw httpError('Product image must be a PNG, JPEG or WebP file', 400);
   const name = `${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 32)}.${ext}`;
   fs.mkdirSync(DIR, { recursive: true });
   const file = path.join(DIR, name);
@@ -34,9 +35,9 @@ function store(buf) {
 }
 
 function saveProductImage(input) {
-  if (typeof input !== 'string' || input.length === 0) throw Object.assign(new Error('Product image required'), { status: 400 });
+  if (typeof input !== 'string' || input.length === 0) throw httpError('Product image required', 400);
   const b64 = input.replace(/^data:image\/(png|jpe?g|webp);base64,/i, '');
-  if (b64.length > MAX_BYTES * 1.4) throw Object.assign(new Error('Product image too large (max 800 KB)'), { status: 413 });
+  if (b64.length > MAX_BYTES * 1.4) throw httpError('Product image too large (max 800 KB)', 413);
   return store(Buffer.from(b64, 'base64'));
 }
 

@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build and publish, for example 1.6.2. Leave empty to build and test only."
+        description: "Version to build and publish, for example 1.7.0. Leave empty to build and test only."
         required: false
         default: ""
 
@@ -29,16 +29,19 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Build both architectures
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"; VERSION="${VERSION#v}"
-          [ -n "$VERSION" ] || VERSION="1.6.2"
+          VERSION="${INPUT_VERSION#v}"
+          [ -z "$VERSION" ] || [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must look like 1.2.3"; exit 1; }
+          [ -n "$VERSION" ] || VERSION="1.7.0"
           packaging/deb/build.sh "$VERSION"
           for f in dist/*.deb; do dpkg-deb -I "$f" | head -12; done
       - name: Scripts parse
         run: for f in packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm packaging/deb/build.sh packaging/deb/test.sh; do bash -n "$f"; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: debs, path: "dist/*", if-no-files-found: error }
 
   test:
@@ -52,8 +55,8 @@ jobs:
           - { arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: debs, path: dist }
       - name: Verify checksum
         run: cd dist && sha256sum -c ./*_${{ matrix.arch }}.deb.sha256
@@ -68,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     container: debian:12
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: debs, path: dist }
       - name: Add Docker's repository as the installer does, then simulate the install
         run: |
@@ -92,14 +95,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: debs, path: dist }
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"; VERSION="${VERSION#v}"; TAG="v$VERSION"
+          VERSION="${INPUT_VERSION#v}"; [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must look like 1.2.3"; exit 1; }; TAG="v$VERSION"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* packaging/deb/install-linux.sh --clobber
           else

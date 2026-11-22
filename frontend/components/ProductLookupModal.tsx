@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckCircle2, Globe, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { useTranslation } from "@/components/I18nProvider";
 import { api, describeApiError } from "@/lib/api";
 import type { ProductLookupResponse, ProductLookupResult } from "@/lib/types";
 
@@ -11,6 +12,7 @@ import type { ProductLookupResponse, ProductLookupResult } from "@/lib/types";
 // name or barcode. Picking a result hands it to the product form for review —
 // nothing is saved here.
 export function ProductLookupModal({ onPick, onClose }: { onPick: (r: ProductLookupResult) => void; onClose: () => void }) {
+  const { t } = useTranslation();
   const [q, setQ] = useState("");
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [data, setData] = useState<ProductLookupResponse | null>(null);
@@ -25,13 +27,13 @@ export function ProductLookupModal({ onPick, onClose }: { onPick: (r: ProductLoo
       setData(await api.get<ProductLookupResponse>(`/products/lookup?q=${encodeURIComponent(text)}`));
       setState("done");
     } catch (err) {
-      setError(describeApiError(err, "Product lookup failed"));
+      setError(describeApiError(err, t("productLookup.failed")));
       setState("error");
     }
   }
 
   return (
-    <Modal title="Find product online" onClose={onClose} size="lg">
+    <Modal title={t("productLookup.title")} onClose={onClose} size="lg">
       <form onSubmit={search} className="flex gap-2">
         <div className="flex flex-1 items-center gap-2 rounded-lg border border-border px-3 py-2">
           <Search className="h-4 w-4 text-foreground/40" aria-hidden="true" />
@@ -39,22 +41,22 @@ export function ProductLookupModal({ onPick, onClose }: { onPick: (r: ProductLoo
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Product name or barcode (e.g. 8901058852523)"
-            aria-label="Product name or barcode"
+            placeholder={t("productLookup.placeholder")}
+            aria-label={t("productLookup.searchAria")}
             className="w-full bg-transparent text-sm outline-none placeholder:text-foreground/40"
           />
         </div>
-        <Button type="submit" disabled={q.trim().length < 2 || state === "loading"}>{state === "loading" ? "Searching…" : "Search"}</Button>
+        <Button type="submit" disabled={q.trim().length < 2 || state === "loading"}>{state === "loading" ? t("productLookup.searching") : t("productLookup.search")}</Button>
       </form>
       <p className="mt-2 flex items-center gap-1.5 text-xs text-foreground-muted">
-        <Globe className="h-3.5 w-3.5" aria-hidden="true" /> Free community data (Open Food Facts and sister sites). Review every detail before adding; prices are not included.
+        <Globe className="h-3.5 w-3.5" aria-hidden="true" /> {t("productLookup.hint")}
       </p>
 
       <div className="mt-4" aria-live="polite">
         {state === "error" && (
           <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm">
             <p className="font-medium text-danger">{error}</p>
-            <p className="mt-1 text-foreground-muted">You can still add the product by hand.</p>
+            <p className="mt-1 text-foreground-muted">{t("productLookup.manualHint")}</p>
           </div>
         )}
         {state === "done" && data && (
@@ -62,8 +64,8 @@ export function ProductLookupModal({ onPick, onClose }: { onPick: (r: ProductLoo
             {data.warnings.map((w) => (<p key={w} className="mb-2 rounded-lg bg-surface-muted p-2.5 text-xs text-foreground-muted">{w}</p>))}
             {data.results.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm">
-                <p className="font-medium">No products found for &ldquo;{q.trim()}&rdquo;.</p>
-                <p className="mt-1 text-foreground-muted">Try a shorter name or check the barcode digits. Many local products aren&apos;t listed — add it by hand.</p>
+                <p className="font-medium">{t("productLookup.none", { query: q.trim() })}</p>
+                <p className="mt-1 text-foreground-muted">{t("productLookup.noneHint")}</p>
               </div>
             ) : (
               <ul className="flex max-h-[50vh] flex-col divide-y divide-border overflow-y-auto rounded-xl border border-border">
@@ -77,14 +79,14 @@ export function ProductLookupModal({ onPick, onClose }: { onPick: (r: ProductLoo
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{r.name}</p>
-                      <p className="truncate text-xs text-foreground-muted">{[r.brand, r.quantity, r.category].filter(Boolean).join(" · ") || "No more details"}</p>
+                      <p className="truncate text-xs text-foreground-muted">{[r.brand, r.quantity, r.category].filter(Boolean).join(" · ") || t("productLookup.noDetails")}</p>
                       <p className="font-mono text-xs text-foreground-muted">{r.barcode} · {r.source}</p>
                       {r.warnings.length > 0 && <p className="mt-0.5 text-xs text-warning">⚠ {r.warnings.join(" · ")}</p>}
                     </div>
                     {r.inCatalog ? (
-                      <span className="flex items-center gap-1 text-xs text-success"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> In catalog</span>
+                      <span className="flex items-center gap-1 text-xs text-success"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> {t("productLookup.inCatalog")}</span>
                     ) : (
-                      <Button variant="secondary" onClick={() => onPick(r)}>Review &amp; add</Button>
+                      <Button variant="secondary" onClick={() => onPick(r)}>{t("productLookup.reviewAdd")}</Button>
                     )}
                   </li>
                 ))}

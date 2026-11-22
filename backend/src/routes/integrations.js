@@ -1,16 +1,16 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin, requirePasswordConfirm } = require('../middleware/auth');
 const stores = require('../lib/stores');
 const { encryptJson, decryptJson, decrypt } = require('../lib/secretBox');
 
+const { publicBaseUrl } = require('../lib/http');
 // ---- admin management (session auth) ----
 const admin = express.Router();
 admin.use(requireAuth, requireAdmin);
 
-const base = (req) => process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+const base = publicBaseUrl;
 const view = (i, req) => {
   const cfg = decryptJson(i.configEnc) || {};
   return {
@@ -72,19 +72,15 @@ admin.delete('/:id', requirePasswordConfirm, async (req, res) => {
 
 // ---- inbound webhook (public; trust = HMAC) ----
 const hook = express.Router();
-hook.use(rateLimit({
-  windowMs: 60 * 1000,
-  limit: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Keyed by integration id, not IP: a platform calls from a rotating pool.
-  keyGenerator: (req) => `wh:${req.params.id}`,
-  validate: { keyGeneratorIpFallback: false },
-}));
-
+// No IP-keyed limiter here: the client address comes from X-Forwarded-For, which a
+// caller can set, so a limiter on it could be aimed at a store platform's real
+// address to lock its webhooks out. The HMAC below is the gate, checked before
+// any work is done for the request.
 hook.post('/:platform/:id', async (req, res) => {
   const id = Number(req.params.id);
   const platform = String(req.params.platform);
+  // Unsigned requests are refused before any database work.
+  if (!stores.SCHEMES[platform] || !req.get(stores.SCHEMES[platform].header)) return res.status(401).json({ error: 'Bad signature' });
   // Same 404 whether the id is unknown, inactive, or a different platform.
   const it = Number.isInteger(id) && stores.SCHEMES[platform] ? await prisma.integration.findUnique({ where: { id } }) : null;
   if (!it || !it.active || it.platform !== platform) return res.status(404).json({ error: 'Not found' });

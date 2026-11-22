@@ -4,14 +4,16 @@
 // the Reports page is opened. Lines draw once on first entry; the underlying
 // numbers are always available in the tables beside them.
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useTranslation } from "@/components/I18nProvider";
 import type { Overview } from "@/hooks/useReports";
 
 const COLORS = ["#176c45", "#3d9a69", "#bfe8ce", "#d89a43", "#7aa88f", "#0d3b28", "#a8c9b4"];
 
 export function RevenueArea({ data, sym }: { data: Overview["daily"]; sym: string }) {
+  const { t } = useTranslation();
   const rows = data.map((d) => ({ ...d, label: new Date(d.date).toLocaleDateString(undefined, { day: "numeric", month: "short" }) }));
   return (
-    <div className="h-64 w-full" role="img" aria-label={`Daily revenue, ${rows.length} days`}>
+    <div className="h-64 w-full" role="img" aria-label={t("reportsCharts.dailyRevenueAria", { count: rows.length })}>
       <ResponsiveContainer>
         <AreaChart data={rows} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
           <defs>
@@ -29,7 +31,7 @@ export function RevenueArea({ data, sym }: { data: Overview["daily"]; sym: strin
               active && payload?.length ? (
                 <div className="rounded-xl border border-border bg-surface px-3 py-2 text-xs shadow-lg">
                   <p className="font-medium">{String(payload[0].payload.label)}</p>
-                  <p className="tabular text-foreground-muted">{sym} {Number(payload[0].payload.revenue).toFixed(2)} · {payload[0].payload.bills} bills</p>
+                  <p className="tabular text-foreground-muted">{sym} {Number(payload[0].payload.revenue).toFixed(2)} · {payload[0].payload.bills} {t("reportsCharts.billsLabel")}</p>
                 </div>
               ) : null
             }
@@ -42,8 +44,9 @@ export function RevenueArea({ data, sym }: { data: Overview["daily"]; sym: strin
 }
 
 export function CategoryDonut({ data }: { data: { name: string; value: number }[] }) {
+  const { t } = useTranslation();
   return (
-    <div className="h-52 w-full" role="img" aria-label="Revenue by category">
+    <div className="h-52 w-full" role="img" aria-label={t("reportsCharts.byCategory")}>
       <ResponsiveContainer>
         <PieChart>
           <Pie data={data} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="92%" paddingAngle={2} stroke="none" isAnimationActive={false}>
