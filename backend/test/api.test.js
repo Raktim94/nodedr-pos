@@ -577,3 +577,29 @@ test('orders: paid on the website -> no POS bill; pay-at-pickup -> billed in the
   const skip = await admin.post(`/api/orders/${unpaid2.id}/collect`, { bill: false });
   assert.equal(skip.data.invoice, undefined, 'bill:false hands over without a POS bill');
 });
+
+test('audit fixes: repeated lines are rejected, webhook limiter is per integration and IP', async () => {
+  const cola = (await admin.get('/api/products')).data.find((p) => p.name === 'Cola 1L');
+  const sale = await admin.post('/api/invoices', { items: [{ productId: cola.id, quantity: 3 }], paymentMethod: 'UPI' });
+  assert.equal(sale.status, 201, JSON.stringify(sale.data));
+  const lineId = (await admin.get(`/api/invoices/${sale.data.id}`)).data.items[0].id;
+  const stockBefore = (await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock;
+  // The same line twice would pass the per-line cap twice: refuse it, change nothing.
+  const dup = [{ invoiceItemId: lineId, quantity: 2 }, { invoiceItemId: lineId, quantity: 2 }];
+  assert.equal((await admin.post('/api/returns', { invoiceId: sale.data.id, items: dup })).status, 400);
+  const viaCheckout = await admin.post('/api/invoices', { items: [], returns: [{ invoiceId: sale.data.id, items: dup }], paymentMethod: 'UPI' });
+  assert.equal(viaCheckout.status, 400);
+  assert.equal((await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock, stockBefore);
+
+  const sup = (await admin.post('/api/purchasing/suppliers', { name: 'Dup Supplier' })).data;
+  const po = await admin.post('/api/purchasing/orders', { supplierId: sup.id, items: [{ productId: cola.id, quantity: 10, unitCost: 30 }] });
+  const itemId = po.data.items[0].id;
+  assert.equal((await admin.post(`/api/purchasing/orders/${po.data.id}/receive`, { items: [{ itemId, quantity: 8 }, { itemId, quantity: 8 }] })).status, 400);
+  assert.equal((await admin.get('/api/products')).data.find((p) => p.id === cola.id).stock, stockBefore);
+
+  // Junk traffic at one integration id must not use up another id's budget.
+  const pub = client(srv.base);
+  for (let i = 0; i < 65; i++) await pub.raw('/api/webhooks/woocommerce/999991', '{}', 'application/json', {});
+  assert.equal((await pub.raw('/api/webhooks/woocommerce/999991', '{}', 'application/json', {})).status, 429);
+  assert.notEqual((await pub.raw('/api/webhooks/woocommerce/999992', '{}', 'application/json', {})).status, 429);
+});

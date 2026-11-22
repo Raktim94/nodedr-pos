@@ -1,5 +1,5 @@
 const express = require('express');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { z } = require('zod');
 const prisma = require('../lib/prisma');
 const { requireAuth, requireAdmin, requirePasswordConfirm } = require('../middleware/auth');
@@ -73,17 +73,18 @@ admin.delete('/:id', requirePasswordConfirm, async (req, res) => {
 
 // ---- inbound webhook (public; trust = HMAC) ----
 const hook = express.Router();
-hook.use(rateLimit({
+// Keyed by integration id and caller IP: one bucket per id would let anyone
+// who guesses an id lock that store's webhooks out, while per-IP alone would
+// throttle a platform's shared pool.
+const hookLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  // Keyed by integration id, not IP: a platform calls from a rotating pool.
-  keyGenerator: (req) => `wh:${req.params.id}`,
-  validate: { keyGeneratorIpFallback: false },
-}));
+  keyGenerator: (req) => `wh:${req.params.id}:${ipKeyGenerator(req.ip)}`,
+});
 
-hook.post('/:platform/:id', async (req, res) => {
+hook.post('/:platform/:id', hookLimiter, async (req, res) => {
   const id = Number(req.params.id);
   const platform = String(req.params.platform);
   // Same 404 whether the id is unknown, inactive, or a different platform.

@@ -137,7 +137,12 @@ router.patch('/orders/:id/status', wrap(async (req, res) => {
 // latest purchase cost on the product (feeds margin reports). Partial
 // receipts are allowed.
 const receiveSchema = z.object({
-  items: z.array(z.object({ itemId: z.number().int().positive(), quantity: qtySchema })).min(1),
+  items: z
+    .array(z.object({ itemId: z.number().int().positive(), quantity: qtySchema }))
+    .min(1)
+    .refine((lines) => new Set(lines.map((l) => l.itemId)).size === lines.length, {
+      message: 'Each order line may appear only once per receipt',
+    }),
 });
 router.post('/orders/:id/receive', wrap(async (req, res) => {
   const p = receiveSchema.safeParse(req.body);

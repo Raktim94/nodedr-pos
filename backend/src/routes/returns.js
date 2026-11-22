@@ -22,7 +22,10 @@ const returnSchema = z.object({
         serials: z.array(z.string().trim().min(1).max(64)).max(1000).optional(),
       })
     )
-    .min(1),
+    .min(1)
+    .refine((lines) => new Set(lines.map((l) => l.invoiceItemId)).size === lines.length, {
+      message: 'Each invoice line may appear only once per return',
+    }),
   refundMethod: z.enum(['CASH', 'UPI', 'CARD', 'DUE_ADJUST']).default('CASH'),
   note: z.string().trim().max(200).optional().or(z.literal('')),
 });

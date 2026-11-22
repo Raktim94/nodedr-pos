@@ -71,7 +71,14 @@ const checkoutSchema = z
   })
   .refine((d) => d.items.length > 0 || d.returns.length > 0 || d.duePaid > 0, {
     message: 'Add an item to sell, a return, or a previous due to collect',
-  });
+  })
+  .refine(
+    (d) => {
+      const ids = d.returns.flatMap((g) => g.items.map((l) => l.invoiceItemId));
+      return new Set(ids).size === ids.length;
+    },
+    { message: 'Each invoice line may appear only once in the returns' }
+  );
 
 
 async function nextInvoiceNumber(tx) {
