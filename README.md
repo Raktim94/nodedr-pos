@@ -2,7 +2,7 @@
   <img src="docs/logo.png" alt="NodeDR POS logo" width="160">
 </p>
 
-# nodedr-pos
+# NodeDR POS: free POS software for small shops
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Docker Compose](https://img.shields.io/badge/deploy-docker%20compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
@@ -17,7 +17,8 @@
 </p>
 
 
-A free, open-source, **offline-first** point-of-sale and inventory
+**Free POS software** and, we think, the **best POS software for small shops**: a
+free, open-source, **offline-first** point-of-sale and inventory
 management system for small retail shops. It runs on a machine in your shop
 with Docker Compose, so normal checkout and inventory work without an internet
 connection or subscription. Your data stays on that machine by default.
@@ -53,6 +54,7 @@ machine:
 | I have… | Best option | Needs |
 | --- | --- | --- |
 | 🖥️ **Windows 10 or 11** | [**Microsoft Store app**](https://apps.microsoft.com/store/detail/9N4D0GW2XZ37?cid=DevShareMCLPCS) | nothing else |
+| 🐧 **Ubuntu 24.04 / Debian 12+** (amd64, arm64) | [**One-line installer or .deb**](https://pos.nodedr.com/) — `curl -fsSL https://pos.nodedr.com/install-linux.sh \| sudo bash` | nothing else (sets up Docker) |
 | 🐳 **Docker host, NAS or VPS** | [**One-command Docker Compose install**](#one-click-install) | Docker |
 | 🏠 **CasaOS / ZimaOS box** | [**CasaOS app**](casaos/README.md) | nothing else |
 
@@ -256,6 +258,19 @@ All tutorial screenshots are in [`docs/screenshots/`](docs/screenshots/):
 - [Security](#security)
 - [Contributing](#contributing)
 - [License](#license)
+
+## What's new in 1.7
+
+- **Security hardening** — sign-in is limited per account as well as per address; changing or
+  resetting a password signs that account out everywhere else; staff without the Reports or
+  Inventory right no longer see what stock cost you; returns, VERI\*FACTU settings and
+  exchange rates ask for your password; repeated lines on one bill can no longer slip past
+  stock checks; CSV exports cannot carry spreadsheet formulas; Excel imports refuse oversized
+  files. Libraries with known vulnerabilities were updated.
+- **English and Spanish interface** with a language switch.
+- **Fixed** physical barcode scanners at POS Checkout; a card-terminal payment can pay for
+  only one bill.
+- Set `TRUST_PROXY_HOPS` if Caddy or a tunnel sits in front of the app.
 
 ## What's new in 1.6
 
